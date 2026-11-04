@@ -1,0 +1,332 @@
+/* 正文引用 → 参考文献：标记、浮层、右键菜单、详情抽屉。黑白、细线，不用底色块与阴影，只用 CSS 变量。 */
+.pd-ref {
+  display: inline;
+  margin: 0;
+  padding: 0 1px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 0;
+}
+.pd-ref--sup {
+  font-size: 0.72em;
+  vertical-align: super;
+  line-height: 0;
+  color: var(--text-2);
+}
+.pd-ref:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pd-ref:focus-visible,
+.pd-tp--ref[role='button']:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
+.pd-tp--ref[role='button'] {
+  cursor: pointer;
+}
+.pd-tp--ref[role='button']:hover .pd-tp-p {
+  color: var(--text);
+}
+
+/* ---- 点击浮层 ---- */
+.pd-refpop {
+  position: fixed;
+  z-index: 60;
+  width: 380px;
+  max-width: calc(100vw - 16px);
+  overflow-y: auto;
+  padding: 12px 14px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--text);
+  font-size: var(--fs-small);
+  line-height: 1.55;
+  outline: none;
+}
+.pd-refpop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.pd-refpop-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-refpop-step button {
+  display: inline-flex;
+  border: 1px solid var(--border-strong);
+  background: none;
+  color: inherit;
+  padding: 1px;
+  cursor: pointer;
+}
+.pd-refpop-step button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.pd-refpop-raw {
+  margin: 0 0 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: 12.5px;
+  overflow-wrap: anywhere;
+}
+.pd-refpop-meta {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px 10px;
+  margin: 0 0 8px;
+  font-size: 12.5px;
+}
+.pd-refpop-meta dt {
+  color: var(--text-2);
+}
+.pd-refpop-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.pd-refpop-warn,
+.pd-refpop-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-refpop-warn::before {
+  content: '⚠ ';
+}
+.pd-refpop-ctx {
+  margin: 0 0 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 12.5px;
+}
+.pd-refpop-ctx p {
+  margin: 4px 0 0;
+  color: var(--text-2);
+}
+.pd-refpop-label {
+  margin-right: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.pd-refpop-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* ---- 右键菜单 ---- */
+.pd-refmenu {
+  position: fixed;
+  z-index: 70;
+  min-width: 228px;
+  padding: 4px 0;
+  background: var(--bg);
+  border: 1px solid var(--text);
+  font-size: var(--fs-small);
+}
+.pd-refmenu-head {
+  padding: 4px 12px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.pd-refmenu-item {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pd-refmenu-item:hover:not(:disabled),
+.pd-refmenu-item:focus-visible {
+  background: var(--text);
+  color: var(--bg);
+  outline: none;
+}
+.pd-refmenu-item:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+
+/* ---- 详情抽屉 ---- */
+.pd-refdrawer {
+  position: fixed;
+  z-index: 55;
+  top: 54px;
+  right: 0;
+  bottom: 0;
+  width: min(440px, 92vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  border-left: 2px solid var(--text);
+  font-size: var(--fs-small);
+}
+.pd-refdrawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.pd-refdrawer-x {
+  display: inline-flex;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+}
+.pd-refdrawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 16px 16px;
+  user-select: text;
+}
+.pd-refdrawer-body section {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pd-refdrawer-body h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+.pd-refdrawer-raw,
+.pd-refdrawer-abs {
+  margin: 0;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.pd-refdrawer-dim {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-refdrawer-note {
+  padding-left: 8px;
+  border-left: 2px solid var(--border-strong);
+}
+.pd-refdrawer-err {
+  margin: 0;
+  color: var(--danger);
+}
+.pd-refdrawer-sum {
+  padding-left: 10px;
+  border-left: 2px solid var(--text);
+}
+.pd-refdrawer-ctx {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pd-refdrawer-ctx li {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 10px;
+  margin-bottom: 8px;
+  color: var(--text-2);
+}
+.pd-refdrawer-foot {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-strong);
+}
+.pd-refmatch {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-refmatch--low {
+  color: var(--text);
+  font-weight: 600;
+  padding-left: 8px;
+  border-left: 3px solid var(--text);
+}
+
+/* ---- 摘要的中文译文：英文在上、译文在下，译文左侧黑色细线 ---- */
+.pd-refdrawer-tr {
+  margin-top: 8px;
+}
+.pd-refdrawer-trtext {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--text);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+/* 悬停在引用角标上的小卡片：标题粗体，作者年份来源淡一点，底下一个“查看摘要” */
+.pd-refhover {
+  position: fixed;
+  z-index: 55;
+  max-width: calc(100vw - 16px);
+  padding: 10px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--text);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 16%, transparent);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+.pd-refhover-item + .pd-refhover-item {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.pd-refhover-title {
+  font-weight: 600;
+  word-break: break-word;
+}
+.pd-refhover-n {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.pd-refhover-by {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: var(--fs-aux, 12px);
+}
+.pd-refhover-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 10px;
+}
+.pd-refhover-more {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fs-aux, 12px);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.pd-refhover-more:hover {
+  color: var(--text);
+}

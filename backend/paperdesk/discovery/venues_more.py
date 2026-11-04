@@ -1,0 +1,86 @@
+"""更多重要期刊（偏工程、网络、控制、通信、遥感、医学影像、复杂系统等方向）。简介由“出版方 + 方向”生成，只写事实，不评价水平。
+
+没有收进来的期刊不影响使用：任何期刊/会议都可以在“期刊与会议”页面里用名称（包括缩写）从 OpenAlex 检索到并打开它的页面。
+"""
+from __future__ import annotations
+
+CS, BIO, BIOCHEM, CHEM, EARTH, ECON, ENG, IMMUNO, MATERIALS, MATH, MED, NEURO, PHYS, PSY, ENERGY, SOC = (
+    17, 11, 13, 16, 19, 20, 22, 24, 25, 26, 27, 28, 31, 32, 21, 33)
+
+# (id, 全称, 简称, 分类, 学科, 中文刊名, 方向)  —— 都是 IEEE 汇刊/期刊
+_IEEE: tuple[tuple, ...] = (
+    ("tnse", "IEEE Transactions on Network Science and Engineering", "TNSE", "网络与复杂系统期刊", (CS, ENG, PHYS), "网络科学与工程", "网络科学、复杂网络与网络化系统"),
+    ("tcss", "IEEE Transactions on Computational Social Systems", "TCSS", "网络与复杂系统期刊", (CS, SOC), "计算社会系统", "计算社会科学与社会网络"),
+    ("tsmc", "IEEE Transactions on Systems, Man, and Cybernetics: Systems", "TSMC", "网络与复杂系统期刊", (CS, ENG), "系统、人与控制论：系统", "系统科学与控制论"),
+    ("tfs", "IEEE Transactions on Fuzzy Systems", "TFS", "计算机期刊", (CS, ENG), "模糊系统", "模糊系统与模糊逻辑"),
+    ("tevc", "IEEE Transactions on Evolutionary Computation", "TEVC", "计算机期刊", (CS,), "进化计算", "进化计算与群体智能"),
+    ("tcc", "IEEE Transactions on Cloud Computing", "TCC", "计算机期刊", (CS,), "云计算", "云计算"),
+    ("tsc", "IEEE Transactions on Services Computing", "TSC", "计算机期刊", (CS,), "服务计算", "服务计算"),
+    ("tbd", "IEEE Transactions on Big Data", "TBD", "计算机期刊", (CS,), "大数据", "大数据"),
+    ("tetc", "IEEE Transactions on Emerging Topics in Computing", "TETC", "计算机期刊", (CS,), "新兴计算主题", "新兴计算技术"),
+    ("tmc", "IEEE Transactions on Mobile Computing", "TMC", "通信与网络期刊", (CS, ENG), "移动计算", "移动计算与无线网络"),
+    ("ton", "IEEE/ACM Transactions on Networking", "TON", "通信与网络期刊", (CS, ENG), "网络", "计算机网络"),
+    ("tnsm", "IEEE Transactions on Network and Service Management", "TNSM", "通信与网络期刊", (CS, ENG), "网络与服务管理", "网络与服务管理"),
+    ("twc", "IEEE Transactions on Wireless Communications", "TWC", "通信与网络期刊", (ENG, CS), "无线通信", "无线通信"),
+    ("tcom", "IEEE Transactions on Communications", "TCOM", "通信与网络期刊", (ENG, CS), "通信", "通信理论与技术"),
+    ("jsac", "IEEE Journal on Selected Areas in Communications", "JSAC", "通信与网络期刊", (ENG, CS), "通信选题", "通信与网络的专题"),
+    ("tvt", "IEEE Transactions on Vehicular Technology", "TVT", "通信与网络期刊", (ENG,), "车辆技术", "车载通信与车辆技术"),
+    ("iot-j", "IEEE Internet of Things Journal", "IoT-J", "通信与网络期刊", (CS, ENG), "物联网", "物联网"),
+    ("tsp", "IEEE Transactions on Signal Processing", "TSP", "信号与控制期刊", (ENG,), "信号处理", "信号处理"),
+    ("tac", "IEEE Transactions on Automatic Control", "TAC", "信号与控制期刊", (ENG, MATH), "自动控制", "控制理论与应用"),
+    ("tase", "IEEE Transactions on Automation Science and Engineering", "TASE", "信号与控制期刊", (ENG, CS), "自动化科学与工程", "自动化与工业系统"),
+    ("tii", "IEEE Transactions on Industrial Informatics", "TII", "信号与控制期刊", (ENG, CS), "工业信息学", "工业信息学"),
+    ("tie", "IEEE Transactions on Industrial Electronics", "TIE", "信号与控制期刊", (ENG,), "工业电子", "工业电子与控制"),
+    ("tits", "IEEE Transactions on Intelligent Transportation Systems", "TITS", "信号与控制期刊", (ENG, CS), "智能交通系统", "智能交通"),
+    ("tro", "IEEE Transactions on Robotics", "T-RO", "机器人与感知期刊", (ENG, CS), "机器人", "机器人学"),
+    ("tgrs", "IEEE Transactions on Geoscience and Remote Sensing", "TGRS", "机器人与感知期刊", (EARTH, ENG), "地球科学与遥感", "遥感"),
+    ("tcsvt", "IEEE Transactions on Circuits and Systems for Video Technology", "TCSVT", "机器人与感知期刊", (CS, ENG), "视频技术电路与系统", "视频与多媒体技术"),
+    ("tmm", "IEEE Transactions on Multimedia", "TMM", "机器人与感知期刊", (CS, ENG), "多媒体", "多媒体"),
+    ("taslp", "IEEE/ACM Transactions on Audio, Speech, and Language Processing", "TASLP", "机器人与感知期刊", (CS, ENG), "音频、语音与语言处理", "语音与音频处理"),
+    ("taffc", "IEEE Transactions on Affective Computing", "TAFFC", "机器人与感知期刊", (CS, PSY), "情感计算", "情感计算"),
+    ("tmi", "IEEE Transactions on Medical Imaging", "TMI", "医学工程期刊", (MED, ENG, CS), "医学影像", "医学影像"),
+    ("tbme", "IEEE Transactions on Biomedical Engineering", "TBME", "医学工程期刊", (MED, ENG), "生物医学工程", "生物医学工程"),
+    ("jbhi", "IEEE Journal of Biomedical and Health Informatics", "JBHI", "医学工程期刊", (MED, CS), "生物医学与健康信息学", "生物医学与健康信息学"),
+    ("tsg", "IEEE Transactions on Smart Grid", "TSG", "能源与电力期刊", (ENG, ENERGY), "智能电网", "智能电网"),
+    ("tpel", "IEEE Transactions on Power Electronics", "TPEL", "能源与电力期刊", (ENG, ENERGY), "电力电子", "电力电子"),
+    ("tr-rel", "IEEE Transactions on Reliability", "TR", "能源与电力期刊", (ENG,), "可靠性", "可靠性工程"),
+    ("tvlsi", "IEEE Transactions on Very Large Scale Integration (VLSI) Systems", "TVLSI", "计算机期刊", (CS, ENG), "超大规模集成系统", "集成电路设计"),
+    ("tcad", "IEEE Transactions on Computer-Aided Design of Integrated Circuits and Systems", "TCAD", "计算机期刊", (CS, ENG), "集成电路与系统的计算机辅助设计", "电子设计自动化"),
+)
+
+# (id, 全称, 简称, journal, 分类, 学科, 简介) —— 其它出版方
+_OTHER: tuple[tuple, ...] = (
+    ("csur", "ACM Computing Surveys", "CSUR", "journal", "计算机期刊", (CS,), "ACM 的计算机综述期刊，发表计算机科学各方向的综述。"),
+    ("tkdd", "ACM Transactions on Knowledge Discovery from Data", "TKDD", "journal", "计算机期刊", (CS,), "ACM 的数据知识发现汇刊，数据挖掘方向的期刊。"),
+    ("tist", "ACM Transactions on Intelligent Systems and Technology", "TIST", "journal", "计算机期刊", (CS,), "ACM 的智能系统与技术汇刊，人工智能应用方向的期刊。"),
+    ("tweb", "ACM Transactions on the Web", "TWEB", "journal", "计算机期刊", (CS,), "ACM 的 Web 汇刊，Web 技术与应用方向的期刊。"),
+    ("dmkd", "Data Mining and Knowledge Discovery", "DMKD", "journal", "计算机期刊", (CS,), "Springer 出版的数据挖掘与知识发现期刊。"),
+    ("kais", "Knowledge and Information Systems", "KAIS", "journal", "计算机期刊", (CS,), "Springer 出版的知识与信息系统期刊，数据挖掘与知识工程方向。"),
+    ("www-journal", "World Wide Web", "WWW J.", "journal", "计算机期刊", (CS,), "Springer 出版的 Web 期刊，Web 信息系统方向。"),
+    ("inffus", "Information Fusion", "Inf. Fusion", "journal", "计算机期刊", (CS, ENG), "Elsevier 出版的信息融合期刊，多源信息融合方向。"),
+    ("asoc", "Applied Soft Computing", "Appl. Soft Comput.", "journal", "计算机期刊", (CS,), "Elsevier 出版的软计算期刊，偏计算智能的应用。"),
+    ("swevo", "Swarm and Evolutionary Computation", "Swarm Evol. Comput.", "journal", "计算机期刊", (CS,), "Elsevier 出版的群体智能与进化计算期刊。"),
+    ("engappai", "Engineering Applications of Artificial Intelligence", "Eng. Appl. Artif. Intell.", "journal", "计算机期刊", (CS, ENG), "Elsevier 出版的人工智能工程应用期刊。"),
+    ("fgcs", "Future Generation Computer Systems", "FGCS", "journal", "计算机期刊", (CS,), "Elsevier 出版的计算机系统期刊，云计算、网格与分布式计算方向。"),
+    ("comnet", "Computer Networks", "Comput. Netw.", "journal", "通信与网络期刊", (CS, ENG), "Elsevier 出版的计算机网络期刊。"),
+    ("jnca", "Journal of Network and Computer Applications", "JNCA", "journal", "通信与网络期刊", (CS, ENG), "Elsevier 出版的网络与计算机应用期刊。"),
+    ("ieee-network", "IEEE Network", "IEEE Netw.", "journal", "通信与网络期刊", (CS, ENG), "IEEE 的网络期刊，以综述和专题文章为主。"),
+    ("commag", "IEEE Communications Magazine", "IEEE Commun. Mag.", "journal", "通信与网络期刊", (ENG, CS), "IEEE 通信学会的杂志，以综述和专题文章为主。"),
+    ("comst", "IEEE Communications Surveys & Tutorials", "COMST", "journal", "通信与网络期刊", (ENG, CS), "IEEE 的通信综述与教程期刊。"),
+    ("automatica", "Automatica", "Automatica", "journal", "信号与控制期刊", (ENG, MATH), "国际自动控制联合会（IFAC）的期刊，由 Elsevier 出版，控制理论方向的主要期刊之一。"),
+    ("siam-comput", "SIAM Journal on Computing", "SICOMP", "journal", "理论与数学期刊", (CS, MATH), "工业与应用数学学会（SIAM）的计算期刊，理论计算机科学方向。"),
+    ("siam-jam", "SIAM Journal on Applied Mathematics", "SIAP", "journal", "理论与数学期刊", (MATH, PHYS), "工业与应用数学学会（SIAM）的应用数学期刊。"),
+    ("pre", "Physical Review E", "PRE", "journal", "网络与复杂系统期刊", (PHYS, MATH), "美国物理学会的统计、非线性、软物质物理期刊，复杂网络与复杂系统的研究常发表在这里。"),
+    ("physica-a", "Physica A: Statistical Mechanics and its Applications", "Physica A", "journal", "网络与复杂系统期刊", (PHYS,), "Elsevier 出版的统计力学及其应用期刊，包含复杂网络、社会物理方向。", ),
+    ("chaos-sf", "Chaos, Solitons & Fractals", "Chaos Solitons Fractals", "journal", "网络与复杂系统期刊", (PHYS, MATH), "Elsevier 出版的非线性科学期刊。"),
+    ("chaos", "Chaos: An Interdisciplinary Journal of Nonlinear Science", "Chaos", "journal", "网络与复杂系统期刊", (PHYS, MATH), "美国物理联合会出版的非线性科学期刊。"),
+    ("njp", "New Journal of Physics", "New J. Phys.", "journal", "网络与复杂系统期刊", (PHYS,), "德国物理学会与英国物理学会合办的开放获取物理期刊。"),
+    ("jstat", "Journal of Statistical Mechanics: Theory and Experiment", "J. Stat. Mech.", "journal", "网络与复杂系统期刊", (PHYS,), "统计力学的理论与实验期刊，复杂系统方向常见。"),
+    ("netsci", "Network Science", "Netw. Sci.", "journal", "网络与复杂系统期刊", (SOC, CS, PHYS), "剑桥大学出版社出版的网络科学期刊，跨学科研究网络。"),
+    ("socnet", "Social Networks", "Soc. Netw.", "journal", "网络与复杂系统期刊", (SOC,), "Elsevier 出版的社会网络分析期刊。"),
+    ("jcomplexnet", "Journal of Complex Networks", "J. Complex Netw.", "journal", "网络与复杂系统期刊", (PHYS, MATH, CS), "牛津大学出版社出版的复杂网络期刊。"),
+    ("appl-netw-sci", "Applied Network Science", "Appl. Netw. Sci.", "journal", "网络与复杂系统期刊", (CS, PHYS, SOC), "Springer 出版的开放获取网络科学期刊，偏应用。"),
+    ("epj-ds", "EPJ Data Science", "EPJ Data Sci.", "journal", "网络与复杂系统期刊", (CS, PHYS, SOC), "Springer 出版的开放获取数据科学期刊，复杂系统与数据交叉方向。"),
+    ("ress", "Reliability Engineering & System Safety", "RESS", "journal", "能源与电力期刊", (ENG,), "Elsevier 出版的可靠性与系统安全期刊。"),
+    ("complexity", "Complexity", "Complexity", "journal", "网络与复杂系统期刊", (PHYS, MATH, CS), "Wiley 出版的复杂性科学期刊。"),
+)

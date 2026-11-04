@@ -1,0 +1,100 @@
+/* 数学公式与公式卡片（F5）：只用黑白灰与发丝线。 */
+
+/* Markdown 里的 KaTeX */
+.pd-md .katex {
+  font-size: 1.04em;
+}
+.pd-md .katex-display {
+  margin: 0.55em 0;
+  padding: 2px 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.pd-md-raw {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+
+/* 卡片里的公式展示块：上下发丝线，不用底色和阴影 */
+.pd-eq {
+  margin: 8px 0 10px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 0 6px;
+}
+.pd-eq-view {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 2px;
+  text-align: center;
+  font-size: 1.08em;
+}
+.pd-eq-view .katex-display {
+  margin: 0;
+}
+.pd-eq-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 4px;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-eq-orig {
+  display: block;
+  max-width: 100%;
+  margin: 6px auto 2px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.pd-eq-missing {
+  margin: 0;
+  padding: 6px 0;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+}
+
+/* 符号表 */
+.pd-sym {
+  width: 100%;
+  margin: 6px 0 4px;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+}
+.pd-sym th {
+  padding: 4px 8px 4px 0;
+  text-align: left;
+  font-weight: 500;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border-strong);
+}
+.pd-sym td {
+  padding: 6px 8px 6px 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.pd-sym td:first-child {
+  white-space: nowrap;
+  width: 1%;
+  padding-right: 14px;
+}
+.pd-sym-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-sym-state[data-s='unsupported'] {
+  color: var(--warning-text);
+}
+.pd-sym-state[data-s='undefined'] {
+  color: var(--text-2);
+  font-style: italic;
+}

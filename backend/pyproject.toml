@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paperdesk-backend"
+version = "0.1.0"
+description = "Marginalia 本地后端：论文解析、检索、AI 调度与任务管理"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+include = ["paperdesk*"]

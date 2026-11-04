@@ -1,0 +1,878 @@
+/* ---------- Insight Flow：对话流，每张卡片是一组“问 → 答”，卡片之间一条发丝线 ---------- */
+.pd-chain-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 var(--sp-sm);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-aux);
+  font-weight: 600;
+  transition: background var(--t-fast);
+}
+.pd-chain-btn > span {
+  white-space: nowrap;
+}
+.pd-chain-btn svg {
+  flex: none;
+  color: var(--text-2);
+}
+.pd-chain-btn:hover {
+  background: var(--bg-hover);
+}
+.pd-chain-n {
+  flex: none;
+  color: var(--text-2);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.pd-flow {
+  display: flex;
+  flex-direction: column;
+  /* 对话区占面板的主要高度；提问区固定在底部，最多 100 多像素 */
+  min-height: 60%;
+  padding-top: 0;
+  padding-bottom: var(--sp-lg);
+}
+.pd-starters {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  width: 100%;
+}
+
+.pd-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-sans);
+}
+.pd-card:first-child {
+  padding-top: 8px;
+}
+.pd-card:last-child {
+  border-bottom: 0;
+}
+/* 信息行：类型 · 页码 · 模型 · 时间，一行淡色小字；更多操作只在悬停或聚焦时出现 */
+.pd-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.pd-card-meta-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-card-dot {
+  color: var(--text-3);
+}
+.pd-card-temp {
+  color: var(--text-2);
+}
+.pd-card-menu {
+  flex: none;
+  margin-right: -6px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.pd-card:hover .pd-card-menu,
+.pd-card:focus-within .pd-card-menu,
+.pd-card-menu:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .pd-card-menu {
+    opacity: 1;
+  }
+}
+/* 我发的问题：实心的深色气泡靠右，一眼就能看出哪句是我问的；选中的文字和问题合在一起，最多显示四行，鼠标放上去看全文 */
+.pd-card-question {
+  width: fit-content;
+  max-width: 92%;
+  margin: 2px 0 6px auto;
+  padding: 8px 12px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 13.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  border-bottom-right-radius: 2px;
+}
+.pd-card-question p {
+  margin: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+/* 选中的原文：引用样式，左边一道竖线，字小一点淡一点 */
+.pd-card-quote {
+  display: -webkit-box;
+  margin: 0 0 6px;
+  padding-left: 8px;
+  overflow: hidden;
+  border-left: 2px solid currentColor;
+  font-size: 12.5px;
+  opacity: 0.75;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.pd-card-hint {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.pd-card-hint--warn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--sp-sm) 0 var(--sp-md);
+  border-bottom: 1px solid var(--border);
+  color: var(--warning-text);
+}
+/* 回答：14px、行高 1.7，宽屏下一行不超过约 70 个字符 */
+.pd-card-direct,
+.pd-card-more {
+  max-width: 70ch;
+}
+.pd-card-direct {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.pd-card-direct .pd-md {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.pd-card-direct .pd-md p {
+  margin: 0 0 0.6em;
+}
+.pd-card-direct .pd-md strong {
+  font-weight: 600;
+}
+.pd-card-direct .pd-md ul,
+.pd-card-direct .pd-md ol {
+  margin: 0 0 0.6em;
+  padding-left: 1.3em;
+}
+.pd-card-direct .pd-md li {
+  margin: 0.15em 0;
+}
+.pd-card-evrow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 6px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.pd-card-evlabel {
+  color: var(--text-2);
+}
+.pd-card-status {
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-strong);
+  color: var(--text-2);
+}
+.pd-card-more {
+  display: flex;
+  flex-direction: column;
+}
+/* 小标题：13px/600 黑色，上方留白，节与节之间一条发丝线 */
+.pd-card-secbox {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.pd-card-secbox:first-child {
+  margin-top: 4px;
+}
+.pd-card-sec {
+  margin: 0 0 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+.pd-card-secbox .pd-md {
+  font-size: 14px;
+  line-height: 1.7;
+}
+.pd-card-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+}
+.pd-card-toggle:hover {
+  color: var(--text);
+}
+.pd-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: calc(-1 * var(--sp-sm));
+}
+.pd-card-error {
+  display: flex;
+  gap: var(--sp-sm);
+  color: var(--danger);
+  font-size: var(--fs-small);
+}
+.pd-card-error svg {
+  margin-top: 3px;
+}
+
+/* 引用标记：回答正文里是不带下划线的小号上标灰字，悬停才加下划线；相邻的合并成一串 */
+.pd-cites {
+  white-space: nowrap;
+}
+.pd-card-direct .pd-cites,
+.pd-card-secbox .pd-md .pd-cites,
+.pd-card-inf .pd-cites {
+  font-size: 0.74em;
+  vertical-align: super;
+  line-height: 0;
+}
+.pd-cites .pd-cite {
+  margin: 0 1px;
+  padding: 0 1px;
+  font-size: inherit;
+  font-weight: 400;
+  text-decoration: none;
+}
+.pd-cites .pd-cite + .pd-cite {
+  margin-left: 4px;
+}
+.pd-cites button.pd-cite:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.pd-card-evrow .pd-cites {
+  font-size: 12px;
+  vertical-align: baseline;
+  line-height: inherit;
+}
+.pd-card-evrow .pd-cites .pd-cite {
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+
+.pd-ev-list {
+  display: flex;
+  flex-direction: column;
+}
+.pd-ev {
+  padding: var(--sp-sm) 0;
+  border-top: 1px solid var(--border);
+}
+.pd-ev:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.pd-ev-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-aux);
+}
+.pd-ev-note {
+  margin-top: 4px;
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+.pd-ev-quote {
+  margin: 6px 0 0;
+  padding-left: var(--sp-md);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: 12.5px;
+  line-height: 1.65;
+}
+/* AI 推断：左侧一条细线区分，标题写明“AI 推断”，不再每条带标签 */
+.pd-card-inf {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0 0 0 10px;
+  border-left: 2px solid var(--text);
+  list-style: none;
+}
+.pd-card-inf li {
+  display: block;
+  font-size: 14px;
+  line-height: 1.7;
+}
+.pd-card-basis {
+  margin-left: 6px;
+  white-space: nowrap;
+}
+.pd-card-follow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pd-followup {
+  display: block;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.55;
+  text-align: left;
+  transition: color var(--t-fast);
+}
+.pd-followup::before {
+  content: '→ ';
+  color: var(--text-3);
+}
+.pd-followup:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.pd-followup:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.pd-sent {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-sent-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: left;
+}
+.pd-sent-toggle:hover {
+  color: var(--text);
+}
+.pd-sent-body {
+  margin-top: 6px;
+  padding: var(--sp-xs) 0 var(--sp-xs) var(--sp-md);
+  border-left: 2px solid var(--border);
+}
+
+/* ---------- 提问区：紧凑，固定在面板底部（默认总高约 90px，有选中内容时多一行） ---------- */
+.pd-composer {
+  position: relative;
+  flex: none;
+  padding: 6px var(--sp-md) 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+.pd-composer-ctx {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin: 0 0 6px;
+}
+.pd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 2px 0 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  color: var(--text-2);
+}
+/* 选中内容标签：能缩，占剩余宽度，过长在一行内截断 */
+.pd-chip--sel {
+  flex: 1 1 110px;
+  min-width: 0;
+}
+.pd-chip--sel > .pd-ellipsis {
+  min-width: 0;
+}
+.pd-chip-kind {
+  color: var(--text);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pd-chip button {
+  display: inline-flex;
+  flex: none;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+}
+.pd-chip button:hover {
+  background: var(--bg-active);
+  color: var(--text);
+}
+/* 快捷操作：只在有选中内容时出现，和选中标签同一行 */
+.pd-quick {
+  display: inline-flex;
+  flex: none;
+  gap: 4px;
+}
+.pd-quick-btn {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pd-quick-btn:hover:not(:disabled) {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+.pd-quick-btn:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+/* 输入框：一个带细边框的盒子，输入区在上，@ 附件 发送在盒子内的底部一排 */
+.pd-composer-box {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-input);
+  background: var(--bg);
+  transition: border-color var(--t-fast);
+}
+.pd-composer-box:focus-within {
+  border-color: var(--text);
+}
+.pd-composer-input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 46px;
+  max-height: 136px;
+  padding: 6px 8px 0;
+  border: 0;
+  outline: none;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.pd-composer-input::placeholder {
+  color: var(--text-3);
+}
+.pd-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 4px;
+}
+.pd-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--bg);
+  transition: opacity var(--t-fast);
+}
+.pd-send:hover:not(:disabled) {
+  opacity: 0.85;
+}
+.pd-send:disabled {
+  background: var(--bg-active);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+.pd-mention {
+  position: absolute;
+  left: var(--sp-md);
+  right: var(--sp-md);
+  bottom: calc(100% - 4px);
+  z-index: 10;
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--sp-xs);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  box-shadow: var(--shadow-pop);
+}
+.pd-mention-title {
+  padding: 4px 8px;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-mention-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font-size: var(--fs-small);
+  text-align: left;
+}
+.pd-mention-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+.pd-mention-item:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+.pd-mention-empty {
+  padding: 6px 8px;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+
+/* ---------- 笔记 ---------- */
+.pd-note {
+  padding: var(--sp-md) 0;
+  border-bottom: 1px solid var(--border);
+}
+.pd-note--draft {
+  padding-left: var(--sp-md);
+  border-left: 2px solid var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.pd-note-quote {
+  margin: 0 0 6px;
+  padding-left: var(--sp-md);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.65;
+}
+.pd-note-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------- 论文概览 ---------- */
+.pd-ov-sec {
+  padding: var(--sp-lg) 0;
+  border-bottom: 1px solid var(--border);
+}
+.pd-ov-sec:last-child {
+  border-bottom: 0;
+}
+.pd-ov-sec h3 {
+  margin-bottom: 6px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.pd-ov-ev {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-top: 6px;
+  color: var(--text-2);
+}
+
+/* ---------- 论文概览：一句话结论 → 要点（点开看细节） ---------- */
+.pd-ovp {
+  padding-top: var(--sp-lg);
+}
+.pd-ovp-lead {
+  margin-bottom: var(--sp-xl);
+  padding-top: var(--sp-md);
+  border-top: 2px solid var(--text);
+}
+.pd-ovp-kicker {
+  margin-bottom: 6px;
+  font-size: var(--fs-aux);
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+.pd-ovp-lead p {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.55;
+}
+.pd-ovp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.pd-ovp-item {
+  border-bottom: 1px solid var(--border);
+}
+.pd-ovp-row {
+  display: grid;
+  grid-template-columns: 14px 64px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-sm);
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+.pd-ovp-row:hover .pd-ovp-label {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-ovp-chev {
+  color: var(--text-2);
+  transition: transform var(--t-fast);
+}
+.pd-ovp-item[data-open='true'] .pd-ovp-chev {
+  transform: rotate(90deg);
+}
+.pd-ovp-label {
+  font-size: var(--fs-small);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pd-ovp-sum {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-ovp-detail {
+  padding: 0 0 var(--sp-md) 22px;
+}
+.pd-ovp-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-sm);
+  margin-top: var(--sp-lg);
+  padding-top: var(--sp-sm);
+  border-top: 1px solid var(--border);
+}
+
+/* 重新解析后引用位置对不上的笔记：保留原文引用与页码，只加一个安静的标记 */
+.pd-note-stale {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--border-strong);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 18px;
+}
+
+/* 从“历史”跳到某张卡片时，让它闪一下，好找 */
+.pd-card[data-flash] {
+  outline: 2px solid var(--text);
+  outline-offset: 4px;
+  transition: outline-color var(--t-slow, 400ms);
+}
+
+/* 对话栏：当前对话名 + 新对话；一篇论文的多个对话互相独立 */
+.pd-conv {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-sm);
+  padding: 6px var(--sp-md);
+  border-bottom: 1px solid var(--border);
+}
+.pd-conv > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+}
+.pd-conv-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pd-conv-title:disabled {
+  cursor: default;
+}
+.pd-conv-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--text);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+}
+.pd-conv-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 2px 8px;
+  background: none;
+  border: 1px solid var(--border-strong, var(--border));
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pd-conv-new:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--text);
+}
+.pd-conv-new:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 论文之外：模型自己的知识/联网资料，和论文原文分开，明确标注 */
+.pd-card-outside {
+  margin-top: var(--sp-md);
+  padding: 8px 12px;
+  border-left: 2px solid var(--border-strong, var(--text-2));
+  background: var(--sticky-bg, transparent);
+}
+.pd-card-outside .pd-card-sec {
+  margin: 0 0 4px;
+}
+.pd-card-outside-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-2);
+}
+.pd-card-web {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+.pd-card-web button {
+  display: block;
+  max-width: 100%;
+  padding: 1px 0;
+  overflow: hidden;
+  background: none;
+  border: 0;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pd-card-web button:hover {
+  color: var(--text);
+}
+
+/* 黑底提问气泡里选中文字：反色（浅底深字），不然选区颜色和黑底融在一起看不见 */
+.pd-card-question ::selection,
+.pd-card-question::selection {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* 对话附件：输入框里的待发送文件、提问气泡里的文件名 */
+.pd-composer-box.is-drop {
+  outline: 2px dashed var(--text);
+  outline-offset: -4px;
+}
+.pd-attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px 0;
+}
+.pd-attach {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 2px 4px 2px 6px;
+  border: 1px solid var(--border-strong, var(--border));
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-attach img {
+  width: 22px;
+  height: 22px;
+  object-fit: cover;
+}
+.pd-attach .pd-ellipsis {
+  max-width: 130px;
+}
+.pd-attach button {
+  display: inline-grid;
+  place-items: center;
+  padding: 2px;
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+}
+.pd-attach button:hover {
+  color: var(--text);
+}
+.pd-card-attach {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.pd-card-attach span {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+}

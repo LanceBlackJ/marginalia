@@ -1,0 +1,188 @@
+/*
+ * 设置页：一个标签里的几段内容顺着往下排，没有折叠和卡片。
+ */
+.pd-settings-page {
+  max-width: 1040px;
+  margin: 0 auto;
+  container-type: inline-size;
+  container-name: settingspage;
+}
+/* 一个标签里的几段：单列，顺着往下排，段与段之间一条细线 */
+.pd-panels {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--sp-lg);
+}
+.pd-panel {
+  min-width: 0;
+  padding: var(--sp-xl) 0;
+  border-top: 1px solid var(--border);
+}
+.pd-panel:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.pd-panel-h {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-xs) var(--sp-md);
+  margin: 0 0 var(--sp-sm);
+  font-size: inherit;
+}
+.pd-panel-title {
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pd-panel-sum {
+  font-size: var(--fs-small);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.pd-panel-body {
+  min-width: 0;
+}
+.pd-panel-title[data-flash='true'],
+.pd-sblock-title[data-flash='true'] {
+  animation: pd-settings-flash 1.4s ease-out;
+}
+@keyframes pd-settings-flash {
+  0%,
+  40% {
+    background: var(--text);
+    color: var(--bg);
+  }
+  100% {
+    background: transparent;
+    color: inherit;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pd-panel-wrap,
+  .pd-panel-chev,
+  .pd-log-chev {
+    transition: none;
+  }
+  .pd-panel-title[data-flash='true'],
+  .pd-sblock-title[data-flash='true'] {
+    animation: none;
+  }
+}
+
+/* 危险操作：头部用淡色小字，不抢眼 */
+.pd-panel[data-warn='true'] .pd-panel-title {
+  font-size: var(--fs-small);
+  font-weight: 500;
+  color: var(--text-2);
+}
+.pd-panel[data-warn='true'] .pd-panel-sum {
+  font-size: var(--fs-aux);
+  color: var(--danger);
+}
+
+/* 面板里的小块：单列堆叠，用 1px 线分隔 */
+.pd-panel-body > .pd-sblock {
+  margin-top: var(--sp-lg);
+}
+.pd-panel-body > .pd-sblock:first-child {
+  margin-top: var(--sp-md);
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* ---- 发送记录 ---- */
+.pd-log-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-md);
+  padding: var(--sp-md) 0 var(--sp-sm);
+}
+.pd-log-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.pd-log-item {
+  border-bottom: 1px solid var(--border);
+}
+.pd-log-row {
+  display: grid;
+  grid-template-columns: 16px 132px 84px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--sp-sm);
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: var(--fs-small);
+  text-align: left;
+  cursor: pointer;
+}
+.pd-log-row:hover {
+  background: var(--bg-hover);
+}
+.pd-log-chev {
+  color: var(--text-3);
+  transition: transform 120ms ease;
+}
+.pd-log-item[data-open='true'] .pd-log-chev {
+  transform: rotate(90deg);
+}
+.pd-log-time,
+.pd-log-chars {
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  white-space: nowrap;
+}
+.pd-log-type {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pd-log-detail {
+  margin: 0 0 var(--sp-md) 24px;
+}
+.pd-log-foot {
+  display: flex;
+  justify-content: center;
+  padding: var(--sp-md) 0 0;
+}
+@media (max-width: 760px) {
+  .pd-log-row {
+    grid-template-columns: 16px 1fr auto;
+  }
+  .pd-log-time,
+  .pd-log-sum {
+    display: none;
+  }
+}
+
+/* 设置页三个标签：下划线式，选中项下方一条黑线 */
+.pd-settings-tabs {
+  display: flex;
+  gap: var(--sp-xl);
+  margin: var(--sp-md) 0 var(--sp-lg);
+  border-bottom: 1px solid var(--border);
+}
+.pd-settings-tab {
+  margin-bottom: -1px;
+  padding: var(--sp-sm) 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  font: inherit;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pd-settings-tab:hover {
+  color: var(--text);
+}
+.pd-settings-tab[aria-selected='true'] {
+  color: var(--text);
+  font-weight: 600;
+  border-bottom-color: var(--text);
+}

@@ -1,0 +1,505 @@
+/* ================= 文件夹、筛选、批量操作、归类建议（黑白、发丝线） ================= */
+.pd-lib-shell {
+  display: grid;
+  grid-template-columns: 228px minmax(0, 1fr);
+  gap: var(--sp-2xl);
+  align-items: start;
+}
+.pd-lib-main {
+  min-width: 0;
+}
+@media (max-width: 1000px) {
+  .pd-lib-shell {
+    grid-template-columns: 1fr;
+  }
+  .pd-frail {
+    position: static;
+    max-height: none;
+  }
+}
+
+/* ---- 左栏 ---- */
+.pd-frail {
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  padding-right: var(--sp-sm);
+  border-right: 1px solid var(--border);
+  font-size: var(--fs-small);
+}
+.pd-frail-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--sp-md);
+}
+.pd-frail-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: var(--sp-md) 0 4px;
+  padding: 6px 8px 4px;
+  border-top: 2px solid var(--text);
+  font-size: var(--fs-aux);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.pd-frail-head > span:first-child {
+  flex: 1;
+}
+.pd-frail-head[data-drop='inside'] {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-frail-help {
+  margin: 0 8px 8px;
+  padding-left: 8px;
+  border-left: 2px solid var(--text);
+  font-size: var(--fs-aux);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.pd-frail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pd-frail-item:hover {
+  background: var(--bg-hover);
+}
+.pd-frail-item.is-active {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-frail-item.is-active .pd-frail-count {
+  color: var(--bg);
+  opacity: 0.75;
+}
+.pd-frail-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-frail-count {
+  flex: none;
+  font-size: var(--fs-aux);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.pd-frail-chev {
+  display: inline-flex;
+  flex: none;
+  width: 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.pd-frail-more {
+  display: none;
+  flex: none;
+}
+.pd-frail-item:hover .pd-frail-more,
+.pd-frail-item:focus-within .pd-frail-more {
+  display: inline-flex;
+}
+.pd-frail-folder:hover > .pd-frail-count {
+  display: none;
+}
+.pd-frail-item.is-active .pd-frail-more button {
+  color: var(--bg);
+}
+.pd-frail-input {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.pd-frail-empty {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-aux);
+  text-align: left;
+  cursor: pointer;
+}
+.pd-frail-empty:hover {
+  color: var(--text);
+}
+/* 拖放提示：放进去=整行反色，放到前/后=上/下一条黑线 */
+.pd-frail-item.is-drop,
+.pd-frail-item[data-drop='inside'] {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-frail-item[data-drop='inside'] .pd-frail-count,
+.pd-frail-item.is-drop .pd-frail-count {
+  color: var(--bg);
+}
+.pd-frail-item[data-drop='before'] {
+  box-shadow: 0 -2px 0 var(--text);
+}
+.pd-frail-item[data-drop='after'] {
+  box-shadow: 0 2px 0 var(--text);
+}
+
+/* ---- 论文行：勾选、文件夹标记、命中片段 ---- */
+.pd-paper-titlerow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-sm);
+}
+.pd-paper-titlerow .pd-paper-title,
+.pd-paper-titlerow .pd-paper-card-title {
+  flex: 1;
+  min-width: 0;
+}
+.pd-paper-check {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-top: 4px;
+  accent-color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+}
+/* 列表行：复选框放在行左侧的空白里，标题与表头对齐（卡片里仍在标题前） */
+.pd-paper-row .pd-paper-titlerow {
+  position: relative;
+}
+.pd-paper-row .pd-paper-check {
+  position: absolute;
+  left: -24px;
+  top: 4px;
+}
+.pd-paper-row:hover .pd-paper-check,
+.pd-paper-card:hover .pd-paper-check,
+.pd-paper-check:checked,
+.pd-paper-check:focus-visible {
+  opacity: 1;
+}
+.pd-paper-row.is-selected,
+.pd-paper-card.is-selected {
+  box-shadow: inset 3px 0 0 var(--text);
+  background: var(--bg-subtle);
+}
+.pd-paper-tagrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.pd-folder-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 6px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.pd-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--text);
+}
+.pd-match {
+  display: flex;
+  gap: 8px;
+  font-size: var(--fs-aux);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.pd-match-kind {
+  flex: none;
+  font-weight: 600;
+  color: var(--text);
+}
+.pd-match-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.pd-hit {
+  padding: 0 1px;
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* ---- 筛选面板与芯片 ---- */
+.pd-fp {
+  margin-bottom: var(--sp-md);
+  padding: var(--sp-lg) 0 var(--sp-md);
+  border-top: 1px solid var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.pd-fp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--sp-xl);
+}
+.pd-fp-col--wide {
+  grid-column: span 2;
+}
+@media (max-width: 1100px) {
+  .pd-fp-col--wide {
+    grid-column: auto;
+  }
+}
+.pd-fp-label {
+  margin-bottom: var(--sp-sm);
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-aux);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.pd-fp-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--sp-sm);
+  margin-bottom: 6px;
+}
+.pd-fp-rowlabel {
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-fp-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+.pd-fp-note {
+  margin: 4px 0 0;
+  font-size: var(--fs-aux);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.pd-fp-flags {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px var(--sp-md);
+  margin-top: var(--sp-sm);
+}
+.pd-fp-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-small);
+}
+.pd-fp-check input {
+  accent-color: var(--text);
+}
+.pd-fp-count {
+  font-size: 11px;
+  color: var(--text-2);
+}
+.pd-fp-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--sp-sm);
+}
+.pd-fp-tag {
+  cursor: pointer;
+  background: var(--bg);
+}
+.pd-fp-tag.is-on {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-fp-tag.is-on .pd-fp-count {
+  color: var(--bg);
+}
+.pd-fp-foot {
+  display: flex;
+  gap: var(--sp-sm);
+  margin-top: var(--sp-md);
+  padding-top: var(--sp-sm);
+  border-top: 1px solid var(--border);
+}
+.pd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: var(--sp-md);
+}
+.pd-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-aux);
+}
+.pd-chip-x {
+  display: inline-flex;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+.pd-chip-x:hover {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-chip-clear {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* ---- 批量操作条 ---- */
+.pd-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-sm);
+  margin-bottom: var(--sp-md);
+  padding: 8px 12px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+
+/* ---- 归类建议 ---- */
+.pd-sugg {
+  margin-bottom: var(--sp-lg);
+  border-top: 1px solid var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.pd-sugg-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-md);
+  width: 100%;
+  padding: 9px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-small);
+  text-align: left;
+  cursor: pointer;
+}
+.pd-sugg-title {
+  font-weight: 600;
+}
+.pd-sugg-note {
+  margin: 0 0 6px;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-sugg-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pd-sugg-item {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-lg);
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.pd-sugg-main {
+  min-width: 0;
+}
+.pd-sugg-paper {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.pd-sugg-to,
+.pd-sugg-basis {
+  margin-top: 2px;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-sugg-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+}
+
+/* ---- 移动对话框 ---- */
+.pd-mv-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+}
+.pd-mv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+.pd-mv-row:last-child {
+  border-bottom: 0;
+}
+.pd-mv-row:hover {
+  background: var(--bg-hover);
+}
+.pd-mv-row.is-on {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-mv-row input {
+  accent-color: var(--text);
+}
+.pd-mv-new {
+  display: flex;
+  gap: var(--sp-sm);
+  margin-top: var(--sp-md);
+}
+.pd-mv-new > :first-child {
+  flex: 1;
+}

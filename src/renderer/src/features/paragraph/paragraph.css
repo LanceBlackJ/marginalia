@@ -1,0 +1,213 @@
+/* 这一段怎么读：贴在段落下面（文字视图）或浮在 PDF 右下角 */
+.pd-para {
+  box-sizing: border-box;
+  margin: 8px 0 14px;
+  padding: 10px 14px 12px;
+  background: var(--sticky-bg, var(--bg));
+  border: 1px solid var(--border-strong, var(--border));
+  border-left: 3px solid var(--text);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  text-align: left;
+}
+.pd-para--float {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 30;
+  width: min(380px, calc(100vw - 36px));
+  max-height: 62vh;
+  margin: 0;
+  overflow-y: auto;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+.pd-para-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.pd-para-role {
+  padding: 0 7px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12px;
+}
+.pd-para-title {
+  font-weight: 600;
+}
+.pd-para-ai {
+  padding: 0 5px;
+  border: 1px solid currentColor;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.pd-para-x {
+  display: inline-grid;
+  place-items: center;
+  padding: 2px;
+  background: none;
+  border: 0;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pd-para-x:hover {
+  color: var(--text);
+}
+.pd-para-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pd-para-body[data-busy='true'] {
+  opacity: 0.55;
+}
+.pd-para-body p,
+.pd-para-flow,
+.pd-para-body ul {
+  margin: 0;
+}
+.pd-para-body b {
+  display: inline-block;
+  min-width: 4.2em;
+  margin-right: 8px;
+  color: var(--text-2);
+  font-weight: 600;
+  font-size: 12px;
+}
+.pd-para-key {
+  margin: 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--text);
+  color: var(--text-2);
+  font-style: italic;
+}
+.pd-para-flow > span {
+  display: inline-flex;
+  flex-direction: column;
+  vertical-align: top;
+  gap: 2px;
+}
+.pd-para-flow span span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.pd-para-flow svg {
+  flex: none;
+  align-self: center;
+}
+.pd-para-watch {
+  display: inline-block;
+  vertical-align: top;
+  padding-left: 16px;
+}
+.pd-para-see {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.pd-para-seebtn {
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pd-para-seebtn:hover {
+  text-decoration: underline;
+}
+.pd-para-foot {
+  display: flex;
+  gap: 14px;
+  margin-top: 4px;
+}
+.pd-para-foot button,
+.pd-para-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.pd-para-foot button:hover:not(:disabled),
+.pd-para-link:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+.pd-para-foot button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.pd-para-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* 文字视图：段落左边的“这一段怎么读”小按钮（鼠标移上去才出现），打开后这一段整段描边 */
+.pd-tp-parabtn {
+  position: absolute;
+  left: -26px;
+  top: 4px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: var(--bg);
+  border: 1px solid var(--border-strong, var(--border));
+  color: var(--text-2);
+  opacity: 0;
+  cursor: pointer;
+}
+[data-ord]:hover > .pd-tp-parabtn,
+.pd-tp-parabtn:focus-visible,
+[data-paraon='true'] > .pd-tp-parabtn {
+  opacity: 1;
+}
+.pd-tp-parabtn:hover {
+  color: var(--text);
+  border-color: var(--text);
+}
+[data-paraon='true'] {
+  outline: 2px solid var(--text);
+  outline-offset: 4px;
+}
+
+/* 聚光灯：被照亮的地方（一段、跨栏的几块、整章）保持原样，页面其余部分盖一层暗色（clip-path 挖洞）；没有被照亮区域的页面整页变暗 */
+.pd-spot-dim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.55);
+}
+.pd-parahit {
+  position: absolute;
+  pointer-events: none;
+  background: transparent;
+  outline: 1px solid rgba(255, 255, 255, 0.4);
+}
+.pd-viewer[data-spot='true'] .pd-page-view[data-hit='false'] .pd-page-canvas,
+.pd-viewer[data-spot='true'] .pd-page-view[data-hit='false'] .pd-page-overlay {
+  filter: brightness(0.5);
+}
+.pd-viewer[data-spot='true'] .pd-page-canvas {
+  transition: filter 160ms;
+}
+
+/* 文字视图的聚光灯：其余段落暗下去，只有被分析的这一段（和它的卡片）保持清晰 */
+html[data-para-spot='true'] .pd-tp[data-ord]:not([data-paraon='true']),
+html[data-para-spot='true'] .pd-tp-h {
+  opacity: 0.32;
+  transition: opacity 160ms;
+}

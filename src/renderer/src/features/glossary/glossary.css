@@ -1,0 +1,113 @@
+.pd-gl {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 14px 30px;
+  font-size: 13px;
+  line-height: 1.65;
+}
+.pd-gl-state {
+  padding: 14px 2px;
+  color: var(--text-2);
+}
+.pd-gl-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+}
+.pd-gl-search input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  font: inherit;
+}
+.pd-gl h4 {
+  margin: 14px 0 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-gl-note {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-gl-item {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong, var(--border));
+}
+.pd-gl-item[data-focus='true'] {
+  border-color: var(--text);
+  background: var(--sticky-bg, rgba(127, 127, 127, 0.08));
+}
+.pd-gl-item header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pd-gl-zh {
+  color: var(--text-2);
+}
+.pd-gl-kind {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--border-strong, var(--border));
+  color: var(--text-2);
+  font-size: 11px;
+}
+.pd-gl-item p {
+  margin: 4px 0 0;
+}
+.pd-gl-why {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.pd-gl-quote {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.pd-gl-quote:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+.pd-gl-quote q {
+  quotes: none;
+  font-style: italic;
+}
+.pd-gl-quote q::before {
+  content: '“';
+}
+.pd-gl-quote q::after {
+  content: '”';
+}
+.pd-gl-quote .pd-cite {
+  margin-left: 6px;
+}
+
+/* 正文里术语表的词（第一次出现的地方）：虚线下划线，点一下看解释 */
+.pd-tp-term {
+  border-bottom: 1px dotted var(--text-2);
+  cursor: help;
+}
+.pd-tp-term:hover {
+  border-bottom-style: solid;
+  background: var(--sticky-bg, rgba(127, 127, 127, 0.12));
+}

@@ -1,0 +1,41 @@
+# 依赖与构建产物
+node_modules/
+out/
+dist/
+release/
+build/backend-dist/
+build/backend-work/
+*.tsbuildinfo
+coverage/
+
+# 开发/测试时的数据目录（里面有论文库、数据库、日志，可能含个人数据与密钥库）
+.devdata*/
+.local/
+.local-*
+
+# 日志与临时文件
+*.log
+.env
+.env.*
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+secrets.bin
+
+# Python 后端
+backend/.venv/
+backend/**/__pycache__/
+backend/.pytest_cache/
+backend/*.egg-info/
+*.pyc
+
+# 前端：由配置在构建时从 pdfjs-dist 复制的运行时资源
+src/renderer/public/pdfjs/
+
+# 编辑器与系统
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db

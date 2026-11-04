@@ -1,0 +1,305 @@
+/* 书架：黑白极简。书立在隔板上，隔板是一条实线；书名和作者写在隔板下面。 */
+.pd-shelf {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 8px 0 24px;
+}
+.pd-shelf-row {
+  position: relative;
+}
+.pd-shelf-books,
+.pd-shelf-labels {
+  display: flex;
+  gap: 16px;
+  padding: 0 4px;
+}
+.pd-shelf-books {
+  align-items: flex-end;
+}
+.pd-shelf-slot {
+  width: 132px;
+  flex: none;
+}
+.pd-shelf-plank {
+  height: 0;
+  border-top: 3px solid var(--text);
+}
+.pd-book {
+  position: relative;
+  height: 176px;
+  display: flex;
+  align-items: flex-end;
+}
+.pd-book-cover {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 1px solid var(--border-strong, var(--border));
+  border-bottom: 0;
+  background: var(--bg);
+  cursor: pointer;
+  overflow: hidden;
+  /* 书脊：左边一条深线 */
+  box-shadow: inset 3px 0 0 var(--text);
+  transition: transform var(--t-fast, 120ms);
+}
+.pd-book-cover:hover,
+.pd-book-cover:focus-visible {
+  transform: translateY(-4px);
+}
+.pd-book-cover:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.pd-book-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+.pd-book-blank {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  padding: 14px 10px 10px 14px;
+  text-align: left;
+  box-sizing: border-box;
+}
+.pd-book-blank-title {
+  font-family: var(--rd-font-title, var(--font-serif, serif));
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pd-book-blank-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.pd-book-flag {
+  position: absolute;
+  top: 0;
+  right: 0;
+  padding: 1px 6px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 11px;
+}
+.pd-book-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--text);
+}
+.pd-book-fav {
+  position: absolute;
+  top: 4px;
+  left: 8px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t-fast, 120ms);
+}
+.pd-book:hover .pd-book-fav,
+.pd-book-fav:focus-visible,
+.pd-book-fav.is-on {
+  opacity: 1;
+}
+.pd-book-fav.is-on {
+  color: var(--text);
+}
+.pd-book-label {
+  margin-top: 8px;
+  min-height: 52px;
+}
+.pd-book-title {
+  font-size: var(--fs-small, 13px);
+  line-height: 1.35;
+  font-weight: 600;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pd-book-sub {
+  margin-top: 2px;
+  font-size: var(--fs-aux, 12px);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 卡片上的标签：书名下一行小字，最多三个，其余折成 +N */
+.pd-book-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  max-height: 22px;
+  overflow: hidden;
+}
+.pd-book-tag {
+  max-width: 96px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong, var(--border));
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 每个文件夹一层：标题是贴在隔板上的小标签，后面是论文数 */
+.pd-shelf {
+  gap: 30px;
+}
+.pd-shelf-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pd-shelf-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.pd-shelf-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  cursor: pointer;
+}
+.pd-shelf-tab {
+  padding: 2px 10px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--fs-small, 13px);
+  font-weight: 600;
+}
+.pd-shelf-count {
+  color: var(--text-muted);
+  font-size: var(--fs-aux, 12px);
+}
+.pd-book-folder {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t-fast, 120ms);
+}
+.pd-book:hover .pd-book-folder,
+.pd-book-folder:focus-visible {
+  opacity: 1;
+}
+.pd-book-folder:hover {
+  color: var(--text);
+}
+
+/* 书名是一个按钮；浮出的提示显示完整标题，盖在下一层书架上面 */
+.pd-shelf-slot {
+  position: relative;
+}
+.pd-book-label {
+  position: relative;
+}
+.pd-book-titlebtn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.pd-book-titlebtn:hover .pd-book-title,
+.pd-book-titlebtn:focus-visible .pd-book-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-book-tip {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% - 28px);
+  z-index: 30;
+  width: 260px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--text);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text) 16%, transparent);
+  font-size: var(--fs-small, 13px);
+  line-height: 1.5;
+  pointer-events: none;
+}
+.pd-book-label:hover .pd-book-tip,
+.pd-book-label:focus-within .pd-book-tip {
+  display: block;
+}
+.pd-book-tip-title {
+  font-weight: 600;
+  word-break: break-word;
+}
+.pd-book-tip-line {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: var(--fs-aux, 12px);
+  word-break: break-word;
+}
+
+.pd-book-tagbtn {
+  position: absolute;
+  top: 4px;
+  right: 30px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: var(--bg);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--t-fast, 120ms);
+}
+.pd-book:hover .pd-book-tagbtn,
+.pd-book-tagbtn:focus-visible {
+  opacity: 1;
+}
+.pd-book-tagbtn:hover {
+  color: var(--text);
+}

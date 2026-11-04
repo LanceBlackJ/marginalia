@@ -1,0 +1,171 @@
+/*
+ * 设置页：一个完整的单页，由小面板（panels.css）组成，没有左侧导航或二级目录。
+ * 大块（.pd-spart）：2px 黑线 + 标题 16px/600 + 一行说明，大块之间 40px；
+ * 大块里是小块（.pd-sblock），宽屏上两列并排，表格类的“宽块”独占一行；
+ * 小块里每个设置项是“左：名称与说明 / 右：控件”，小块较窄时上下排；危险操作单独放在最底部。
+ */
+/* ---- 小块 ---- */
+.pd-sblock {
+  min-width: 0;
+  container-type: inline-size;
+  container-name: sblock;
+  padding-top: var(--sp-md);
+  border-top: 1px solid var(--border);
+}
+.pd-sblock-head {
+  padding: var(--sp-xs) 0;
+}
+.pd-sblock-title {
+  display: inline;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pd-sblock-desc {
+  margin-top: 2px;
+  font-size: var(--fs-aux);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.pd-sblock-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.pd-sblock-toggle:hover .pd-sblock-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-sblock-chev {
+  transition: transform var(--t-fast);
+}
+.pd-sblock-chev[data-open='true'] {
+  transform: rotate(90deg);
+}
+.pd-sblock-body > .pd-setting-row:first-child {
+  border-top: 0;
+}
+
+/* ---- 设置项：左侧标题 + 说明，右侧控件 ---- */
+.pd-setting-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 240px) minmax(0, 1fr);
+  column-gap: var(--sp-2xl);
+  align-items: start;
+  padding: var(--sp-lg) 0;
+  border-bottom: 1px solid var(--border);
+}
+.pd-setting-row:last-child {
+  border-bottom: 0;
+}
+.pd-setting-row-title {
+  font-size: var(--fs-body);
+  font-weight: 500;
+  line-height: 1.5;
+}
+.pd-setting-row-desc {
+  margin-top: 4px;
+  font-size: var(--fs-aux);
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.pd-setting-row-body {
+  min-width: 0;
+  max-width: 560px;
+}
+.pd-fields {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+}
+.pd-fields--2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-md);
+}
+.pd-price-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px 120px;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-size: var(--fs-small);
+}
+@container sblock (max-width: 600px) {
+  .pd-setting-row {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: var(--sp-sm);
+  }
+  .pd-setting-row-body {
+    max-width: none;
+  }
+}
+
+.pd-settings-section {
+  margin-top: var(--sp-xl);
+}
+.pd-settings-group {
+  margin-top: var(--sp-2xl);
+}
+.pd-settings-group > h3 {
+  margin-bottom: var(--sp-md);
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.pd-setting-placeholder {
+  padding: var(--sp-xl) 0;
+}
+.pd-kv {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: var(--sp-sm) var(--sp-md);
+  margin: 0;
+  font-size: var(--fs-small);
+}
+.pd-kv dt {
+  color: var(--text-2);
+}
+.pd-kv dd {
+  margin: 0;
+  min-width: 0;
+  word-break: break-all;
+}
+/* 提示：一行灰色小字，不做色块 */
+.pd-notice {
+  display: flex;
+  gap: var(--sp-sm);
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  line-height: 1.6;
+}
+.pd-notice svg {
+  margin-top: 3px;
+}
+.pd-notice--warning {
+  color: var(--warning-text);
+}
+.pd-notice--danger {
+  color: var(--danger);
+}
+.pd-savebar {
+  position: sticky;
+  bottom: -96px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  margin-top: var(--sp-lg);
+  padding: var(--sp-md) 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border-strong);
+}
+.pd-test-result {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-size: var(--fs-aux);
+}

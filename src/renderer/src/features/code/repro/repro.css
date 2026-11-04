@@ -1,0 +1,441 @@
+/* 复现标签：黑白、1px 线条、2px 圆角；状态靠字重、边框样式和文字区分，不用彩色底块。 */
+.pd-repro {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 16px 28px 64px;
+}
+.pd-repro-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid var(--text);
+}
+.pd-repro-title {
+  margin: 0;
+  font-size: var(--fs-subtitle);
+  font-weight: 700;
+}
+.pd-repro-sandbox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--text);
+  font-size: var(--fs-small);
+  line-height: 1.6;
+}
+.pd-repro-sandbox-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.pd-repro-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pd-repro-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.pd-repro-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pd-repro-count {
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+
+/* ---- 评估 ---- */
+.pd-repro-effort {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text);
+}
+.pd-repro-effort-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.pd-repro-level {
+  font-weight: 700;
+}
+.pd-repro-effort ul {
+  margin: 0 0 4px;
+  padding-left: 18px;
+}
+.pd-repro-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pd-repro-h3 {
+  margin: 8px 0 0;
+  padding-top: 6px;
+  border-top: 1px solid var(--text);
+  font-size: var(--fs-section);
+  font-weight: 700;
+}
+.pd-repro-h4 {
+  margin: 8px 0 4px;
+  font-size: var(--fs-small);
+  font-weight: 700;
+}
+.pd-repro-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pd-repro-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pd-repro-item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.pd-repro-item-title {
+  font-weight: 600;
+}
+.pd-repro-item-text {
+  margin: 4px 0 2px;
+  line-height: 1.65;
+}
+.pd-repro-evidence {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-aux);
+}
+.pd-repro-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pd-repro-badge[data-status='found'] {
+  border-color: var(--text);
+}
+.pd-repro-badge[data-status='missing'] {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-repro-badge[data-status='risk'] {
+  border-width: 2px;
+}
+.pd-repro-badge[data-status='uncertain'],
+.pd-repro-badge[data-status='info'] {
+  border-style: dashed;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+/* ---- 计划 ---- */
+.pd-repro-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pd-repro-step {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+}
+.pd-repro-step[data-approval='approved'] {
+  border-left: 3px solid var(--text);
+}
+.pd-repro-step[data-approval='rejected'] {
+  border-style: dashed;
+}
+.pd-repro-step[data-done='true'] .pd-repro-step-title {
+  text-decoration: line-through;
+  color: var(--text-2);
+}
+.pd-repro-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pd-repro-step-ord {
+  font-weight: 700;
+  min-width: 14px;
+}
+.pd-repro-step-title {
+  font-weight: 600;
+}
+.pd-repro-step-detail {
+  margin: 6px 0;
+  line-height: 1.65;
+  white-space: pre-line;
+}
+.pd-repro-cmd {
+  margin: 6px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pd-repro-badge[data-approval='pending'] {
+  border-style: dashed;
+}
+.pd-repro-badge[data-approval='approved'] {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.pd-repro-badge[data-approval='rejected'] {
+  text-decoration: line-through;
+}
+.pd-repro-badge[data-approval='none'] {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.pd-repro-approve {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.pd-repro-log {
+  margin: 6px 0 0;
+  padding-left: 16px;
+  color: var(--text-2);
+}
+.pd-repro-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.pd-repro-check {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---- 结果对比 ---- */
+.pd-repro-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+}
+.pd-repro-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-top: 2px solid var(--text);
+  border-bottom: 1px solid var(--text);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.pd-repro-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.pd-repro-num {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pd-repro-tol {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 90px;
+}
+.pd-repro-table tr[data-status='outside_tolerance'] td:first-child,
+.pd-repro-table tr[data-status='outside_reported_range'] td:first-child {
+  border-left: 3px solid var(--text);
+}
+.pd-repro-badge[data-compare='within_tolerance'],
+.pd-repro-badge[data-compare='within_reported_range'] {
+  border-color: var(--text);
+}
+.pd-repro-badge[data-compare='outside_tolerance'],
+.pd-repro-badge[data-compare='outside_reported_range'] {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.pd-repro-badge[data-compare='unmapped'],
+.pd-repro-badge[data-compare='not_comparable'],
+.pd-repro-badge[data-compare='no_tolerance'] {
+  border-style: dashed;
+  color: var(--text-2);
+  font-weight: 500;
+}
+.pd-repro-badge[data-kind='fact'] {
+  border-color: var(--text);
+}
+.pd-repro-badge[data-kind='conjecture'] {
+  border-style: dashed;
+  color: var(--text-2);
+}
+.pd-repro-form,
+.pd-repro-import {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  align-items: start;
+}
+.pd-repro-import {
+  grid-template-columns: 1fr;
+}
+.pd-repro-cands ul {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  padding: 8px;
+}
+.pd-repro-runbar {
+  max-width: 520px;
+}
+.pd-repro-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.pd-repro-reasons ul {
+  margin: 0;
+  padding-left: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 统一骨架下的复现页：容器宽度交给 ViewFrame，这里只管内部 */
+.pd-repro {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+}
+.pd-repro-env {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 10px 0;
+}
+
+/* ---- 隔离运行 ---- */
+.pd-repro-sub {
+  margin: 4px 0 0;
+  font-size: var(--fs-body);
+  font-weight: 700;
+}
+.pd-repro-run-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pd-repro-run-label {
+  margin-bottom: 4px;
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.pd-repro-pull {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--text);
+  font-size: var(--fs-small);
+}
+.pd-repro-limits {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.pd-repro-limit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pd-repro-mounts {
+  margin: 0;
+  padding-left: 18px;
+}
+.pd-repro-exec {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  list-style: none;
+}
+.pd-repro-exec[data-status='running'],
+.pd-repro-exec[data-status='queued'] {
+  border-color: var(--text);
+}
+.pd-repro-badge[data-exec='succeeded'],
+.pd-repro-badge[data-exec='running'] {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.pd-repro-badge[data-exec='failed'],
+.pd-repro-badge[data-exec='timeout'] {
+  border-width: 2px;
+  border-color: var(--text);
+}
+.pd-repro-badge[data-exec='cancelled'],
+.pd-repro-badge[data-exec='queued'] {
+  border-style: dashed;
+  color: var(--text-2);
+}
+.pd-repro-exec-reason {
+  margin: 0;
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.pd-repro-log-box {
+  margin: 0;
+  max-height: 280px;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.pd-repro-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}

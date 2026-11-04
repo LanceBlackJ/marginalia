@@ -1,0 +1,227 @@
+.pd-tasks {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+}
+.pd-tasks-main {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--sp-4xl) var(--gutter) 96px;
+}
+.pd-tasks-inner {
+  width: 100%;
+}
+@media (min-width: 1800px) {
+  .pd-tasks-inner {
+    max-width: 1600px;
+  }
+}
+.pd-tasks-head {
+  margin-bottom: var(--sp-lg);
+}
+
+/* 状态筛选：下划线标签页，带数量 */
+.pd-tasks-tabs {
+  display: flex;
+  gap: var(--sp-xl);
+  margin-bottom: var(--sp-xl);
+  border-bottom: 1px solid var(--border-strong);
+}
+.pd-tasks-tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+.pd-tasks-tabs button:hover {
+  color: var(--text);
+}
+.pd-tasks-tabs button[data-active='true'] {
+  color: var(--text);
+  font-weight: 600;
+}
+.pd-tasks-tabs button[data-active='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--text);
+}
+.pd-tasks-count {
+  margin-left: 6px;
+  font-size: var(--fs-aux);
+  font-weight: 400;
+  color: var(--text-3);
+}
+.pd-tasks-tabs button .pd-tasks-count {
+  margin-left: 0;
+}
+
+.pd-tasks-section + .pd-tasks-section {
+  margin-top: var(--sp-2xl);
+}
+.pd-tasks-section-title {
+  margin-bottom: var(--sp-sm);
+  padding-top: var(--sp-sm);
+  border-top: 2px solid var(--text);
+  font-size: var(--fs-section);
+  font-weight: 600;
+}
+
+/* 行式任务列表：任务名与说明 | 类型 | 进度或状态 | 时间 */
+.pd-task-list {
+  border-top: 1px solid var(--border);
+}
+.pd-task-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 128px minmax(120px, 180px) 88px 28px;
+  align-items: center;
+  gap: var(--sp-xl);
+  min-height: 56px;
+  padding: var(--sp-sm) var(--sp-sm);
+  margin: 0 calc(-1 * var(--sp-sm));
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+.pd-task-row:hover,
+.pd-task-row[data-selected='true'] {
+  background: var(--bg-hover);
+  box-shadow: inset 2px 0 0 var(--text);
+}
+.pd-task-title {
+  font-size: var(--fs-body);
+  font-weight: 500;
+}
+.pd-task-row[data-failed='true'] .pd-task-title {
+  color: var(--text);
+}
+.pd-task-type {
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-task-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-task-state--failed {
+  color: var(--danger);
+}
+.pd-task-time {
+  text-align: right;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+
+.pd-tasks-detail {
+  flex: none;
+  width: 380px;
+  overflow: auto;
+  padding: var(--sp-xl);
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+}
+.pd-tasks-error {
+  margin-top: var(--sp-md);
+  padding: var(--sp-sm) 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  color: var(--danger);
+  font-size: var(--fs-aux);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.pd-tasks-meta {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 4px var(--sp-sm);
+  margin: var(--sp-lg) 0 0;
+  font-size: var(--fs-aux);
+}
+.pd-tasks-meta dt {
+  color: var(--text-2);
+}
+.pd-tasks-meta dd {
+  margin: 0;
+  color: var(--text);
+}
+.pd-tasks-items {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-aux);
+}
+.pd-tasks-items li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.pd-tasks-items li .pd-ellipsis {
+  max-width: 200px;
+}
+.pd-tasks-log {
+  margin: 6px 0 0;
+  padding: var(--sp-sm) 0;
+  max-height: 320px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-2);
+}
+
+@media (max-width: 1250px) {
+  .pd-tasks-detail {
+    width: 320px;
+  }
+  .pd-task-row {
+    grid-template-columns: minmax(0, 1fr) 104px 84px 28px;
+  }
+  .pd-task-row .pd-task-time {
+    display: none;
+  }
+}
+
+.pd-task-del {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 28px;
+}
+.pd-tasks-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-md);
+  padding: var(--sp-lg) 0;
+  color: var(--text-2);
+}
+
+.pd-tasks-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-sm);
+  margin: calc(-1 * var(--sp-md)) 0 var(--sp-md);
+}

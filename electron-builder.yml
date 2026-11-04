@@ -1,0 +1,44 @@
+# Marginalia 打包配置（electron-builder）。构建：npm run dist（安装包 + 便携版 zip）或 npm run pack（只出未打包目录）。
+appId: app.marginalia.desktop
+productName: Marginalia
+copyright: Marginalia
+directories:
+  output: release
+  buildResources: build
+
+asar: true
+# 主进程只用 Electron 与 Node 内置模块，渲染进程的依赖已由 electron-vite 打进 out/；不再带 node_modules
+files:
+  - out/**/*
+  - package.json
+  - "!node_modules/**"
+  - "!**/*.map"
+
+# Python 后端（PyInstaller onedir，scripts/build-backend.ps1 生成）放到 resources/backend/paperdesk-backend
+extraResources:
+  - from: build/backend-dist/paperdesk-backend
+    to: backend/paperdesk-backend
+    filter:
+      - "**/*"
+
+# 使用本机已安装的 Electron 运行时，避免打包时再下载一份（版本需与 package.json 中的 electron 一致）
+electronDist: node_modules/electron/dist
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: zip
+      arch: [x64]
+  artifactName: Marginalia-${version}-${os}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Marginalia
+  deleteAppDataOnUninstall: false # 卸载时保留文献库和设置，避免误删用户数据
+  artifactName: Marginalia-Setup-${version}.${ext}

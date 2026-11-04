@@ -1,0 +1,234 @@
+/* 论文详情页：黑白极简，发丝线分层，不用卡片和底色。 */
+.pd-pp {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+}
+.pd-pp-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fs-small, 13px);
+  cursor: pointer;
+}
+.pd-pp-back:hover {
+  color: var(--text);
+}
+.pd-pp-hero {
+  display: flex;
+  gap: 28px;
+  margin-top: 20px;
+  align-items: flex-start;
+}
+.pd-pp-cover {
+  flex: none;
+  width: 168px;
+  height: 224px;
+  border: 1px solid var(--border-strong, var(--border));
+  box-shadow: inset 4px 0 0 var(--text);
+  overflow: hidden;
+  background: var(--bg);
+}
+.pd-pp-cover img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: top;
+}
+.pd-pp-cover-blank {
+  padding: 18px 14px 14px 20px;
+  font-family: var(--rd-font-title, var(--font-serif, serif));
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pd-pp-head {
+  min-width: 0;
+  flex: 1;
+}
+.pd-pp-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.pd-pp-chips span {
+  padding: 1px 8px;
+  border: 1px solid var(--border-strong, var(--border));
+  font-size: var(--fs-aux, 12px);
+}
+.pd-pp-title {
+  margin: 0 0 8px;
+  font-family: var(--rd-font-title, var(--font-serif, serif));
+  font-size: 26px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+.pd-pp-authors {
+  margin: 0 0 4px;
+  color: var(--text-muted);
+}
+.pd-pp-doi {
+  margin: 0 0 4px;
+  font-size: var(--fs-aux, 12px);
+  color: var(--text-muted);
+}
+.pd-pp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 24px 0 14px;
+}
+.pd-pp-bar {
+  height: 2px;
+  background: var(--border);
+}
+.pd-pp-bar > div {
+  height: 2px;
+  background: var(--text);
+}
+.pd-pp-barline {
+  margin: 6px 0 0;
+}
+.pd-pp-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  margin: 24px 0 8px;
+  border-top: 1px solid var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.pd-pp-stat {
+  padding: 12px 0;
+}
+.pd-pp-stat-n {
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pd-pp-stat-l {
+  font-size: var(--fs-aux, 12px);
+  color: var(--text-muted);
+}
+.pd-pp-sec {
+  margin-top: 28px;
+}
+.pd-pp-sec h2 {
+  margin: 0 0 10px;
+  font-size: var(--fs-body, 15px);
+  font-weight: 600;
+}
+.pd-pp-abstract {
+  margin: 0 0 6px;
+  font-family: var(--rd-font-body, var(--font-serif, serif));
+  line-height: 1.8;
+}
+.pd-pp-abstract.is-clamped {
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pd-pp-outline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.pd-pp-outline li {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-small, 13px);
+}
+/* 备注名、文件夹 */
+.pd-pp-alias-btn {
+  margin-left: 8px;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  vertical-align: middle;
+  opacity: 0;
+  transition: opacity var(--t-fast, 120ms);
+}
+.pd-pp-title:hover .pd-pp-alias-btn,
+.pd-pp-alias-btn:focus-visible {
+  opacity: 1;
+}
+.pd-pp-alias-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.pd-pp-alias-edit > :first-child {
+  flex: 1;
+}
+.pd-pp-original {
+  margin: 0 0 6px;
+  font-size: var(--fs-aux, 12px);
+  color: var(--text-muted);
+}
+.pd-pp-folder {
+  margin: 6px 0 4px;
+}
+.pd-pp-folder-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fs-small, 13px);
+  cursor: pointer;
+}
+.pd-pp-folder-btn:hover {
+  color: var(--text);
+}
+/* 我的笔记、和 AI 的对话 */
+.pd-pp-note-add {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.pd-pp-note-add > :first-child {
+  width: 100%;
+}
+.pd-pp-quote {
+  margin: 0 0 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--text);
+  color: var(--text-muted);
+  font-size: var(--fs-small, 13px);
+  line-height: 1.6;
+}
+
+/* 摘要的翻译：按钮一排，译文接在原文下面，用左边一条线和原文分开 */
+.pd-pp-abs-actions {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 6px;
+}
+.pd-pp-abstract--tr {
+  margin: 8px 0 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--text);
+}
+
+.pd-pp-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+}

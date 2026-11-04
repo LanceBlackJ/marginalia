@@ -1,0 +1,312 @@
+/* 图表理解面板（F5）：只用黑白灰与发丝线，不用底色块和阴影。 */
+.pd-fig-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 14px 20px;
+}
+.pd-fig-note {
+  margin: 0 0 8px;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.pd-fig-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.pd-fig-item {
+  border-bottom: 1px solid var(--border);
+}
+.pd-fig-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+}
+.pd-fig-head:hover .pd-fig-label {
+  text-decoration: underline;
+}
+.pd-fig-label {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.pd-fig-cap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+}
+.pd-fig-page {
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.pd-fig-body {
+  padding: 0 0 14px 22px;
+  font-size: var(--fs-small);
+}
+.pd-fig-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin: 2px 0 6px -8px;
+}
+.pd-fig-orig {
+  display: block;
+  max-width: 100%;
+  margin: 4px 0 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+}
+.pd-fig-start {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 6px 0;
+}
+.pd-fig-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.pd-fig-weak {
+  margin: 2px 0;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.pd-fig-p {
+  margin: 2px 0 6px;
+  line-height: 1.6;
+}
+.pd-fig-meta,
+.pd-fig-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin: 4px 0;
+}
+.pd-fig-result > section {
+  margin-top: 10px;
+}
+.pd-fig-ul {
+  margin: 4px 0;
+  padding-left: 18px;
+  line-height: 1.6;
+}
+.pd-fig-group {
+  margin: 6px 0 10px;
+}
+.pd-fig-group-title {
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--border-strong);
+  font-size: var(--fs-aux);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+.pd-fig-mods {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pd-fig-mod {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.pd-fig-mod-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.pd-fig-flows {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  line-height: 1.7;
+}
+.pd-fig-arrow {
+  color: var(--text-2);
+  padding: 0 2px;
+}
+.pd-fig-panelbox {
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.pd-fig-tablewrap {
+  overflow-x: auto;
+}
+.pd-fig-table {
+  width: 100%;
+  margin: 6px 0;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+}
+.pd-fig-table th {
+  padding: 4px 8px 4px 0;
+  text-align: left;
+  font-weight: 500;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border-strong);
+}
+.pd-fig-table td {
+  padding: 5px 8px 5px 0;
+  vertical-align: top;
+  border-bottom: 1px solid var(--border);
+}
+.pd-fig-table td[data-unverified] {
+  text-decoration: underline dashed var(--text-2);
+  text-underline-offset: 3px;
+}
+.pd-fig-ask {
+  margin-top: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.pd-fig-askrow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.pd-fig-askrow .pd-input {
+  flex: 1;
+  min-width: 0;
+}
+.pd-fig-answer {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+/* ---- 框架图流程图：黑白、细线，不用底色块和阴影 ---- */
+.pd-ff-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.pd-ff {
+  width: 100%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+}
+.pd-ff .react-flow__renderer {
+  background: transparent;
+}
+.pd-ff-node {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 2px 8px;
+  border: 1px solid var(--text);
+  border-radius: 2px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.25;
+  text-align: center;
+  cursor: pointer;
+  overflow: hidden;
+}
+.pd-ff-node[data-uncertain='true'] {
+  border-style: dashed;
+  color: var(--text-2);
+}
+.pd-ff-node[data-selected='true'] {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-ff-label {
+  overflow-wrap: anywhere;
+}
+.pd-ff-q {
+  position: absolute;
+  top: 0;
+  right: 3px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.pd-ff-handle {
+  opacity: 0;
+  pointer-events: none;
+}
+.pd-ff-group {
+  width: 100%;
+  height: 100%;
+  border: 1px solid var(--text);
+  border-radius: 2px;
+  background: transparent;
+}
+.pd-ff-group-title {
+  display: block;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--text);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.pd-ff .react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--text);
+  border-radius: 2px;
+}
+.pd-ff .react-flow__controls-button {
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+.pd-ff-legend {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.pd-ff-hint {
+  margin: 8px 0 0;
+}
+.pd-ff-detail {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--text);
+  border-radius: 2px;
+}
+.pd-ff-jumps {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+.pd-ff-full {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.45fr);
+  gap: 12px;
+  align-items: start;
+}
+.pd-ff-full-orig {
+  max-height: 600px;
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+}
+.pd-ff-full-orig img {
+  display: block;
+  max-width: 100%;
+}

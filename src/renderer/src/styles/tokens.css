@@ -1,0 +1,198 @@
+/*
+ * Marginalia 设计令牌 —— 黑白极简 / 纸质编辑感。
+ * 注意：这是按用户要求对 V2.0 §2.2 蓝色方案的有意偏离（只用黑白灰），
+ * 最终取值见 docs/FRONTEND.md。所有样式只能引用这里的变量。
+ */
+:root {
+  /* ---- 颜色：只有黑白灰（主题通过 :root[data-theme] 覆盖这一组变量；样式里不得写死颜色） ---- */
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-subtle: #f7f7f7;
+  --bg-hover: #f0f0f0;
+  --bg-active: #e5e5e5;
+  --border: #dcdcdc; /* 1px 发丝线 */
+  --border-strong: #161616;
+  --line-mid: #c4c4c4; /* 中灰线：滚动条、禁用态、开关轨道 */
+  --text: #161616;
+  --text-2: #565656; /* 对白底 7.3:1，可用于正文辅助信息 */
+  --text-3: #8c8c8c; /* 仅用于装饰 / 禁用，不用于重要文字 */
+  --accent: #161616; /* 实心控件（主按钮、选中项）的底色 */
+  --accent-2: #333333; /* 实心控件悬停 */
+  --accent-off: #c8c8c8; /* 实心控件禁用 */
+  --on-accent: #ffffff; /* 压在 accent 上的文字/图标 */
+  --reader-bg: #f4f4f4; /* PDF 画布底色 */
+  --scrim: #111111; /* 弹窗遮罩的底色（带透明度使用） */
+
+  /* 语义色：极度克制，只用于文字，且只表示真实状态 */
+  --danger: #b3261e;
+  --warning-text: #8a5a00;
+
+  /* 批注高亮：低饱和，用户可选 */
+  --hl-yellow: #f2e7a8;
+  --hl-blue: #cfe0f2;
+  --hl-green: #d3ebd5;
+  --hl-pink: #f3d6dc;
+
+  /* 阅读外观（由“阅读外观”面板写入，见 stores/prefsStore.ts 的 applyAppearance） */
+  /* 字体：分块字体由 applyAppearance 写入 --rd-font-<块>、--rd-scale-<块>、--rd-weight-<块>（块：title/body/abstract/caption/trans/ref/front/mono）；
+     这里只给正文一个默认栈（英文 Times New Roman，中文宋体），其余块没设置时回退到它。 */
+  --rd-font: 'Times New Roman', Times, 'Liberation Serif', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', 'SimSun', 'NSimSun', serif;
+  --rd-size: 16px;
+  --rd-lh: 1.78;
+  --rd-measure: 760px;
+  --rd-gap: 0.9em;
+  --rd-weight: 400;
+
+  /* ---- 兼容旧变量名（全部映射到上面的黑白灰） ---- */
+  --bg-app: var(--bg);
+  --bg-content: var(--bg);
+  --bg-secondary: var(--bg-subtle);
+  --text-secondary: var(--text-2);
+  --text-weak: var(--text-3);
+  --accent-hover: var(--accent-2);
+  --accent-active: var(--accent-2);
+  --accent-soft: var(--bg-hover);
+  --success: var(--text-2);
+  --warning: var(--warning-text);
+  --info: var(--text-2);
+  --success-soft: transparent;
+  --warning-soft: transparent;
+  --danger-soft: transparent;
+  --info-soft: transparent;
+
+  /* ---- 字体 ---- */
+  --font-sans: 'Inter', 'Microsoft YaHei UI', 'Microsoft YaHei', 'Noto Sans SC', 'PingFang SC', system-ui, sans-serif;
+  --font-mono: 'Cascadia Mono', 'Consolas', 'Microsoft YaHei UI', monospace;
+  --fs-display: 28px;
+  --fs-title: 22px;
+  --fs-subtitle: 18px;
+  --fs-section: 15px;
+  --fs-body: 14px;
+  --fs-small: 13px;
+  --fs-aux: 12px;
+  --fs-button: 13px;
+  --font-scale: 1;
+
+  /* ---- 间距（4px 体系） ---- */
+  --sp-xs: 4px;
+  --sp-sm: 8px;
+  --sp-md: 12px;
+  --sp-lg: 16px;
+  --sp-xl: 24px;
+  --sp-2xl: 32px;
+  --sp-3xl: 40px;
+  --sp-4xl: 48px;
+
+  /* ---- 圆角 ---- */
+  --r-sm: 2px;
+  --r-input: 2px;
+  --r-card: 2px;
+  --r-dialog: 2px;
+  --r-workspace: 2px;
+
+  /* ---- 阴影：仅下拉菜单 / 浮动工具栏 / 弹窗 ---- */
+  --shadow-pop: 0 0 0 1px var(--border-strong);
+  --shadow-float: 0 0 0 1px var(--border-strong);
+
+  /* ---- 动效 ---- */
+  --t-fast: 120ms;
+  --t-base: 160ms;
+
+  /* ---- 布局 ---- */
+  --gutter: 40px; /* 页面左右统一留白；顶栏标题、页面标题、列表左边缘都落在这条竖线上 */
+  --nav-w: 220px;
+  --nav-w-collapsed: 64px;
+  --topbar-h: 54px;
+  --reader-bar-h: 54px;
+  --panel-w: 380px;
+  --panel-min-w: 320px;
+  --panel-max-w: 560px;
+
+  /* ---- 层级 ---- */
+  --z-float: 40;
+  --z-menu: 60;
+  --z-dialog: 80;
+  --z-toast: 100;
+}
+
+/* ---- 主题：纸色（护眼暖白）、深灰、夜间。只换这一组变量，整站一致。 ---- */
+[data-theme='paper'] {
+  --bg: #f6f0e1;
+  --bg-subtle: #f0e9d7;
+  --bg-hover: #eae2cd;
+  --bg-active: #e0d7bf;
+  --border: #d8cfb7;
+  --border-strong: #2d2820;
+  --line-mid: #c3b99f;
+  --text: #2d2820;
+  --text-2: #62594a;
+  --text-3: #8d846f;
+  --accent: #2d2820;
+  --accent-2: #4a4336;
+  --accent-off: #cfc5ab;
+  --on-accent: #f6f0e1;
+  --reader-bg: #ebe3cf;
+  --scrim: #2d2820;
+  --danger: #a82a20;
+  --warning-text: #7d5200;
+  --hl-yellow: #ead78a;
+  --hl-blue: #c4d6e6;
+  --hl-green: #c9e0c4;
+  --hl-pink: #ecc9ce;
+}
+[data-theme='gray'] {
+  color-scheme: dark;
+  --bg: #2a2a2a;
+  --bg-subtle: #313131;
+  --bg-hover: #393939;
+  --bg-active: #444444;
+  --border: #474747;
+  --border-strong: #d2d2d2;
+  --line-mid: #5c5c5c;
+  --text: #dcdcdc;
+  --text-2: #a9a9a9;
+  --text-3: #7b7b7b;
+  --accent: #e6e6e6;
+  --accent-2: #cdcdcd;
+  --accent-off: #5a5a5a;
+  --on-accent: #1f1f1f;
+  --reader-bg: #222222;
+  --scrim: #000000;
+  --danger: #f09a93;
+  --warning-text: #e3b865;
+  --hl-yellow: #6b5f23;
+  --hl-blue: #2f4a63;
+  --hl-green: #35553a;
+  --hl-pink: #62404a;
+}
+[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #121212;
+  --bg-subtle: #191919;
+  --bg-hover: #212121;
+  --bg-active: #2b2b2b;
+  --border: #333333;
+  --border-strong: #bdbdbd;
+  --line-mid: #474747;
+  --text: #d6d6d6;
+  --text-2: #9b9b9b;
+  --text-3: #6d6d6d;
+  --accent: #e4e4e4;
+  --accent-2: #c8c8c8;
+  --accent-off: #4a4a4a;
+  --on-accent: #121212;
+  --reader-bg: #0b0b0b;
+  --scrim: #000000;
+  --danger: #f09a93;
+  --warning-text: #e3b865;
+  --hl-yellow: #5d531e;
+  --hl-blue: #28425b;
+  --hl-green: #2e4b33;
+  --hl-pink: #573843;
+}
+
+@media (max-width: 1279px) {
+  :root {
+    --gutter: 24px;
+  }
+}

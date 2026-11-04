@@ -1,0 +1,856 @@
+/* ---------- Button ---------- */
+.pd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-button);
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  user-select: none;
+}
+.pd-btn svg {
+  color: var(--text-2);
+}
+.pd-btn--sm {
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--fs-aux);
+}
+.pd-btn:hover:not(:disabled) {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--on-accent);
+}
+.pd-btn:hover:not(:disabled) svg {
+  color: var(--on-accent);
+}
+.pd-btn:active:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.pd-btn[aria-pressed='true'],
+.pd-btn[data-selected='true'] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--on-accent);
+}
+.pd-btn[aria-pressed='true'] svg,
+.pd-btn[data-selected='true'] svg {
+  color: var(--on-accent);
+}
+.pd-btn:disabled {
+  color: var(--text-3);
+  border-color: var(--line-mid);
+  background: var(--bg);
+  cursor: not-allowed;
+}
+.pd-btn:disabled svg {
+  color: var(--text-3);
+}
+.pd-btn[data-error='true'] {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.pd-btn[data-loading='true'] {
+  cursor: progress;
+}
+
+.pd-btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.pd-btn--primary svg {
+  color: var(--on-accent);
+}
+.pd-btn--primary:hover:not(:disabled) {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
+.pd-btn--primary:hover:not(:disabled) svg {
+  color: var(--on-accent);
+}
+.pd-btn--primary:active:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pd-btn--primary:disabled {
+  background: var(--accent-off);
+  border-color: var(--accent-off);
+  color: var(--on-accent);
+}
+.pd-btn--primary:disabled svg {
+  color: var(--on-accent);
+}
+
+.pd-btn--ghost {
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-2);
+}
+.pd-btn--ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: transparent;
+  color: var(--text);
+}
+.pd-btn--ghost:disabled {
+  background: transparent;
+  border-color: transparent;
+}
+
+.pd-btn--danger {
+  color: var(--danger);
+}
+.pd-btn--danger svg {
+  color: var(--danger);
+}
+.pd-btn--danger:hover:not(:disabled) {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--on-accent);
+}
+.pd-btn--danger:hover:not(:disabled) svg {
+  color: var(--on-accent);
+}
+.pd-btn--danger.pd-btn--solid {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.pd-btn--danger.pd-btn--solid:hover:not(:disabled) {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+/* ---------- IconButton ---------- */
+.pd-iconbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.pd-iconbtn--sm {
+  width: 26px;
+  height: 26px;
+}
+.pd-iconbtn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.pd-iconbtn:active:not(:disabled) {
+  background: var(--bg-active);
+}
+.pd-iconbtn[aria-pressed='true'] {
+  background: var(--text);
+  color: var(--on-accent);
+}
+.pd-iconbtn:disabled {
+  color: var(--line-mid);
+  cursor: not-allowed;
+}
+.pd-iconbtn[data-error='true'] {
+  color: var(--danger);
+}
+.pd-tooltip-host > button:disabled {
+  pointer-events: none;
+}
+
+/* ---------- Tooltip：黑底白字小块 ---------- */
+.pd-tooltip {
+  position: fixed;
+  z-index: var(--z-toast);
+  max-width: 260px;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-aux);
+  line-height: 1.5;
+  pointer-events: none;
+  white-space: pre-line;
+}
+
+/* ---------- Input ---------- */
+.pd-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.pd-input,
+.pd-textarea,
+.pd-select {
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--sp-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-input);
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-body);
+  transition: border-color var(--t-fast);
+}
+.pd-input::placeholder,
+.pd-textarea::placeholder {
+  color: var(--text-3);
+}
+.pd-input:hover:not(:disabled),
+.pd-textarea:hover:not(:disabled),
+.pd-select:hover:not(:disabled) {
+  border-color: var(--text);
+}
+.pd-input:focus,
+.pd-textarea:focus,
+.pd-select:focus {
+  outline: none;
+  border-color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--text);
+}
+.pd-input:disabled,
+.pd-textarea:disabled,
+.pd-select:disabled {
+  background: var(--bg-subtle);
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+.pd-input[aria-invalid='true'],
+.pd-textarea[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.pd-input--with-icon {
+  padding-left: 32px;
+}
+.pd-input--clearable {
+  padding-right: 30px;
+}
+.pd-input-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--text-3);
+  pointer-events: none;
+  display: flex;
+}
+.pd-input-clear {
+  position: absolute;
+  right: 3px;
+}
+.pd-textarea {
+  height: auto;
+  min-height: 72px;
+  padding: var(--sp-sm) var(--sp-md);
+  resize: vertical;
+  line-height: 1.6;
+}
+.pd-select {
+  appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236e6e6e' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.pd-select--sm {
+  height: 28px;
+  font-size: var(--fs-aux);
+}
+
+/* ---------- Field / Form ---------- */
+.pd-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pd-field-label {
+  font-size: var(--fs-aux);
+  font-weight: 500;
+  color: var(--text-2);
+}
+.pd-field-hint {
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-field-error {
+  font-size: var(--fs-aux);
+  color: var(--danger);
+}
+.pd-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  cursor: pointer;
+}
+.pd-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.pd-switch-track {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  border-radius: var(--r-sm);
+  background: var(--line-mid);
+  transition: background var(--t-fast);
+  flex: none;
+}
+.pd-switch-track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 0;
+  background: var(--on-accent);
+  transition: transform var(--t-fast);
+}
+.pd-switch input:checked + .pd-switch-track {
+  background: var(--accent);
+}
+.pd-switch input:checked + .pd-switch-track::after {
+  transform: translateX(12px);
+}
+.pd-switch input:focus-visible + .pd-switch-track {
+  outline: 1px solid var(--text);
+  outline-offset: 2px;
+}
+.pd-switch input:disabled + .pd-switch-track {
+  opacity: 0.5;
+}
+
+/* ---------- Segmented ---------- */
+.pd-segmented {
+  display: inline-flex;
+  padding: 0;
+  gap: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+.pd-segmented button {
+  height: 28px;
+  padding: 0 var(--sp-md);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.pd-segmented button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.pd-segmented button[aria-pressed='true'] {
+  background: var(--text);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.pd-segmented button:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+/* 纯文字分段：选中项加粗 + 黑色下划线 */
+.pd-segmented--text {
+  padding: 0;
+  gap: var(--sp-lg);
+  border: 0;
+  background: transparent;
+}
+.pd-segmented--text button {
+  position: relative;
+  height: 28px;
+  padding: 0;
+  border-radius: 0;
+  font-size: var(--fs-small);
+  font-weight: 400;
+}
+.pd-segmented--text button:hover:not(:disabled) {
+  background: transparent;
+}
+.pd-segmented--text button[aria-pressed='true'] {
+  background: transparent;
+  color: var(--text);
+  font-weight: 600;
+}
+.pd-segmented--text button[aria-pressed='true']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  height: 2px;
+  background: var(--text);
+}
+
+/* ---------- Tag：12px 灰色描边小标签 ---------- */
+.pd-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--line-mid);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  font-weight: 400;
+  line-height: 1;
+  white-space: nowrap;
+}
+.pd-tag--accent {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--on-accent);
+}
+.pd-tag--success,
+.pd-tag--info,
+.pd-tag--outline {
+  color: var(--text-2);
+}
+.pd-tag--warning {
+  color: var(--warning-text);
+}
+.pd-tag--danger {
+  color: var(--danger);
+}
+
+/* ---------- Spinner / Skeleton / Progress ---------- */
+.pd-spinner {
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  border-top-color: var(--text);
+  animation: pd-spin 0.8s linear infinite;
+}
+.pd-btn--primary .pd-spinner {
+  border-color: color-mix(in srgb, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+}
+@keyframes pd-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.pd-skeleton {
+  border-radius: var(--r-sm);
+  background: var(--bg-active);
+  animation: pd-pulse 1.4s ease-in-out infinite;
+}
+@keyframes pd-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.pd-progress {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--border);
+  overflow: hidden;
+}
+.pd-progress > div {
+  height: 100%;
+  background: var(--text);
+  transition: width var(--t-base);
+}
+.pd-progress--indeterminate > div {
+  width: 35% !important;
+  animation: pd-indeterminate 1.2s ease-in-out infinite;
+}
+@keyframes pd-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+/* 流式生成：闪烁的黑色光标块 */
+.pd-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 14px;
+  margin-left: 2px;
+  background: var(--text);
+  vertical-align: -2px;
+  animation: pd-blink 1s steps(1) infinite;
+}
+@keyframes pd-blink {
+  50% {
+    opacity: 0;
+  }
+}
+/* 进行中状态：黑色小圆点，轻微呼吸 */
+.pd-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text);
+  animation: pd-breathe 1.6s ease-in-out infinite;
+}
+@keyframes pd-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---------- EmptyState：一行克制的文字 + 一个次按钮 ---------- */
+.pd-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 72px var(--sp-xl);
+  text-align: center;
+  color: var(--text-2);
+}
+.pd-empty-icon {
+  display: none;
+}
+/* 页面内的空状态与页面其余内容一样，左对齐在 gutter 上 */
+.pd-page .pd-empty,
+.pd-tasks-inner .pd-empty {
+  align-items: flex-start;
+  padding: var(--sp-3xl) 0;
+  text-align: left;
+}
+.pd-empty-title {
+  font-size: var(--fs-body);
+  font-weight: 500;
+  color: var(--text);
+}
+.pd-empty-desc {
+  max-width: 420px;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+}
+.pd-empty--danger .pd-empty-title {
+  color: var(--danger);
+}
+.pd-empty-action {
+  margin-top: var(--sp-md);
+  display: flex;
+  gap: var(--sp-sm);
+}
+
+/* ---------- Dialog ---------- */
+.pd-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-dialog);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-xl);
+  background: color-mix(in srgb, var(--scrim) 28%, transparent);
+}
+.pd-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: calc(100vh - 64px);
+  border: 1px solid var(--text);
+  border-radius: var(--r-dialog);
+  background: var(--bg);
+}
+.pd-dialog-head {
+  display: flex;
+  align-items: center;
+  padding: var(--sp-lg) var(--sp-md) var(--sp-sm) var(--sp-xl);
+}
+.pd-dialog-title {
+  flex: 1;
+  font-size: var(--fs-section);
+  font-weight: 600;
+}
+.pd-dialog-body {
+  padding: var(--sp-sm) var(--sp-xl) var(--sp-lg);
+  overflow: auto;
+}
+.pd-dialog-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-sm);
+  padding: var(--sp-md) var(--sp-xl) var(--sp-lg);
+}
+
+/* ---------- Menu ---------- */
+.pd-menu {
+  position: fixed;
+  z-index: var(--z-menu);
+  min-width: 168px;
+  padding: var(--sp-xs);
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+.pd-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  width: 100%;
+  min-height: 30px;
+  padding: 5px var(--sp-sm);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-small);
+  text-align: left;
+}
+.pd-menu-item:hover:not(:disabled),
+.pd-menu-item:focus-visible {
+  background: var(--text);
+  color: var(--on-accent);
+  outline: none;
+}
+.pd-menu-item:hover:not(:disabled) svg,
+.pd-menu-item:focus-visible svg,
+.pd-menu-item:hover:not(:disabled) .pd-menu-hint,
+.pd-menu-item:focus-visible .pd-menu-hint {
+  color: var(--on-accent);
+}
+.pd-menu-item:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+.pd-menu-item[data-danger='true'] {
+  color: var(--danger);
+}
+.pd-menu-item > span:not(.pd-menu-hint) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-menu-item svg {
+  color: var(--text-2);
+}
+.pd-menu-item[data-danger='true'] svg {
+  color: var(--danger);
+}
+.pd-menu-item .pd-menu-hint {
+  margin-left: auto;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-menu-sep {
+  height: 1px;
+  margin: var(--sp-xs) 0;
+  background: var(--border);
+}
+
+/* ---------- Toast：黑底白字小块 ---------- */
+.pd-toasts {
+  position: fixed;
+  right: var(--sp-lg);
+  bottom: var(--sp-lg);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+  width: 340px;
+  max-width: calc(100vw - 32px);
+}
+.pd-toast {
+  display: flex;
+  gap: var(--sp-sm);
+  padding: var(--sp-md);
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: var(--fs-small);
+}
+.pd-toast svg {
+  color: var(--on-accent);
+}
+.pd-toast .pd-iconbtn {
+  color: color-mix(in srgb, var(--on-accent) 70%, transparent);
+}
+.pd-toast .pd-iconbtn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--on-accent) 14%, transparent);
+  color: var(--on-accent);
+}
+.pd-toast-body {
+  flex: 1;
+  min-width: 0;
+}
+.pd-toast-title {
+  font-weight: 500;
+}
+.pd-toast-desc {
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--on-accent) 72%, transparent);
+  font-size: var(--fs-aux);
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+/* ---------- Surface：只留一条发丝线 ---------- */
+.pd-surface {
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+/* ---------- Table：行式、发丝线 ---------- */
+.pd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+}
+.pd-table th {
+  padding: var(--sp-sm) var(--sp-md) var(--sp-sm) 0;
+  border-bottom: 1px solid var(--text);
+  text-align: left;
+  font-size: var(--fs-aux);
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.pd-table td {
+  padding: var(--sp-md) var(--sp-md) var(--sp-md) 0;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+.pd-table tr:last-child td {
+  border-bottom: 0;
+}
+.pd-table tbody tr[data-clickable='true'] {
+  cursor: pointer;
+}
+.pd-table tbody tr[data-clickable='true']:hover {
+  background: var(--bg-hover);
+}
+.pd-table tbody tr[data-selected='true'] {
+  background: var(--bg-hover);
+}
+
+/* ---------- Markdown ---------- */
+.pd-md {
+  font-size: var(--fs-body);
+  line-height: 1.65;
+  word-break: break-word;
+}
+.pd-md > :first-child {
+  margin-top: 0;
+}
+.pd-md > :last-child {
+  margin-bottom: 0;
+}
+.pd-md p {
+  margin: 0 0 var(--sp-sm);
+}
+.pd-md ul,
+.pd-md ol {
+  margin: 0 0 var(--sp-sm);
+  padding-left: 20px;
+}
+.pd-md li {
+  margin: 2px 0;
+}
+.pd-md h1,
+.pd-md h2,
+.pd-md h3,
+.pd-md h4 {
+  margin: var(--sp-md) 0 var(--sp-xs);
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.pd-md code {
+  padding: 1px 4px;
+  border-radius: var(--r-sm);
+  background: var(--bg-hover);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+.pd-md pre {
+  margin: 0 0 var(--sp-sm);
+  padding: var(--sp-sm) var(--sp-md);
+  overflow: auto;
+  border-radius: var(--r-sm);
+  background: var(--bg-hover);
+}
+.pd-md pre code {
+  padding: 0;
+  background: none;
+}
+.pd-md blockquote {
+  margin: 0 0 var(--sp-sm);
+  padding-left: var(--sp-md);
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+}
+.pd-md table {
+  margin-bottom: var(--sp-sm);
+  border-collapse: collapse;
+  font-size: var(--fs-aux);
+}
+.pd-md th,
+.pd-md td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+}
+
+/* 引用：灰色下划线文字 “p.3” */
+.pd-cite {
+  display: inline;
+  margin: 0 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  font-weight: 500;
+  line-height: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+  white-space: nowrap;
+  transition: color var(--t-fast), text-decoration-color var(--t-fast);
+}
+button.pd-cite:hover {
+  color: var(--text);
+  text-decoration-color: var(--text);
+}
+.pd-cite--invalid {
+  text-decoration: underline dotted;
+  text-decoration-color: var(--text-3);
+  color: var(--text-2);
+  font-weight: 400;
+  cursor: help;
+}

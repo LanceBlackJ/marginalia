@@ -1,0 +1,102 @@
+/* 图片放大查看器：挂在 body 上，固定铺满视口，图在可见窗口正中。黑白，深色主题下同样成立。 */
+.pd-lb {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-dialog, 50) + 20);
+  background: rgba(8, 8, 8, 0.86);
+  overscroll-behavior: contain;
+  color: #f2f2f2;
+}
+.pd-lb-stage {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  cursor: zoom-out;
+  touch-action: none;
+}
+.pd-lb-img {
+  display: block;
+  max-width: 92vw;
+  max-height: 88vh;
+  object-fit: contain;
+  background: #ffffff; /* 论文截图本身是白底 */
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  user-select: none;
+  -webkit-user-drag: none;
+  will-change: transform;
+}
+.pd-lb-wait {
+  width: min(560px, 80vw);
+}
+.pd-lb-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 2px;
+  background: transparent;
+  color: #f2f2f2;
+  cursor: pointer;
+}
+.pd-lb-btn:hover:not(:disabled) {
+  background: #f2f2f2;
+  color: #111111;
+}
+.pd-lb-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.pd-lb-btn:focus-visible {
+  outline: 2px solid #f2f2f2;
+  outline-offset: 2px;
+}
+.pd-lb-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+}
+.pd-lb-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(8, 8, 8, 0.7);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.pd-lb-pct {
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.pd-lb-hint {
+  margin-left: 4px;
+  color: rgba(242, 242, 242, 0.7);
+}
+
+/* 缩略图按钮：包住 <img>，点击打开 Lightbox */
+.pd-zoomimg {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: zoom-in;
+  text-align: center;
+  color: inherit;
+}
+.pd-zoomimg:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}

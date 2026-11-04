@@ -1,0 +1,340 @@
+/* 便签纸：淡淡的纸色底、顶上一小条胶带、右下角折起一个角。颜色用主题变量调出来，夜间主题下也自然。 */
+:root {
+  --sticky-bg: color-mix(in srgb, #f0dc8c 22%, var(--bg));
+  --sticky-fold: color-mix(in srgb, var(--text) 16%, var(--bg));
+}
+.pd-sticky-grid {
+  column-width: 250px;
+  column-gap: 18px;
+  padding-top: 12px;
+  margin: 0;
+  list-style: none;
+}
+.pd-sticky {
+  position: relative;
+  box-sizing: border-box;
+  break-inside: avoid;
+  margin: 0 0 18px;
+  padding: 18px 16px 14px;
+  background: var(--sticky-bg);
+  border: 1px solid var(--border-strong, var(--border));
+  border-bottom-right-radius: 14px;
+  list-style: none;
+}
+.pd-sticky::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: 50%;
+  width: 46px;
+  height: 14px;
+  transform: translateX(-50%) rotate(-2deg);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  border: 1px solid var(--border);
+}
+.pd-sticky::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 16px;
+  height: 16px;
+  background: linear-gradient(135deg, var(--bg) 50%, var(--sticky-fold) 50%);
+  border-top: 1px solid var(--border-strong, var(--border));
+  border-left: 1px solid var(--border-strong, var(--border));
+}
+/* 已有的笔记卡片样式在别处，这里盖过它的底色和边框，其余布局沿用 */
+.pd-note.pd-sticky,
+.pd-notes-list.pd-sticky-grid > li.pd-sticky {
+  background: var(--sticky-bg);
+  border: 1px solid var(--border-strong, var(--border));
+  border-bottom-right-radius: 14px;
+  padding: 18px 16px 14px;
+  margin: 0 0 18px;
+}
+.pd-sticky--preview {
+  margin: 10px 0 0;
+}
+.pd-note-preview {
+  margin-top: 4px;
+}
+
+/* 笔记正文里的 Markdown：字号和间距收紧，适合便签 */
+.pd-note-md {
+  font-size: var(--fs-small, 13.5px);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.pd-note-md .pd-md > :first-child {
+  margin-top: 0;
+}
+.pd-note-md .pd-md > :last-child {
+  margin-bottom: 0;
+}
+.pd-note-md p,
+.pd-note-md ul,
+.pd-note-md ol,
+.pd-note-md blockquote,
+.pd-note-md pre {
+  margin: 0 0 8px;
+}
+.pd-note-md h1,
+.pd-note-md h2,
+.pd-note-md h3,
+.pd-note-md h4 {
+  margin: 10px 0 6px;
+  font-size: 1em;
+  font-weight: 700;
+}
+.pd-note-md ul,
+.pd-note-md ol {
+  padding-left: 1.4em;
+}
+.pd-note-md code {
+  padding: 0 4px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  font-size: 0.92em;
+}
+.pd-note-md pre {
+  padding: 8px 10px;
+  overflow-x: auto;
+  background: color-mix(in srgb, var(--text) 7%, transparent);
+}
+.pd-note-md pre code {
+  padding: 0;
+  background: none;
+}
+.pd-note-md blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--text);
+  color: var(--text-muted);
+}
+.pd-note-md table {
+  border-collapse: collapse;
+  font-size: 0.95em;
+}
+.pd-note-md th,
+.pd-note-md td {
+  padding: 3px 8px;
+  border: 1px solid var(--border-strong, var(--border));
+}
+.pd-note-md .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}
+.pd-sticky-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: var(--fs-aux, 12px);
+}
+
+/* ---- 就地书写：新建便签的格子、正在写的便签 ---- */
+.pd-sticky-new {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 132px;
+  margin: 0 0 18px;
+  break-inside: avoid;
+  padding: 18px 16px;
+  background: transparent;
+  border: 1px dashed var(--border-strong, var(--border));
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-small, 13px);
+  cursor: pointer;
+  transition: border-color var(--t-fast, 120ms), color var(--t-fast, 120ms), background var(--t-fast, 120ms);
+}
+.pd-sticky-new:hover,
+.pd-sticky-new:focus-visible {
+  border-color: var(--text);
+  border-style: solid;
+  color: var(--text);
+  background: var(--sticky-bg);
+}
+.pd-sticky-new-hint {
+  font-size: var(--fs-aux, 12px);
+  color: var(--text-muted);
+  opacity: 0.8;
+}
+.pd-sticky--edit {
+  border-color: var(--text);
+}
+.pd-sticky-head {
+  margin-bottom: 6px;
+  font-size: var(--fs-aux, 12px);
+  color: var(--text-muted);
+}
+.pd-sticky-text {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 96px;
+  margin: 0;
+  padding: 0;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-small, 13.5px);
+  line-height: 1.7;
+}
+.pd-sticky-text::placeholder {
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+.pd-sticky-previewbox {
+  min-height: 96px;
+}
+.pd-sticky-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dotted var(--border-strong, var(--border));
+}
+.pd-sticky-modes {
+  display: inline-flex;
+  gap: 2px;
+}
+.pd-sticky-modes button {
+  background: none;
+  border: 0;
+  padding: 2px 8px;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-aux, 12px);
+  cursor: pointer;
+}
+.pd-sticky-modes button[data-on='true'] {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+
+/* ---- 正文里的便签标记与点开的便签 ---- */
+.pd-tp-notemark {
+  background: var(--sticky-bg);
+  border-bottom: 2px solid var(--text);
+  cursor: pointer;
+}
+.pd-tp-notemark:hover {
+  background: color-mix(in srgb, #f0dc8c 45%, var(--bg));
+}
+.pd-tp-notes {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+.pd-tp-notetab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 220px;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid var(--border-strong, var(--border));
+  background: var(--sticky-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom-right-radius: 8px;
+}
+.pd-tp-notetab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-tp-notetab:hover {
+  border-color: var(--text);
+}
+.pd-notepeek {
+  position: fixed;
+  z-index: 1000;
+  filter: drop-shadow(0 4px 10px color-mix(in srgb, var(--text) 18%, transparent));
+}
+.pd-notepeek .pd-sticky {
+  margin: 0;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* 笔记折叠：超过几行就折起来，底部渐隐，点“展开”看全文 */
+.pd-clamp.is-clamped {
+  max-height: calc(var(--clamp-lines, 6) * 1.6em);
+  overflow: hidden;
+}
+.pd-clamp.is-clamped.is-fade {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.6em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.6em), transparent);
+}
+.pd-clamp-toggle {
+  display: block;
+  margin: 2px 0 0 auto;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.pd-clamp-toggle:hover {
+  color: var(--text);
+}
+
+/* 边写边渲染的笔记输入：渲染好的块、正在写的源码块、块之间的空隙 */
+.pd-live {
+  min-height: 96px;
+}
+.pd-live-block {
+  cursor: text;
+  border-radius: 2px;
+}
+.pd-live-block:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+.pd-live-text {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  resize: none;
+  background: transparent;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.pd-live-gap {
+  display: block;
+  width: 100%;
+  height: 12px;
+  padding: 0;
+  background: none;
+  border: 0;
+  cursor: text;
+}
+.pd-live-gap--end {
+  height: 36px;
+}

@@ -1,0 +1,994 @@
+/* 思维导图：黑白极简。层级只靠字号/字重与边框粗细区分，不用颜色、卡片阴影。 */
+
+/* ---------- 阅读器右侧面板 ---------- */
+.pd-mmp {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.pd-mmp-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  flex: none;
+  padding: 0 var(--sp-lg);
+  height: 40px;
+  border-bottom: 1px solid var(--text);
+}
+.pd-mmp-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-lg);
+}
+.pd-mmp-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  flex: none;
+  padding: 4px var(--sp-lg);
+  border-bottom: 1px solid var(--border);
+}
+.pd-mmp-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-xs) 0;
+}
+.pd-mmp-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 28px;
+  padding-right: var(--sp-sm);
+  border-left: 2px solid transparent;
+}
+.pd-mmp-row:hover {
+  background: var(--bg-hover);
+}
+.pd-mmp-row[data-selected='true'] {
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+  border-left-color: var(--text);
+}
+.pd-mmp-row[data-selected='true'] .pd-mmp-title,
+.pd-mmp-row[data-selected='true'] .pd-mmp-chev {
+  color: var(--bg);
+}
+.pd-mmp-chev {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+}
+.pd-mmp-chev:disabled {
+  cursor: default;
+}
+.pd-mmp-title {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--fs-small);
+  text-align: left;
+}
+.pd-mmp-row[data-root='true'] .pd-mmp-title {
+  font-weight: 600;
+}
+.pd-mmp-row[aria-level='2'] .pd-mmp-title {
+  font-weight: 500;
+}
+.pd-mmp-row[aria-level='4'] .pd-mmp-title,
+.pd-mmp-row[aria-level='5'] .pd-mmp-title {
+  color: var(--text-2);
+}
+.pd-mmp-detail {
+  flex: none;
+  max-height: 42%;
+  overflow: auto;
+  padding: var(--sp-md) var(--sp-lg);
+  border-top: 1px solid var(--text);
+  background: var(--bg);
+}
+.pd-mmp-d-title {
+  font-size: var(--fs-body);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+.pd-mmp-d-sum {
+  margin: 0 0 6px;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.6;
+}
+
+/* ---------- 工作区页面 ---------- */
+.pd-mm {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--bg);
+}
+/* 一行紧凑工具栏：返回 + 标题 | 视角 | 搜索与操作 */
+.pd-mm-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  flex: none;
+  height: 44px;
+  padding: 0 var(--sp-md);
+  border-bottom: 1px solid var(--text);
+}
+.pd-mm-bar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  flex: 1 1 0;
+  min-width: 60px;
+}
+.pd-mm-title {
+  min-width: 0;
+  font-size: var(--fs-small);
+  font-weight: 600;
+}
+.pd-mm-title-sep {
+  margin: 0 6px;
+  color: var(--text-3);
+  font-weight: 400;
+}
+.pd-mm-bar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  flex: none;
+}
+.pd-mm-bar .pd-segmented {
+  flex: none;
+}
+.pd-mm-sep {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  margin: 0 6px;
+  background: var(--border);
+}
+.pd-mm-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 150px;
+  min-width: 100px;
+  flex: 0 1 150px;
+}
+.pd-mm-search .pd-input-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.pd-mm-bar .pd-btn[aria-pressed='true'] {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* 主体：目录（可收起）| 画布 | 详情（选中节点时才出现） */
+.pd-mm-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+.pd-mm-body[data-dir='open'] {
+  grid-template-columns: 216px minmax(0, 1fr);
+}
+.pd-mm-body[data-detail='open'] {
+  grid-template-columns: minmax(0, 1fr) 340px;
+}
+.pd-mm-body[data-dir='open'][data-detail='open'] {
+  grid-template-columns: 216px minmax(0, 1fr) 340px;
+}
+@media (min-width: 1500px) {
+  .pd-mm-body[data-detail='open'] {
+    grid-template-columns: minmax(0, 1fr) 380px;
+  }
+  .pd-mm-body[data-dir='open'][data-detail='open'] {
+    grid-template-columns: 240px minmax(0, 1fr) 380px;
+  }
+}
+.pd-mm-canvas {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+.pd-mm-body[data-dir='open'] > .pd-mm-canvas {
+  border-left: 1px solid var(--border);
+}
+.pd-mm-body[data-detail='open'] > .pd-mm-canvas {
+  border-right: 1px solid var(--border);
+}
+.pd-mm-flow {
+  position: absolute;
+  inset: 0;
+}
+.pd-mm-canvas .react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke-default: var(--text-3);
+  --xy-edge-stroke-width-default: 1;
+  --xy-node-boxshadow-selected-default: none;
+  font-family: var(--font-sans);
+}
+.pd-mm-canvas .react-flow__node {
+  cursor: pointer;
+}
+.pd-mm-canvas .react-flow__node.dragging {
+  cursor: grabbing;
+  z-index: 10 !important;
+}
+.pd-mm-canvas .react-flow__handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  opacity: 0;
+  border: 0;
+  background: transparent;
+}
+.pd-mm-canvas .react-flow__attribution {
+  background: transparent;
+  font-size: 10px;
+  color: var(--text-3);
+}
+.pd-mm-canvas .react-flow__attribution a {
+  color: var(--text-3);
+}
+
+/* 缩放条：画布左下角一条横排 */
+.pd-mm-zoom {
+  position: absolute;
+  left: var(--sp-md);
+  bottom: 34px;
+  z-index: 5;
+  display: flex;
+  align-items: stretch;
+  height: 26px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+}
+.pd-mm-zoom button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 26px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-aux);
+}
+.pd-mm-zoom button:hover {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-mm-zoom-pct {
+  min-width: 44px !important;
+  font-variant-numeric: tabular-nums;
+}
+.pd-mm-zoom-sep {
+  width: 1px;
+  background: var(--text);
+}
+
+/* 画布底部状态行与快捷键提示 */
+.pd-mm-status {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  height: 26px;
+  padding: 0 var(--sp-md);
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-2);
+  overflow: hidden;
+}
+.pd-mm-status > span + span::before {
+  content: '·';
+  margin-right: 12px;
+  color: var(--text-3);
+}
+.pd-mm-hint {
+  position: absolute;
+  right: var(--sp-md);
+  bottom: 34px;
+  z-index: 5;
+  width: 276px;
+  padding: 8px 10px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  font-size: var(--fs-aux);
+}
+.pd-mm-hint dl {
+  margin: 0;
+}
+.pd-mm-hint dl > div {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+}
+.pd-mm-hint dt {
+  flex: none;
+  min-width: 84px;
+  font-weight: 600;
+}
+.pd-mm-hint dd {
+  margin: 0;
+  color: var(--text-2);
+}
+.pd-mm-hint > button {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-mm-banner {
+  position: absolute;
+  top: var(--sp-md);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  max-width: calc(100% - 48px);
+  padding: 6px var(--sp-md);
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-mm-banner--warn {
+  color: var(--warning-text);
+}
+
+/* ---------- 画布节点 ----------
+ * 层级只靠字号、字重与“框的轻重”区分：根是黑块，第二层是细黑框方块，更深的只是带下划线的文字。 */
+.pd-mmn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  padding: 0 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.3;
+  border-bottom: 1px solid var(--line-mid);
+}
+.pd-mmn:hover {
+  border-bottom-color: var(--text);
+}
+.pd-mmn[data-depth='1'] {
+  padding: 0 24px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  background: var(--text);
+  color: var(--bg);
+  font-size: 16px;
+  font-weight: 700;
+}
+.pd-mmn[data-depth='2'] {
+  padding: 0 14px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  font-size: 14px;
+  font-weight: 700;
+}
+.pd-mmn[data-depth='3'] {
+  font-weight: 500;
+}
+.pd-mmn[data-depth='4'] {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.pd-mmn[data-user='true'] {
+  border-bottom-style: dashed;
+}
+.pd-mmn[data-depth='2'][data-user='true'] {
+  border-style: dashed;
+}
+.pd-mmn[data-match='true'] {
+  background: var(--hl-yellow);
+}
+.pd-mmn[data-depth='1'][data-match='true'] {
+  background: var(--text);
+  outline: 2px dashed var(--text);
+  outline-offset: 2px;
+}
+.pd-mmn[data-selected='true'] {
+  border-bottom: 2px solid var(--text);
+  font-weight: 700;
+}
+.pd-mmn[data-depth='2'][data-selected='true'] {
+  border-width: 2px;
+}
+.pd-mmn[data-depth='1'][data-selected='true'] {
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--text);
+}
+/* 拖到它上面放开就会成为它的子节点 / 同级：反色提示 */
+.pd-mmn[data-drop='true'] {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.pd-mmn-t {
+  flex: 1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  word-break: break-word;
+}
+.pd-mmn-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 4px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+/* 折叠按钮：节点右缘外侧的小方块，折叠时显示被收起的子节点数 */
+.pd-mmn-tg {
+  position: absolute;
+  right: -9px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  text-align: center;
+}
+.pd-mmn-tg:hover {
+  background: var(--text);
+  color: var(--bg);
+}
+
+/* ---------- 左侧目录（可收起） ---------- */
+.pd-mmd {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+.pd-mmd-h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: none;
+  padding: var(--sp-md) var(--sp-md) 4px;
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+.pd-mmd-clear {
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+/* 类型过滤：纯文字，选中项加粗并带下划线，不再是一堆带框的块 */
+.pd-mmd-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  flex: none;
+  padding: 0 var(--sp-md) var(--sp-sm);
+}
+.pd-mmd-kind {
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+}
+.pd-mmd-kind span {
+  margin-left: 2px;
+  color: var(--text-3);
+}
+.pd-mmd-kind:hover {
+  color: var(--text);
+}
+.pd-mmd-kind[aria-pressed='true'] {
+  border-bottom-color: var(--text);
+  color: var(--text);
+  font-weight: 700;
+}
+.pd-mmd-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: var(--sp-md);
+}
+.pd-mmd-empty {
+  padding: var(--sp-md);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+.pd-mmd-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 26px;
+  padding-right: var(--sp-sm);
+  border-left: 2px solid transparent;
+}
+.pd-mmd-row:hover {
+  background: var(--bg-hover);
+}
+.pd-mmd-row[data-selected='true'] {
+  background: var(--text);
+  color: var(--bg);
+  border-left-color: var(--text);
+}
+.pd-mmd-row[data-selected='true'] .pd-mmd-name,
+.pd-mmd-row[data-selected='true'] .pd-mmp-chev {
+  color: var(--bg);
+  font-weight: 600;
+}
+.pd-mmd-name {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--fs-small);
+  text-align: left;
+}
+.pd-mmd-name[data-depth='1'] {
+  font-weight: 700;
+}
+.pd-mmd-name[data-depth='2'] {
+  font-weight: 600;
+}
+.pd-mmd-name[data-depth='3'] {
+  color: var(--text-2);
+}
+.pd-mmd-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  width: 100%;
+  padding: 6px var(--sp-md);
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  text-align: left;
+}
+.pd-mmd-hit:hover {
+  background: var(--bg-hover);
+}
+.pd-mmd-hit[data-selected='true'] {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-mmd-hit[data-selected='true'] .pd-mmd-hit-t,
+.pd-mmd-hit[data-selected='true'] .pd-mmd-hit-s,
+.pd-mmd-hit[data-selected='true'] .pd-mmd-hit-s b {
+  color: var(--bg);
+}
+.pd-mmd-hit-t {
+  font-size: var(--fs-small);
+  color: var(--text);
+}
+.pd-mmd-hit-s {
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-mmd-hit-s b {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---------- 右侧节点详情（选中节点时才出现） ---------- */
+.pd-mmx {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg);
+}
+.pd-mmx-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  flex: none;
+  height: 34px;
+  padding: 0 var(--sp-sm) 0 var(--sp-lg);
+  border-bottom: 1px solid var(--border);
+}
+.pd-mmx-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-md) var(--sp-lg) var(--sp-xl);
+}
+.pd-mmx-empty {
+  padding: var(--sp-xl) var(--sp-lg);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.7;
+}
+.pd-mmx-empty p {
+  margin: 0 0 var(--sp-sm);
+}
+.pd-mmx-path {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.5;
+}
+.pd-mmx-title {
+  width: 100%;
+  padding: 3px 4px;
+  margin: 0 -4px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-section);
+  font-weight: 700;
+}
+.pd-mmx-title:hover {
+  border-color: var(--border);
+}
+.pd-mmx-title:focus {
+  border-color: var(--text);
+  outline: none;
+}
+.pd-mmx-sum {
+  width: 100%;
+  resize: vertical;
+  border-color: transparent;
+  padding: 4px;
+  margin: 0 -4px;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.65;
+}
+.pd-mmx-sum:hover {
+  border-color: var(--border);
+}
+.pd-mmx-sec {
+  padding: var(--sp-md) 0 var(--sp-sm);
+  border-top: 1px solid var(--text);
+  margin-top: var(--sp-md);
+}
+.pd-mmx-sec h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+.pd-mmx-evs {
+  display: flex;
+  flex-direction: column;
+}
+.pd-mmx-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-small);
+  line-height: 1.55;
+}
+.pd-mmx-stream {
+  margin-top: var(--sp-sm);
+  padding-top: var(--sp-sm);
+  border-top: 1px solid var(--border);
+}
+.pd-mmx-card {
+  margin-top: var(--sp-sm);
+  padding-top: var(--sp-sm);
+  border-top: 1px solid var(--border);
+}
+.pd-mmx-more {
+  margin-top: var(--sp-sm);
+}
+.pd-mmx-brief {
+  margin-top: var(--sp-sm);
+  border-top: 1px solid var(--border);
+}
+.pd-mmx-brief-h {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  text-align: left;
+}
+
+/* ---------- 研究提示 ---------- */
+.pd-fnd-summary {
+  margin: 0 0 var(--sp-sm);
+  color: var(--text-2);
+}
+.pd-fnd {
+  padding: var(--sp-md) 0;
+  border-top: 1px solid var(--border);
+}
+.pd-fnd[data-state='ignored'] {
+  opacity: 0.55;
+}
+.pd-fnd-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-xs);
+}
+.pd-fnd-title {
+  margin: 6px 0 2px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.pd-fnd-detail {
+  margin: 0 0 4px;
+  color: var(--text-2);
+}
+.pd-fnd-ev {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-xs);
+}
+.pd-fnd-actions {
+  display: flex;
+  gap: var(--sp-xs);
+  margin-top: 4px;
+}
+
+/* ===== 版式重做：页面头（标题 + 一行说明 + 主按钮/更多）与工具行（视角标签 + 搜索 + 操作） ===== */
+.pd-mw-head {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+.pd-mw-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  padding: 14px 24px 8px;
+}
+.pd-mw-titles {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.pd-mw-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-mw-sub {
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+.pd-mw-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+.pd-mw-tools {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-lg);
+  padding: 0 24px;
+}
+.pd-mw-tabs {
+  display: flex;
+  gap: 2px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pd-mw-tabs::-webkit-scrollbar {
+  display: none;
+}
+.pd-mw-tab {
+  flex: none;
+  margin-bottom: -1px;
+  padding: 8px 12px 9px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-body);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.pd-mw-tab:hover {
+  color: var(--text);
+}
+.pd-mw-tab[aria-selected='true'] {
+  border-bottom-color: var(--text);
+  color: var(--text);
+  font-weight: 600;
+}
+.pd-mw-tools-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  margin-left: auto;
+  padding-bottom: 6px;
+}
+@media (min-width: 1280px) {
+  .pd-mw-top,
+  .pd-mw-tools {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+}
+
+/* ---------- 逻辑框架的画法：主线阶段带序号，要点是浅灰圆角块，连线是柔和的曲线 ---------- */
+.pd-mmn {
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  padding: 0 13px;
+  transition: background var(--t-fast, 120ms), border-color var(--t-fast, 120ms), box-shadow var(--t-fast, 120ms);
+}
+.pd-mmn:hover {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg));
+  border-color: color-mix(in srgb, var(--text) 40%, transparent);
+}
+.pd-mmn[data-depth='1'] {
+  padding: 0 26px;
+  border: 1px solid var(--text);
+  border-radius: 14px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 16px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--text) 18%, transparent);
+}
+.pd-mmn[data-depth='2'] {
+  padding: 0 14px 0 9px;
+  gap: 9px;
+  border: 1.5px solid var(--text);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 700;
+}
+.pd-mmn[data-depth='2']:hover {
+  background: color-mix(in srgb, var(--text) 5%, var(--bg));
+  border-color: var(--text);
+}
+.pd-mmn[data-depth='3'] {
+  font-weight: 500;
+}
+.pd-mmn[data-depth='4'] {
+  font-size: 13px;
+  color: var(--text-2);
+}
+/* 序号圆章：阶段先后一眼就能看出来 */
+.pd-mmn-n {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.pd-mmn[data-user='true'] {
+  border: 1px dashed color-mix(in srgb, var(--text) 55%, transparent);
+}
+.pd-mmn[data-depth='2'][data-user='true'] {
+  border: 1.5px dashed var(--text);
+}
+.pd-mmn[data-selected='true'] {
+  border-color: var(--text);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--text);
+  font-weight: 700;
+}
+.pd-mmn[data-depth='2'][data-selected='true'] {
+  border-width: 1.5px;
+}
+.pd-mmn[data-match='true'] {
+  background: var(--hl-yellow);
+}
+.pd-mmn[data-drop='true'] {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-mmn-tg {
+  right: -11px;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  line-height: 18px;
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 16%, transparent);
+}
+/* 连线：柔和的曲线；从根出发的主线更粗、更深 */
+.pd-mm-canvas .react-flow__edge-path {
+  stroke: color-mix(in srgb, var(--text) 30%, transparent);
+  stroke-width: 1.5px;
+}
+.pd-mm-canvas .react-flow__edge.pd-mme-stage .react-flow__edge-path {
+  stroke: var(--text);
+  stroke-width: 2px;
+}
+
+/* 修改导图：选中节点后出现的一排按钮，不用记快捷键 */
+.pd-mm-edit {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 30px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}

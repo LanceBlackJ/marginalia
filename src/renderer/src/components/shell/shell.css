@@ -1,0 +1,344 @@
+/* ---------- 应用外壳 ---------- */
+.pd-shell {
+  display: flex;
+  height: 100%;
+  min-width: 0;
+}
+.pd-main {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.pd-content {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  position: relative;
+}
+
+/* ---------- 左侧导航：无底色，只有右侧一条发丝线 ---------- */
+.pd-nav {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  width: var(--nav-w);
+  height: 100%;
+  background: var(--bg);
+  border-right: 1px solid var(--text);
+  transition: width var(--t-base) ease;
+}
+.pd-nav[data-collapsed='true'] {
+  width: var(--nav-w-collapsed);
+}
+.pd-nav {
+  overflow: hidden;
+}
+/* 窗口宽度跨过断点时的自动收缩不做动画：否则收缩过程中文字会被挤得换行、截断 */
+.pd-nav[data-instant='true'] {
+  transition: none;
+}
+/* 导航里的文字一律不换行，放不下就省略 */
+.pd-brand,
+.pd-nav-label,
+.pd-nav-group-title,
+.pd-nav-recent-item {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 窄窗口：占位 64px 的图标条，手动展开时作为浮层盖在内容上（不挤压正文） */
+.pd-nav-slot {
+  position: relative;
+  flex: none;
+  width: var(--nav-w-collapsed);
+  height: 100%;
+}
+.pd-nav-slot > .pd-nav {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 60;
+}
+.pd-nav-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: transparent;
+}
+.pd-nav-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  height: var(--topbar-h);
+  padding: 0 var(--sp-sm) 0 var(--sp-lg);
+  flex: none;
+}
+.pd-nav[data-collapsed='true'] .pd-nav-head {
+  padding: 0;
+  justify-content: center;
+}
+.pd-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  border-radius: var(--r-sm);
+  object-fit: contain;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+.pd-brand {
+  flex: 1;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.pd-nav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--sp-sm) var(--sp-sm) var(--sp-md);
+}
+.pd-nav-group {
+  margin-bottom: var(--sp-lg);
+}
+.pd-nav-group-title {
+  padding: var(--sp-sm) var(--sp-sm) var(--sp-xs);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--text-2);
+}
+.pd-nav[data-collapsed='true'] .pd-nav-group-title {
+  height: 1px;
+  margin: var(--sp-sm) var(--sp-md);
+  padding: 0;
+  overflow: hidden;
+  background: var(--line-mid);
+  font-size: 0;
+}
+.pd-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--sp-sm);
+  margin-bottom: 1px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  text-align: left;
+  text-decoration: none;
+  position: relative;
+  transition: background var(--t-fast), color var(--t-fast);
+}
+.pd-nav-item:hover {
+  background: transparent;
+  color: var(--text);
+  text-decoration: none;
+  box-shadow: inset 2px 0 0 var(--text);
+}
+.pd-nav-item[data-active='true'],
+.pd-nav-item[data-active='true']:hover {
+  background: var(--text);
+  color: var(--on-accent);
+  font-weight: 600;
+  box-shadow: none;
+}
+.pd-nav-item svg {
+  flex: none;
+}
+.pd-nav[data-collapsed='true'] .pd-nav-item {
+  justify-content: center;
+  padding: 0;
+}
+.pd-nav[data-collapsed='true'] .pd-nav-label,
+.pd-nav[data-collapsed='true'] .pd-nav-recent {
+  display: none;
+}
+/* 收起状态下导航项外面包着 Tooltip 宿主，需要撑满整行 */
+.pd-nav .pd-tooltip-host {
+  display: flex !important;
+  width: 100%;
+}
+.pd-nav-badge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+.pd-nav[data-collapsed='true'] .pd-nav-badge {
+  position: absolute;
+  top: 2px;
+  right: 8px;
+  margin: 0;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  font-size: 10px;
+  padding: 0 3px;
+}
+.pd-nav-recent {
+  margin-top: var(--sp-sm);
+}
+.pd-nav-recent-item {
+  display: block;
+  width: 100%;
+  padding: 5px var(--sp-sm);
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  text-align: left;
+}
+.pd-nav-recent-item:hover {
+  background: transparent;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-nav-foot {
+  flex: none;
+  padding: var(--sp-sm);
+}
+/* 底部系统入口（任务中心、设置）：与上方主导航之间一条发丝线 */
+.pd-nav-system {
+  flex: none;
+  padding: var(--sp-sm);
+  border-top: 1px solid var(--border);
+}
+.pd-nav[data-collapsed='true'] .pd-nav-system {
+  padding: var(--sp-sm) var(--sp-xs);
+}
+
+/* ---------- 顶栏：只有底部发丝线 ---------- */
+.pd-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  flex: none;
+  height: var(--topbar-h);
+  padding: 0 var(--gutter);
+  background: var(--bg);
+  border-bottom: 1px solid var(--text);
+}
+.pd-crumbs {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-xs);
+  min-width: 0;
+  font-size: var(--fs-body);
+  font-weight: 700;
+}
+.pd-crumbs span.pd-crumb-sep {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.pd-crumbs .pd-crumb-sub {
+  font-weight: 400;
+  color: var(--text-2);
+}
+.pd-topbar-search {
+  width: min(360px, 30vw);
+  margin-left: auto;
+}
+/* 没有标题时（文库、发现）搜索框靠左，右侧工具靠右 */
+.pd-topbar > .pd-topbar-search:first-child {
+  width: min(440px, 45vw);
+  margin-left: 0;
+  margin-right: auto;
+}
+/* 顶栏搜索：无填充的下划线 */
+.pd-topbar-search .pd-input {
+  height: 30px;
+  border-color: transparent;
+  border-bottom-color: var(--border-strong);
+  border-radius: 0;
+  background: transparent;
+  padding-left: 26px;
+}
+.pd-topbar-search .pd-input:hover:not(:disabled) {
+  border-color: transparent;
+  border-bottom-color: var(--text-3);
+}
+.pd-topbar-search .pd-input:focus {
+  border-color: transparent;
+  border-bottom-color: var(--text);
+}
+.pd-topbar-search .pd-input-icon {
+  left: 2px;
+}
+.pd-topbar-badge {
+  position: relative;
+  display: inline-flex;
+}
+.pd-topbar-badge > .pd-nav-badge {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  margin: 0;
+  min-width: 14px;
+  height: 14px;
+  line-height: 14px;
+  font-size: 10px;
+  padding: 0 3px;
+  pointer-events: none;
+}
+
+/* ---------- 导入进度条：一行灰字 + 细线 ---------- */
+.pd-jobbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  flex: none;
+  padding: 7px var(--gutter);
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-jobbar .pd-progress {
+  flex: 0 0 160px;
+}
+.pd-jobbar--note {
+  color: var(--warning-text);
+}
+
+/* ---------- 全局状态页 ---------- */
+.pd-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+.pd-gate pre {
+  max-width: 560px;
+  max-height: 160px;
+  overflow: auto;
+  margin: var(--sp-md) 0 0;
+  padding: var(--sp-sm) var(--sp-md);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: left;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

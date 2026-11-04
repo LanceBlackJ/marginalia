@@ -1,0 +1,395 @@
+/* 页头：标题与一行说明在左，一个主按钮 + 一个“更多”在右；不再画粗线，整页只有列表顶部那一条 2px 黑线 */
+.pd-lib-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-lg);
+  margin-bottom: var(--sp-2xl);
+}
+.pd-lib-head .pd-page-subtitle {
+  margin-top: var(--sp-xs);
+}
+.pd-lib-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  margin-left: auto;
+}
+
+/* 继续阅读：最多 3 条、等宽一行；窄屏降为 2 条、更窄 1 条；只有发丝线，无卡片 */
+.pd-recent {
+  margin-bottom: var(--sp-2xl);
+}
+.pd-recent-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-xl);
+  margin-top: var(--sp-sm);
+}
+@media (max-width: 1100px) {
+  .pd-recent-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .pd-recent-row > :nth-child(3) {
+    display: none;
+  }
+}
+.pd-recent-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--sp-md) 0 0;
+  border: 0;
+  border-top: 1px solid var(--border-strong);
+  background: transparent;
+  text-align: left;
+}
+.pd-recent-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.8em;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pd-recent .pd-section-title,
+.pd-lib-main .pd-section-title {
+  font-size: var(--fs-section);
+  font-weight: 600;
+}
+.pd-recent-item:hover .pd-recent-title {
+  text-decoration: underline;
+  text-decoration-color: var(--text);
+  text-underline-offset: 3px;
+}
+.pd-recent-meta {
+  display: block;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-recent-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: var(--sp-sm);
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+
+/* 工具栏：筛选 + 计数 在左；排序 + 视图切换 在右（搜索在顶栏） */
+.pd-lib-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-lg);
+  flex-wrap: wrap;
+  padding-bottom: var(--sp-md);
+}
+.pd-lib-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-lg);
+  margin-left: auto;
+}
+
+/* 表格式行：列随容器宽度显现；窄时依次收起来源、年份、最近打开、分析状态 */
+.pd-lib-list {
+  container-type: inline-size;
+  container-name: lib;
+  border-top: 2px solid var(--text);
+}
+.pd-paper-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 56px minmax(120px, 220px) 132px 80px 96px 64px;
+  align-items: center;
+  column-gap: var(--sp-xl);
+  min-height: 64px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background var(--t-fast), box-shadow var(--t-fast);
+}
+/* hover：不上底色，左侧出现一条黑色竖线，标题加下划线 */
+.pd-paper-row:hover:not(.pd-paper-row--head) {
+  box-shadow: inset 2px 0 0 var(--text);
+}
+.pd-paper-row:hover:not(.pd-paper-row--head) .pd-paper-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-paper-row:focus-visible {
+  outline-offset: -2px;
+}
+.pd-paper-row--head {
+  min-height: 36px;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-bottom-color: var(--text);
+  cursor: default;
+  font-size: var(--fs-aux);
+  font-weight: 600;
+  color: var(--text);
+}
+.pd-paper-main {
+  min-width: 0;
+}
+.pd-paper-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pd-paper-meta {
+  margin-top: 2px;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+}
+.pd-meta-year,
+.pd-meta-source {
+  display: none;
+}
+.pd-col {
+  min-width: 0;
+  font-size: var(--fs-small);
+  color: var(--text-2);
+}
+.pd-col-year {
+  font-variant-numeric: tabular-nums;
+}
+.pd-col-time {
+  text-align: left;
+  font-size: var(--fs-aux);
+}
+.pd-weak-text {
+  color: var(--text-3);
+}
+.pd-paper-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-paper-progress .pd-progress {
+  width: 56px;
+  flex: none;
+}
+.pd-paper-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.pd-status-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-aux);
+}
+.pd-status-text--danger {
+  color: var(--danger);
+}
+.pd-status-text--warning {
+  color: var(--warning-text);
+}
+
+@container lib (max-width: 1000px) {
+  .pd-paper-row {
+    grid-template-columns: minmax(0, 1fr) 56px 132px 80px 96px 64px;
+  }
+  .pd-col-source {
+    display: none;
+  }
+  /* 来源列收起后，把来源并入作者行 */
+  .pd-meta-source {
+    display: inline;
+  }
+}
+@container lib (max-width: 860px) {
+  .pd-paper-row {
+    grid-template-columns: minmax(0, 1fr) 132px 80px 96px 64px;
+  }
+  .pd-col-year {
+    display: none;
+  }
+  .pd-meta-year {
+    display: inline;
+  }
+}
+@container lib (max-width: 740px) {
+  .pd-paper-row {
+    grid-template-columns: minmax(0, 1fr) 132px 80px 64px;
+  }
+  .pd-col-time {
+    display: none;
+  }
+}
+@container lib (max-width: 600px) {
+  .pd-paper-row {
+    grid-template-columns: minmax(0, 1fr) 132px 64px;
+  }
+  .pd-col-analysis {
+    display: none;
+  }
+}
+
+/* 紧凑网格：同样去盒子化，只用发丝线分隔 */
+.pd-lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  column-gap: var(--sp-2xl);
+  border-top: 2px solid var(--text);
+}
+.pd-paper-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: var(--sp-lg) 0 var(--sp-sm);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.pd-paper-card:hover .pd-paper-card-title {
+  text-decoration: underline;
+  text-decoration-color: var(--text);
+  text-underline-offset: 3px;
+}
+.pd-paper-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.8em;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pd-paper-card-foot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: var(--sp-sm);
+}
+
+/* ---- 论文标签：黑白细边小标记，不用颜色 ---- */
+.pd-taglist {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.pd-taglist--row {
+  margin-top: 6px;
+}
+.pd-ptag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-aux);
+  line-height: 1;
+  white-space: nowrap;
+}
+.pd-ptag--more {
+  border-color: var(--border);
+  color: var(--text-2);
+}
+.pd-ptag--btn {
+  cursor: pointer;
+  border-color: var(--border);
+  color: var(--text-2);
+}
+.pd-ptag--btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.pd-ptag-x {
+  display: inline-flex;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pd-ptag-x:hover {
+  color: var(--text);
+}
+.pd-tagedit {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.pd-tagedit-paper {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- 导出对话框 ---- */
+.pd-export-preview {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.pd-export-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-small);
+}
+
+
+/* ---- 重新解析：有新版解析的小提示、列表顶部的提示条 ---- */
+.pd-reparse-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+.pd-reparse-hint:hover {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.pd-reparse-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--text);
+  font-size: var(--fs-small);
+  color: var(--text-2);
+}
+.pd-reparse-banner span {
+  flex: 1;
+  min-width: 0;
+}

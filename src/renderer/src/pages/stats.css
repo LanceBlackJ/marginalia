@@ -1,0 +1,141 @@
+/* 统计页：黑白，发丝线分层，条形只用实心黑条 */
+.pd-st {
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 24px 32px 64px;
+}
+.pd-st-bigs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin: 24px 0 8px;
+  border-top: 1px solid var(--text);
+  border-bottom: 1px solid var(--border);
+}
+.pd-st-big {
+  padding: 14px 0;
+}
+.pd-st-big-n {
+  font-size: 28px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.pd-st-big-l {
+  font-size: var(--fs-small, 13px);
+}
+.pd-st-big-h {
+  margin-top: 2px;
+  font-size: var(--fs-aux, 12px);
+  color: var(--text-muted);
+}
+.pd-st-sec {
+  margin-top: 28px;
+}
+.pd-st-sec h2 {
+  margin: 0 0 10px;
+  font-size: var(--fs-body, 15px);
+  font-weight: 600;
+}
+.pd-st-cols {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  column-gap: 40px;
+}
+.pd-st-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.pd-st-bars li {
+  display: grid;
+  grid-template-columns: minmax(0, 11em) 1fr 3em;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-small, 13px);
+}
+.pd-st-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-st-bar-track {
+  display: block;
+  height: 6px;
+  background: var(--border);
+}
+.pd-st-bar-track > span {
+  display: block;
+  height: 6px;
+  background: var(--text);
+}
+.pd-st-bar-n {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 日历方框图（Codeforces / GitHub 那种）---- */
+.pd-cal-scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.pd-cal-label {
+  font-size: 10px;
+  fill: var(--text-2);
+}
+.pd-cal-cell {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.pd-cal-l0 {
+  fill: transparent;
+}
+.pd-cal-l1 {
+  fill: color-mix(in srgb, var(--text) 18%, transparent);
+}
+.pd-cal-l2 {
+  fill: color-mix(in srgb, var(--text) 40%, transparent);
+}
+.pd-cal-l3 {
+  fill: color-mix(in srgb, var(--text) 65%, transparent);
+}
+.pd-cal-l4 {
+  fill: var(--text);
+}
+.pd-cal-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-cal-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pd-cal-legend i {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  border: 1px solid var(--border);
+}
+.pd-cal-legend i.pd-cal-l0 {
+  background: transparent;
+}
+.pd-cal-legend i.pd-cal-l1 {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+.pd-cal-legend i.pd-cal-l2 {
+  background: color-mix(in srgb, var(--text) 40%, transparent);
+}
+.pd-cal-legend i.pd-cal-l3 {
+  background: color-mix(in srgb, var(--text) 65%, transparent);
+}
+.pd-cal-legend i.pd-cal-l4 {
+  background: var(--text);
+}

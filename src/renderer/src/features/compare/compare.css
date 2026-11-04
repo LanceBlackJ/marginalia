@@ -1,0 +1,460 @@
+/* 多论文比较：黑白极简。左侧选择与历史，右侧结果；表格与关系图只用黑白灰。 */
+
+.pd-cmp-layout {
+  margin-top: var(--sp-xl);
+  display: grid;
+  grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
+  gap: var(--sp-3xl);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .pd-cmp-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--sp-2xl);
+  }
+}
+.pd-cmp-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+  min-width: 0;
+}
+.pd-cmp-main {
+  min-width: 0;
+}
+.pd-cmp-h {
+  font-size: var(--fs-aux);
+  font-weight: 500;
+  color: var(--text-2);
+  margin: 0;
+}
+.pd-cmp-picker {
+  max-height: 280px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.pd-cmp-pick {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  column-gap: var(--sp-sm);
+  align-items: start;
+  padding: 7px 4px;
+  font-size: var(--fs-small);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.pd-cmp-pick:last-child {
+  border-bottom: 0;
+}
+.pd-cmp-pick:hover {
+  background: var(--bg-hover);
+}
+.pd-cmp-pick input {
+  margin-top: 3px;
+  accent-color: var(--accent);
+}
+.pd-cmp-pick-title {
+  line-height: 1.45;
+}
+.pd-cmp-pick .pd-dc-sub {
+  grid-column: 2;
+}
+.pd-cmp-pre {
+  margin-top: var(--sp-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pd-cmp-pre-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-small);
+}
+.pd-cmp-pre-list li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: var(--sp-sm);
+  align-items: center;
+}
+.pd-cmp-pre-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-cmp-letter {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 3px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+.pd-cmp-history {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border);
+}
+.pd-cmp-history li {
+  display: flex;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border);
+}
+.pd-cmp-history li.is-active {
+  background: var(--bg-hover);
+}
+.pd-cmp-history li > button:first-child {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 8px 4px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: inherit;
+  color: inherit;
+}
+.pd-cmp-history li > button:first-child:hover .pd-cmp-history-title {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-cmp-history-title {
+  font-size: var(--fs-small);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.pd-cmp-del {
+  background: none;
+  border: 0;
+  padding: 10px 6px;
+  cursor: pointer;
+  color: var(--text-2);
+  display: inline-flex;
+}
+.pd-cmp-del:hover {
+  color: var(--danger);
+}
+
+/* ---- 结果 ---- */
+.pd-cmp-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-lg);
+  padding-bottom: var(--sp-md);
+  border-bottom: 1px solid var(--border-strong);
+}
+.pd-cmp-title {
+  font-size: var(--fs-subtitle);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.pd-cmp-progress {
+  margin-top: var(--sp-lg);
+  max-width: 520px;
+}
+.pd-cmp-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2xl);
+  margin-top: var(--sp-xl);
+}
+.pd-cmp-warn {
+  margin: 0;
+}
+.pd-cmp-sec > .pd-cmp-h,
+.pd-cmp-two .pd-cmp-h {
+  padding-bottom: var(--sp-sm);
+  margin-bottom: var(--sp-md);
+  border-bottom: 1px solid var(--border);
+}
+.pd-cmp-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-2xl);
+}
+@media (max-width: 1100px) {
+  .pd-cmp-two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.pd-cmp-papers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-small);
+}
+.pd-cmp-papers li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--sp-sm);
+}
+.pd-cmp-papers button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.pd-cmp-papers button:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-cmp-bullets {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+  font-size: var(--fs-small);
+  line-height: 1.7;
+}
+.pd-md--inline p {
+  margin: 0;
+}
+.pd-cmp-table-wrap {
+  overflow-x: auto;
+  border-top: 1px solid var(--text);
+  border-bottom: 1px solid var(--border-strong);
+}
+.pd-cmp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-small);
+  line-height: 1.65;
+}
+.pd-cmp-table th,
+.pd-cmp-table td {
+  text-align: left;
+  vertical-align: top;
+  padding: 10px 14px 10px 0;
+  border-bottom: 1px solid var(--border);
+  min-width: 220px;
+}
+.pd-cmp-table thead th {
+  font-weight: 600;
+  border-bottom: 1px solid var(--border-strong);
+}
+.pd-cmp-table tbody th {
+  min-width: 96px;
+  width: 96px;
+  font-weight: 500;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.pd-cmp-table thead th:first-child {
+  min-width: 96px;
+}
+.pd-cmp-table tr:last-child th,
+.pd-cmp-table tr:last-child td {
+  border-bottom: 0;
+}
+
+/* 证据 chip */
+.pd-cmp-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 5px;
+  margin: 0 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text);
+  vertical-align: 1px;
+}
+button.pd-cmp-chip {
+  cursor: pointer;
+}
+button.pd-cmp-chip:hover {
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+}
+.pd-cmp-chip.is-invalid {
+  color: var(--text-2);
+  text-decoration: line-through;
+  border-style: dashed;
+  cursor: help;
+}
+
+/* 关系图 */
+.pd-cmp-graph {
+  height: 340px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-card);
+  --xy-edge-label-background-color-default: var(--bg);
+  --xy-edge-label-color-default: var(--text);
+  --xy-background-color-default: var(--bg);
+}
+.pd-cmp-graph .react-flow__edge-textbg {
+  fill: var(--bg);
+}
+.pd-cmp-graph .react-flow__edge-text {
+  font-size: 11px;
+  fill: var(--text);
+}
+.pd-cmp-graph .react-flow__attribution {
+  background: transparent;
+  font-size: 9px;
+}
+.pd-cmp-node {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 8px 34px;
+  background: var(--bg);
+  border: 1px solid var(--text);
+  border-radius: var(--r-card);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.pd-cmp-node.is-selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.pd-cmp-node .react-flow__handle {
+  width: 6px;
+  height: 6px;
+  background: var(--text);
+  border: 0;
+}
+.pd-cmp-node-label {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--text);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 600;
+}
+.pd-cmp-node-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-weight: 500;
+}
+.pd-cmp-node-year {
+  color: var(--text-2);
+  font-size: 11px;
+}
+.pd-cmp-edges {
+  list-style: none;
+  margin: var(--sp-md) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+  font-size: var(--fs-small);
+}
+.pd-cmp-note {
+  margin-top: 2px;
+  line-height: 1.6;
+}
+.pd-cmp-evrow {
+  margin-top: 4px;
+}
+
+/* 证据列表 */
+.pd-cmp-evidence {
+  list-style: none;
+  margin: var(--sp-md) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+}
+.pd-cmp-evhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px var(--sp-sm);
+}
+.pd-cmp-quote {
+  margin: 4px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-strong);
+  font-size: var(--fs-small);
+  line-height: 1.65;
+  color: var(--text-2);
+  max-width: 100ch;
+}
+
+/* ---- 版式整理：左栏按“1 选择 → 2 方式 → 3 开始”分步，右栏是结果区 ---- */
+.pd-cmp-layout {
+  margin-top: var(--sp-lg);
+  border-top: 2px solid var(--text);
+  padding-top: var(--sp-lg);
+}
+.pd-cmp-step {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-sm);
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pd-cmp-step--sep {
+  margin-top: var(--sp-xl);
+  padding-top: var(--sp-md);
+  border-top: 1px solid var(--border);
+}
+.pd-cmp-step--history {
+  margin-top: var(--sp-2xl);
+  padding-top: var(--sp-md);
+  border-top: 2px solid var(--text);
+}
+.pd-cmp-stepno {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.pd-cmp-stepaux {
+  margin-left: auto;
+  font-size: var(--fs-aux);
+  font-weight: 400;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.pd-cmp-main > .pd-empty {
+  padding-top: var(--sp-3xl);
+}

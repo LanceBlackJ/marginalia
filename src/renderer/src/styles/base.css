@@ -1,0 +1,152 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: calc(var(--fs-body) * var(--font-scale));
+  line-height: 1.65;
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+a {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+a:hover {
+  text-decoration-color: var(--text);
+}
+
+:focus-visible {
+  outline: 1px solid var(--text);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--text) 14%, transparent);
+}
+
+/* 图标：统一 1.5 线宽、跟随文字色 */
+svg.lucide {
+  stroke-width: 1.5;
+  flex: none;
+}
+
+/* 滚动条：细、浅灰 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-mid) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-mid);
+  border-radius: 0;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text);
+  background-clip: content-box;
+  border: 3px solid transparent;
+}
+
+/* 通用工具类 */
+.pd-ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-muted {
+  color: var(--text-2);
+}
+.pd-weak {
+  color: var(--text-3);
+}
+.pd-aux {
+  font-size: var(--fs-aux);
+}
+.pd-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+.pd-spacer {
+  flex: 1;
+}
+.pd-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* 页面容器：流式铺满，只保留统一 gutter；超宽屏（>1800px）设上限并左对齐，不居中 */
+.pd-page {
+  height: 100%;
+  overflow: auto;
+  padding: var(--sp-3xl) var(--gutter) 96px;
+}
+.pd-page-inner {
+  width: 100%;
+}
+@media (min-width: 1800px) {
+  .pd-page-inner {
+    max-width: 1600px;
+  }
+}
+.pd-page-title {
+  font-size: var(--fs-title);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+}
+.pd-page-subtitle {
+  margin-top: var(--sp-sm);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+.pd-section-title {
+  font-size: var(--fs-aux);
+  font-weight: 600;
+  color: var(--text);
+}

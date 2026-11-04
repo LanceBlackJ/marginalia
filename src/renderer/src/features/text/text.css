@@ -1,0 +1,723 @@
+/* 文字阅读器：提取出的论文文字是主要阅读界面。黑白、细线、靠字号字重间距拉开层次，不用底色块和阴影。 */
+.pd-textreader {
+  /* 和 PDF 视图一样铺满阅读区（.pd-reader-center 是定位容器，不是 flex 容器） */
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  background: var(--bg);
+  outline: none;
+  user-select: text;
+}
+.pd-textreader--state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pd-textlayout {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 36px;
+  padding: 0 28px;
+}
+.pd-textdoc {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: var(--rd-measure, 820px);
+  padding: 8px 0 120px;
+  font-size: var(--tp-size, var(--rd-size, 16px));
+  font-family: var(--rd-font, var(--font-sans));
+  font-weight: var(--rd-weight, 400);
+}
+
+/* ---- 状态条（翻译、公式识别） ---- */
+.pd-tp-banner {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 28px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-tp-bstat {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.pd-textreader > .pd-progress {
+  position: sticky;
+  top: 41px;
+  z-index: 3;
+}
+
+/* ---- 显示选项 ---- */
+.pd-tp-opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  justify-content: flex-end;
+  padding: 10px 0 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-tp-opts label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+/* ---- 论文信息块 ---- */
+.pd-front {
+  font-family: var(--rd-font-front, var(--rd-font, var(--font-sans)));
+  padding: 18px 0 20px;
+  border-bottom: 2px solid var(--text);
+  margin-bottom: 4px;
+}
+.pd-front-title {
+  margin: 0 0 12px;
+  font-size: calc(1.75em * var(--rd-scale-front, 1));
+  line-height: 1.25;
+  font-weight: var(--rd-weight-front, 700);
+  letter-spacing: -0.012em;
+}
+.pd-front-authors {
+  margin: 0 0 8px;
+  font-size: calc(1.02em * var(--rd-scale-front, 1));
+  line-height: 1.55;
+  font-weight: 500;
+}
+.pd-front-meta {
+  margin: 0 0 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  font-size: 12px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.pd-front-aff {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-front-aff ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  line-height: 1.55;
+}
+.pd-front-other {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ---- 摘要 ---- */
+.pd-abstract {
+  font-family: var(--rd-font-abstract, var(--rd-font, var(--font-sans)));
+  margin: 22px 0 8px;
+  padding: 14px 0 6px 18px;
+  border-left: 4px solid var(--text);
+}
+.pd-abstract-label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.pd-abstract .pd-tp-p {
+  font-family: var(--rd-font-abstract, var(--rd-font, var(--font-sans)));
+  font-weight: var(--rd-weight-abstract, var(--rd-weight, 400));
+  font-size: calc(0.98em * var(--rd-scale-abstract, 1));
+  line-height: 1.75;
+}
+
+/* ---- 章节标题：层级靠字号字重和上方留白 ---- */
+.pd-tchunk {
+  /* 长文档（92 页、700+ 段）按固定数量的块分组，只渲染可见部分；不按页分块 */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 2600px;
+}
+.pd-tp-h {
+  font-family: var(--rd-font-title, var(--rd-font, var(--font-sans)));
+  position: relative;
+  margin: 2.1em 0 0.6em;
+  line-height: 1.3;
+  font-weight: var(--rd-weight-title, 700);
+  letter-spacing: -0.006em;
+}
+.pd-tp-h1 {
+  font-size: calc(1.5em * var(--rd-scale-title, 1));
+  margin-top: 2.4em;
+  padding-top: 0.55em;
+  border-top: 2px solid var(--text);
+}
+.pd-tp-h2 {
+  font-size: calc(1.22em * var(--rd-scale-title, 1));
+  padding-top: 0.4em;
+  border-top: 1px solid var(--border-strong);
+}
+.pd-tp-h3 {
+  font-size: calc(1.05em * var(--rd-scale-title, 1));
+  margin-top: 1.6em;
+  font-weight: 600;
+}
+
+/* ---- 段落 ---- */
+.pd-tp {
+  position: relative;
+  margin: 0 0 var(--rd-gap, 0.9em);
+}
+.pd-tp-p {
+  font-family: var(--rd-font-body, var(--rd-font, var(--font-sans)));
+  font-weight: var(--rd-weight-body, var(--rd-weight, 400));
+  font-size: calc(1em * var(--rd-scale-body, 1));
+  margin: 0;
+  line-height: var(--rd-lh, 1.78);
+  overflow-wrap: anywhere;
+  color: var(--text);
+}
+/* 阅读外观：两端对齐、段落首行缩进（只作用于正文段落，不动图注、表格、参考文献） */
+:root[data-justify='true'] .pd-tp:not(.pd-tp--caption):not(.pd-tp--table):not(.pd-tp--ref):not(.pd-tp--figtext) .pd-tp-p {
+  text-align: justify;
+  text-justify: inter-character;
+  hyphens: auto;
+}
+:root[data-justify='true'] .pd-abstract .pd-tp-p {
+  text-align: justify;
+  text-justify: inter-character;
+}
+:root[data-indent='true'] .pd-tp:not(.pd-tp--caption):not(.pd-tp--table):not(.pd-tp--ref):not(.pd-tp--figtext) .pd-tp-p {
+  text-indent: 2em;
+}
+/* 暗色主题：图和公式截图是白底图片，降低亮度；公式截图反色成浅字深底 */
+:root[data-theme='gray'] .pd-tp-figimg,
+:root[data-theme='dark'] .pd-tp-figimg {
+  filter: brightness(0.86) contrast(1.05);
+}
+:root[data-theme='gray'] .pd-tp-eqimg,
+:root[data-theme='dark'] .pd-tp-eqimg {
+  filter: invert(0.88) hue-rotate(180deg);
+}
+.pd-tp-first {
+  font-weight: 650;
+}
+.pd-tp-cite {
+  font-size: 0.7em;
+  line-height: 0;
+  color: var(--text-2);
+  padding-left: 1px;
+}
+.pd-tp--table .pd-tp-p {
+  font-family: var(--rd-font-mono, var(--font-mono));
+  font-weight: var(--rd-weight-mono, 400);
+  font-size: calc(0.82em * var(--rd-scale-mono, 1));
+  white-space: pre-wrap;
+}
+.pd-tp--figtext .pd-tp-p {
+  font-size: 0.78em;
+  color: var(--text-3);
+}
+.pd-tp--ref .pd-tp-p {
+  font-family: var(--rd-font-ref, var(--rd-font, var(--font-sans)));
+  font-weight: var(--rd-weight-ref, var(--rd-weight, 400));
+  font-size: calc(0.82em * var(--rd-scale-ref, 1));
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.pd-tp--untranslated .pd-tp-p {
+  color: var(--text-2);
+}
+
+/* ---- 图注、表注：带标签的缩进小块，不再是一大块灰字 ---- */
+.pd-tp--caption {
+  margin: 1.2em 0 1.4em;
+}
+.pd-tp-cap {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--border-strong);
+}
+.pd-tp-cap-label {
+  font-size: 0.82em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  padding-top: 0.28em;
+}
+.pd-tp--caption .pd-tp-p {
+  font-family: var(--rd-font-caption, var(--rd-font, var(--font-sans)));
+  font-weight: var(--rd-weight-caption, var(--rd-weight, 400));
+  font-size: calc(0.9em * var(--rd-scale-caption, 1));
+  line-height: 1.65;
+  color: var(--text-2);
+}
+.pd-tp-cap-title {
+  color: var(--text);
+  font-weight: 650;
+}
+
+/* ---- 对照：译文黑色细左线、稍大；原文略淡 ---- */
+.pd-tp--pair > .pd-tp-p:first-of-type,
+.pd-tp--pair > .pd-tp-cap {
+  color: var(--text-2);
+}
+.pd-tp--pair > .pd-tp-p:first-of-type {
+  font-size: 0.94em;
+}
+.pd-tp-trans {
+  font-family: var(--rd-font-trans, var(--rd-font, var(--font-sans)));
+  font-weight: var(--rd-weight-trans, var(--rd-weight, 400));
+  font-size: calc(1em * var(--rd-scale-trans, 1));
+}
+.pd-tp-tr {
+  margin-top: 6px;
+  padding-left: 12px;
+  border-left: 2px solid var(--text);
+}
+.pd-tp-trans.pd-tp-tr {
+  font-size: calc(1.03em * var(--rd-scale-trans, 1));
+}
+
+/* ---- 边距页码：默认隐藏；打开“显示页码”后只在左边距显示很淡的小数字，悬停变清楚 ---- */
+.pd-tp-pg {
+  display: none;
+}
+.pd-textdoc[data-pages='true'] .pd-tp-pg {
+  display: block;
+  position: absolute;
+  left: -34px;
+  top: 0.35em;
+  width: 26px;
+  text-align: right;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-3);
+  opacity: 0.55;
+  user-select: none;
+  pointer-events: none;
+}
+.pd-textdoc[data-pages='true'] .pd-tp:hover > .pd-tp-pg,
+.pd-textdoc[data-pages='true'] .pd-tp-h:hover > .pd-tp-pg {
+  opacity: 1;
+  color: var(--text);
+}
+
+/* ---- 搜索 / 批注 / 证据跳转 ---- */
+.pd-tp[data-hit='hit'] {
+  box-shadow: inset 2px 0 0 var(--border-strong);
+  padding-left: 10px;
+  margin-left: -10px;
+}
+.pd-tp[data-hit='active'] {
+  box-shadow: inset 3px 0 0 var(--text);
+  padding-left: 10px;
+  margin-left: -10px;
+}
+.pd-tp-hit {
+  background: var(--text);
+  color: var(--bg);
+  padding: 0 1px;
+}
+.pd-tp-ann {
+  cursor: pointer;
+}
+.pd-tp[data-flash='0'] {
+  animation: pd-tflash-a 2.6s ease-out;
+}
+.pd-tp[data-flash='1'] {
+  animation: pd-tflash-b 2.6s ease-out;
+}
+@keyframes pd-tflash-a {
+  0%,
+  35% {
+    background: var(--hl-yellow);
+  }
+  100% {
+    background: transparent;
+  }
+}
+@keyframes pd-tflash-b {
+  0%,
+  35% {
+    background: var(--hl-yellow);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+/* ---- 公式：自动识别后用 KaTeX 排版，居中、编号靠右 ---- */
+.pd-tp-formula {
+  margin: 0.4em 0;
+}
+.pd-tp-eqrow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  column-gap: 12px;
+}
+.pd-tp-eqmath {
+  overflow-x: auto;
+  overflow-y: hidden;
+  text-align: center;
+  font-size: 1.05em;
+}
+.pd-tp-eqno {
+  color: var(--text-2);
+  font-size: 0.92em;
+}
+.pd-tp-eqwait {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.pd-tp-eqimg {
+  display: block;
+  max-width: 100%;
+  max-height: 160px;
+  object-fit: contain;
+  margin: 6px auto 0;
+}
+.pd-tp-eqimg--small {
+  max-height: 64px;
+  opacity: 0.8;
+}
+.pd-tp-mono {
+  font-family: var(--rd-font-mono, var(--font-mono));
+  font-size: 0.82em;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+.pd-tp-formula-tools {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-tp-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.pd-tp-link:hover {
+  background: var(--text);
+  color: var(--bg);
+  text-decoration: none;
+}
+.pd-tp-link:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+.pd-tp-fig {
+  margin-top: 4px;
+  padding-left: 12px;
+}
+.pd-tp-figimg {
+  display: block;
+  max-width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+}
+.pd-tp-figkind {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-3, var(--text-2));
+}
+.pd-tp-figkind-raster {
+  color: var(--text-2);
+}
+.pd-tp-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ---- 参考文献、图内文字开关 ---- */
+.pd-tpage--refs {
+  margin-top: 28px;
+  border-top: 2px solid var(--text);
+}
+.pd-tp-refhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--fs-small);
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+}
+.pd-tp-noise {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 28px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+/* ---- 本文结构（右侧目录） ---- */
+.pd-toc {
+  position: sticky;
+  top: 12px;
+  flex: 0 0 200px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+  padding-top: 14px;
+  font-size: 12px;
+}
+.pd-toc-head {
+  padding-bottom: 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--text);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.pd-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pd-toc-item {
+  display: block;
+  width: 100%;
+  padding: 4px 0 4px 8px;
+  border: 0;
+  border-left: 2px solid transparent;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--text-2);
+  line-height: 1.35;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.pd-toc-item[data-level='2'] {
+  padding-left: 18px;
+}
+.pd-toc-item[data-level='3'] {
+  padding-left: 28px;
+}
+.pd-toc-item:hover {
+  color: var(--text);
+  border-left-color: var(--border-strong);
+}
+.pd-toc-item[data-active='true'] {
+  color: var(--text);
+  font-weight: 650;
+  border-left-color: var(--text);
+}
+
+/* ---- 行内数学（只处理高置信度的写法） ---- */
+.pd-tp-imath .katex {
+  font-size: 1em;
+}
+
+/* ---- 图：默认内联显示，快滚到时才加载；点击放大 ---- */
+.pd-tp-fig {
+  margin: 6px 0 10px;
+}
+.pd-tp-fig .pd-tp-figimg {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  border: 1px solid var(--border);
+}
+.pd-tp-figph {
+  height: 160px;
+  border: 1px solid var(--border);
+}
+/* ---- 表格：表头加粗黑线、数值列右对齐、细线分隔、可横向滚动 ---- */
+.pd-tp-table {
+  margin: 8px 0 12px;
+}
+/* 表格本体的线条、对齐与滚动样式见 tables.css 的 .pd-fd-wrap，带图注的表与图中数据表共用 */
+.pd-tp-unv {
+  text-decoration: underline dashed;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.pd-tp-table--wait {
+  margin: 4px 0;
+}
+
+/* ---- 重新翻译这一段：平时很淡，悬停或键盘聚焦才明显 ---- */
+.pd-tp-retr {
+  display: inline-block;
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+}
+.pd-tp:hover .pd-tp-retr,
+.pd-tp:focus-within .pd-tp-retr,
+.pd-tp-retr:disabled {
+  opacity: 1;
+}
+.pd-tp-table .pd-tp-formula-tools {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+/* 位置存疑：值在文字层里有，但不在对应的行/列——点状下划线加问号，和“未核对”（虚线）区分开 */
+.pd-tp-mis {
+  text-decoration: underline dotted;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+.pd-tp-mis::after {
+  content: '?';
+  margin-left: 1px;
+  font-size: 0.7em;
+  font-weight: 700;
+  vertical-align: super;
+}
+.pd-tp-note--mis {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* 原文里加粗的文字 */
+.pd-tp-p strong.pd-tp-b {
+  font-weight: 700;
+}
+
+/* 正文里可点击的图、表引用 */
+.pd-tp-figref {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: var(--border-strong);
+  text-underline-offset: 3px;
+}
+.pd-tp-figref:hover {
+  text-decoration-color: var(--text);
+}
+.pd-tp-figref:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.pd-tp-imath-click {
+  cursor: zoom-in;
+}
+.pd-tp-imath-click:hover {
+  background: var(--hover, rgba(0, 0, 0, 0.06));
+  border-radius: 3px;
+}
+
+/* 表格对照模式：单元格里原文下面的中文 */
+.pd-tp-celltr {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-2);
+  font-size: 0.92em;
+}
+
+/* 对照模式：标题下面一行中文标题 */
+.pd-tp-h-zh {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.88em;
+  font-weight: 500;
+  color: var(--text-2);
+}
+.pd-front-title--zh {
+  margin-top: 4px;
+  font-size: 0.8em;
+  font-weight: 500;
+  color: var(--text-2);
+}
+
+/* 保留下来的选区（去右边面板提问时，浏览器取消了选择，但提问仍针对这段话） */
+.pd-tp-selkeep {
+  background: color-mix(in srgb, var(--text) 16%, transparent);
+  border-bottom: 1px solid var(--text);
+}
+
+/* 让 AI 解析图：对话框里的回答和追问输入 */
+.pd-figai-turn {
+  margin-bottom: var(--sp-md);
+}
+.pd-figai-q {
+  margin: 0 0 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--text);
+  color: var(--text-2);
+  font-size: 13px;
+}
+.pd-figai-nums {
+  margin: 6px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.pd-figai-form {
+  display: flex;
+  gap: 8px;
+  margin-top: var(--sp-md);
+}
+.pd-figai-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px solid var(--border-strong, var(--border));
+  color: var(--text);
+  font: inherit;
+}
+.pd-figai-form button {
+  padding: 6px 14px;
+  background: var(--text);
+  border: 0;
+  color: var(--bg);
+  font: inherit;
+  cursor: pointer;
+}
+.pd-figai-form button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pd-tp-cap-label--btn {
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}

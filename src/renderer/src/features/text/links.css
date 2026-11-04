@@ -1,0 +1,16 @@
+/* 正文里的超链接：黑白，下划线，不用蓝色 */
+.pd-tp-a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.pd-tp-a:hover {
+  text-decoration-thickness: 2px;
+}
+.pd-tp-a:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}

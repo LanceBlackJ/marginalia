@@ -1,0 +1,140 @@
+/* 图中数据表与“本文表格”清单：黑白、细线，不用底色块与阴影。 */
+.pd-fd {
+  margin: 0.8em 0 1.2em;
+  border-top: 1px solid var(--border-strong);
+  padding-top: 6px;
+}
+.pd-fd > summary {
+  cursor: pointer;
+  font-size: 0.85em;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 4px 0;
+}
+.pd-fd-block {
+  margin: 18px 0 22px;
+}
+.pd-fd-title {
+  margin: 0 0 8px;
+  font-size: 0.92em;
+  font-weight: 600;
+  text-align: left;
+}
+/* 表格外层：占满正文栏宽度，列多时横向滚动；两侧有淡淡的滚动阴影提示还能滚 */
+.pd-fd-wrap {
+  position: relative;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--text);
+  outline: none;
+  background:
+    linear-gradient(to right, var(--bg) 30%, transparent) left center / 28px 100% no-repeat local,
+    linear-gradient(to left, var(--bg) 30%, transparent) right center / 28px 100% no-repeat local,
+    linear-gradient(to right, color-mix(in srgb, var(--text) 16%, transparent), transparent) left center / 10px 100% no-repeat scroll,
+    linear-gradient(to left, color-mix(in srgb, var(--text) 16%, transparent), transparent) right center / 10px 100% no-repeat scroll;
+}
+.pd-fd-wrap:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.pd-fd-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  font-family: var(--rd-font-body, var(--rd-font, var(--font-sans)));
+  font-size: 0.88em;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+}
+.pd-fd-wrap th,
+.pd-fd-wrap td {
+  padding: 8px 12px;
+  text-align: left;
+  vertical-align: baseline;
+  /* 文字单元格自动折行，整张表尽量落在栏宽里；数值列和表头不折行（见下面 .pd-num），真的太宽才横向滚动 */
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.pd-fd-wrap th,
+.pd-fd-wrap td.pd-num {
+  white-space: nowrap;
+}
+.pd-fd-wrap td {
+  border-bottom: 1px solid var(--border);
+}
+.pd-fd-wrap tbody tr:last-child td {
+  border-bottom: 0;
+}
+/* 表头一整条连续的 2px 线：边框合并后每格的线连成一条，没有缺口 */
+.pd-fd-wrap thead th {
+  font-weight: 700;
+  border-top: 0;
+  border-bottom: 2px solid var(--text);
+}
+/* 数值列右对齐，表头与它同向 */
+.pd-fd-wrap th.pd-num,
+.pd-fd-wrap td.pd-num {
+  text-align: right;
+}
+/* 长表格横向滚动时冻结首列（行标签） */
+.pd-fd-wrap th:first-child,
+.pd-fd-wrap td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 7em;
+  background: var(--bg);
+  box-shadow: 1px 0 0 var(--border);
+  font-weight: 600;
+  text-align: left;
+}
+/* 表格下面的操作行：靠左、淡色小字，和表格左边缘对齐 */
+.pd-fd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px 18px;
+  margin-top: 8px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.pd-fd-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.pd-fd-act:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.pd-fd-act:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+/* 目录栏里的“本文表格”清单 */
+.pd-toc-sub {
+  margin-top: 14px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-strong);
+}
+.pd-toc-tables .pd-toc-item {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.pd-toc-tables .pd-toc-pg {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
