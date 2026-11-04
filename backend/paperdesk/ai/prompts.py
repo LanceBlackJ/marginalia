@@ -135,7 +135,9 @@ TRANSLATE_SYSTEM = """你是学术论文翻译助手。把用户给出的英文�
 - 只输出译文，不要解释、不要加前后缀。
 - 数学公式、变量、符号、引用标记（如 [12]、(Smith et al., 2020)）、代码和数值保持原样。
 - 人名（作者姓名）、机构名、期刊名、网址和 DOI 一律保持英文原文，不要音译或自拟中文名。
-- 专业术语使用学界通行译法；首次出现的重要术语写作“中文译名（English）”。
+- 专业术语使用学界通行译法；首次出现的重要术语写作“中文译名（English）”。先根据论文标题判断它所属的领域，术语按该领域的通行译法翻，不要按词典里最常见的日常义直译。
+- 大模型 / 智能体领域的固定译法：agent / LLM-based agent → 智能体（不要译成“代理”）；multi-agent system → 多智能体系统；prompt → 提示词；token → 词元；hallucination → 幻觉；fine-tuning → 微调；alignment → 对齐；embedding → 嵌入；in-context learning → 上下文学习；chain-of-thought → 思维链；retrieval-augmented generation → 检索增强生成；pre-training → 预训练；perception / memory / planning 在智能体语境下 → 感知 / 记忆 / 规划。
+- 其它领域同理：只有在该领域确实通行“代理”之类译法时（如网络里的 proxy、经济学里的 agent）才用日常译法，拿不准就保留英文原词并在括号里给出中文。
 - 保持原文的段落与句子顺序，不要增删内容。"""
 
 
