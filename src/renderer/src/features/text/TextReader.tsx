@@ -42,7 +42,7 @@ import { useTextPrefs } from './textPrefs'
 import { readTextSelection } from './textSelection'
 import { RefMarker, RefEntryHandlers } from './RefMarker'
 import { RefLayer } from './RefLayer'
-import { mergeParaRefs, splitByMarkers, splitSupDigits, type ParaRefs } from './refModel'
+import { mergeParaRefs, splitByMarkers, splitLooseBrackets, splitSupDigits, type ParaRefs } from './refModel'
 import { useRefStore } from './refStore'
 import './text.css'
 
@@ -177,7 +177,9 @@ function plainPieces(text: string, vocab: Vocab | null, key: number, refs: ParaR
     )
   }
   // 先按后端确认过的“按文字定位”的引用标记（[12]、refs 3、作者-年份）切开，其余再做上标与行内数学
-  const parts = refs && refs.text.length > 0 ? splitByMarkers(text, refs.text) : [{ text, refs: undefined as number[] | undefined }]
+  const exact = refs && refs.text.length > 0 ? splitByMarkers(text, refs.text) : [{ text, refs: undefined as number[] | undefined }]
+  const loose = refs?.loose
+  const parts = loose ? exact.flatMap((p) => (p.refs ? [p] : splitLooseBrackets(p.text, loose))) : exact
   // 链接要在引用角标和行内数学之前切出来：网址、DOI 里的数字不能被当成角标拆开
   const citePieces = (txt: string): ReactElement[] =>
     splitCitations(txt, vocab).map((p, i) => {
@@ -619,6 +621,9 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
   const item = parts[0]
   const paraRefsMap = useRefStore((s) => s.paraRefs)
   const refs = useMemo(() => mergeParaRefs(parts.map((p) => p.ord), paraRefsMap), [parts, paraRefsMap])
+  // 译文里的方括号编号常被改写（破折号、全角括号…），后端按原文记的标记文字对不上：译文再按“编号确实存在”认一遍
+  const validRefs = useRefStore((s) => s.valid)
+  const trRefs = useMemo<ParaRefs | null>(() => (validRefs.size > 0 ? { sup: refs?.sup ?? new Set<number>(), text: refs?.text ?? [], loose: validRefs } : refs), [refs, validRefs])
   const isCaption = item.kind === 'caption' || !!table
   // 这一段怎么读：选中它（或点左边的小按钮）后，在它下面显示；正文段落才有
   const paraOrd = useParaStore((s) => s.ord)
@@ -717,17 +722,17 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
               <div className="pd-tp-cap pd-tp-trans">
                 <span className="pd-tp-cap-label">{trCap.label}</span>
                 <p className={trClass}>
-                  {trCap.title && <strong className="pd-tp-cap-title">{renderSegs([{ text: trCap.title }], vocab, refs)} </strong>}
-                  {renderSegs([{ text: trCap.rest }], vocab, refs)}
+                  {trCap.title && <strong className="pd-tp-cap-title">{renderSegs([{ text: trCap.title }], vocab, trRefs)} </strong>}
+                  {renderSegs([{ text: trCap.rest }], vocab, trRefs)}
                 </p>
               </div>
             ) : trFirst ? (
               <p className={trClass}>
-                <strong className="pd-tp-first">{renderSegs([{ text: trFirst.first }], vocab, refs)}</strong>
-                {renderSegs([{ text: trFirst.rest }], vocab, refs)}
+                <strong className="pd-tp-first">{renderSegs([{ text: trFirst.first }], vocab, trRefs)}</strong>
+                {renderSegs([{ text: trFirst.rest }], vocab, trRefs)}
               </p>
             ) : (
-              <p className={trClass}>{renderSegs(trSegs, vocab, refs)}</p>
+              <p className={trClass}>{renderSegs(trSegs, vocab, trRefs)}</p>
             ))}
           {showTr && (
             <button type="button" className="pd-tp-link pd-tp-retr" disabled={retranslating} onClick={() => onRetranslate(parts.map((p) => p.ord))}>

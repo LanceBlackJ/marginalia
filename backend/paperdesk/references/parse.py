@@ -21,10 +21,15 @@ _BACKMATTER = re.compile(
 # 一条参考文献“写完了”的标志：以带年份的括号结尾，如 “(2002).” “(ACM, 2012).”
 _COMPLETE = re.compile(r"\((?:[^()]*?[\s,])?\d{4}[a-z]?\)\.?\s*$")
 
-_SURNAME = r"[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]*(?: [\w’'\-À-ÿ]+){0,2}?"
+# 姓氏前的小写前缀（van der Maaten, de Jong）：APA 里很常见
+_PARTICLE = r"(?:(?:van|von|de|der|den|di|da|del|della|la|le|ten|ter|bin|al|el|du|dos|das)\s+){0,2}"
+_SURNAME = _PARTICLE + r"[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]*(?: [\w’'\-À-ÿ]+){0,2}?"
 _INITIALS = r"(?:[A-ZÀ-Þ]\.[ \-]?){1,4}"
 _AUTHOR = re.compile(rf"\s*({_SURNAME}),\s*({_INITIALS})")
-_SEP = re.compile(r"\s*(?:,\s*(?:&\s*|and\s+)?|&\s*|and\s+)")
+_SEP = re.compile(r"\s*(?:,\s*(?:(?:\.\.\.|…)\s*)?(?:&\s*|and\s+)?|(?:\.\.\.|…)\s*|&\s*|and\s+)")
+# APA 的条目开头：作者（个人或机构）后面紧跟“(年份).”，如 “Smith, J. (2020).”“OpenAI. (2023).”“World Health Organization. (2020, March 5).”
+_APA_START = re.compile(r"^\s*[A-ZÀ-Þa-z][^()]{1,300}?\.?\s*\(\s*(?:19|20)\d{2}[a-z]?(?:\s*,\s*[A-Za-z]+\.?(?:\s*\d{1,2})?)?\s*\)\s*\.")
+_APA_ORG = re.compile(r"^\s*([A-ZÀ-Þ][^()]{1,100}?)\.?\s*\(\s*(?:19|20)\d{2}[a-z]?[^()]*\)\s*\.")
 _ETAL = re.compile(r"\s*,?\s*et al\.?")
 _DOI = re.compile(r"\b(10\.\d{4,9}/[^\s\"<>]+)", re.I)
 _ARXIV_NEW = re.compile(r"(?:arxiv[.:/ ]*\s*(?:abs/)?\s*|abs/\s*)(\d{4}\.\d{4,5})(v\d+)?", re.I)
@@ -58,12 +63,59 @@ def _clean(text: str) -> str:
 def detect_style(texts: list[str]) -> str:
     """'numeric'：多数条目以编号开头；'author-year'：以“姓氏, 名首字母”开头；否则 'unknown'。"""
     numbered = sum(1 for t in texts if _NUM_PREFIX.match(t))
-    author_first = sum(1 for t in texts if re.match(rf"^\s*{_SURNAME},\s*{_INITIALS}", t))
+    author_first = sum(1 for t in texts if re.match(rf"^\s*{_SURNAME},\s*{_INITIALS}", t) or _APA_START.match(t))
     if numbered >= max(2, 0.3 * len(texts)):
         return "numeric"
     if author_first >= max(2, 0.3 * len(texts)):
         return "author-year"
+    if _is_acl(texts):
+        return "author-year"
     return "unknown"
+
+
+# ACL / NLP 论文常见的“全名 + 年份 + 句点”格式：Jacob Devlin, Ming-Wei Chang, and Kristina Toutanova. 2019. BERT: …（没有括号，换行后年份常在下一行行首）
+_ACL_YEAR = re.compile(r"[A-Za-z’'\-]\.?\s+(?:19|20)\d{2}[a-z]?\.\s+[A-Z0-9]")
+_ACL_YEAR_LINE = re.compile(r"^\s*(?:19|20)\d{2}[a-z]?\.\s")
+_ACL_SPLIT = re.compile(r"^(.{3,400}?[A-Za-z’'\-])\.\s+((?:19|20)\d{2})[a-z]?\.\s*(.*)$", re.S)
+_NAME_PARTICLES = {"van", "von", "de", "der", "den", "di", "da", "del", "della", "la", "le", "ten", "ter", "bin", "al", "el", "du", "dos", "das"}
+
+
+def _is_acl(texts: list[str]) -> bool:
+    n = sum(1 for t in texts if _ACL_YEAR.search(t[:260]) or _ACL_YEAR_LINE.match(t))
+    return n >= max(3, 0.3 * len(texts))
+
+
+def _full_name_to_surname_initials(name: str) -> str:
+    """“Ming-Wei Chang”→“Chang, M.-W.”；“Inigo Lopez- Gazpio”→“Lopez-Gazpio, I.”；“Rie Kubota Ando”→“Ando, R. K.”；“Jan van der Berg”→“van der Berg, J.”"""
+    toks = re.sub(r"-\s+", "-", name.strip()).split()
+    if len(toks) < 2:
+        return name.strip()
+    sur = [toks.pop()]
+    while toks and toks[-1].lower() in _NAME_PARTICLES:
+        sur.insert(0, toks.pop())
+    if not toks:
+        return " ".join(sur)
+    initials = " ".join("-".join(f"{part[0]}." for part in t.split("-") if part) for t in toks if t[0].isalpha())
+    return f"{' '.join(sur)}, {initials}"
+
+
+def _parse_acl(e: "RefEntry") -> bool:
+    m = _ACL_SPLIT.match(e.raw)
+    if not m:
+        return False
+    names = [n.strip() for n in re.split(r",\s*(?:and\s+)?|\s+and\s+", m.group(1)) if n.strip()]
+    if not names or any(len(n.split()) > 5 or any(ch.isdigit() for ch in n) for n in names):
+        return False
+    e.authors = [_full_name_to_surname_initials(n) if len(n.split()) >= 2 else n for n in names]
+    e.year = int(m.group(2))
+    rest = m.group(3).strip()
+    end = _title_end(rest)
+    if end >= 0:
+        title = rest[: end + (1 if rest[end] in "?!" else 0)].strip(" .")
+        if len(title) >= 8:
+            e.title = title
+            e.venue = rest[end + 1:].strip(" .,;")
+    return True
 
 
 def _is_wide(bbox: list[float] | None, page_w: float | None) -> bool:
@@ -76,6 +128,14 @@ def split_entries(passages: list[dict], page_widths: dict[int, float] | None = N
     page_widths = page_widths or {}
     texts = [_clean(p["text"]) for p in passages]
     style = detect_style(texts)
+    surname_first = sum(1 for t in texts if re.match(rf"^\s*{_SURNAME},\s*{_INITIALS}", t) or _APA_START.match(t))
+    acl = style == "author-year" and surname_first < max(2, 0.3 * len(texts))  # 全名格式：靠“首行顶格、续行缩进”分条
+    margins: dict[tuple[int, int], float] = {}
+    if acl:
+        for p in passages:
+            if p.get("bbox"):
+                key = (p["page"], int(p["bbox"][0] // ((page_widths.get(p["page"]) or 600) * 0.3)))
+                margins[key] = min(margins.get(key, 1e9), p["bbox"][0])
     entries: list[RefEntry] = []
     cur: RefEntry | None = None
     seq = 0
@@ -90,8 +150,12 @@ def split_entries(passages: list[dict], page_widths: dict[int, float] | None = N
         wide = _is_wide(p.get("bbox"), page_widths.get(p["page"]))
         m = _NUM_PREFIX.match(text) if style == "numeric" else None
         starts_new = bool(m)
-        if style == "author-year":
-            starts_new = bool(re.match(rf"^\s*{_SURNAME},\s*{_INITIALS}", text))
+        if acl:
+            bb = p.get("bbox")
+            key = (p["page"], int(bb[0] // ((page_widths.get(p["page"]) or 600) * 0.3))) if bb else None
+            starts_new = bool(bb) and bb[0] <= margins.get(key, bb[0]) + 3.0 and not _ACL_YEAR_LINE.match(text)
+        elif style == "author-year":
+            starts_new = bool(re.match(rf"^\s*{_SURNAME},\s*{_INITIALS}", text) or _APA_START.match(text))
         if style == "unknown":
             starts_new = cur is None or bool(_COMPLETE.search(cur.raw))
         if starts_new:
@@ -115,6 +179,11 @@ def split_entries(passages: list[dict], page_widths: dict[int, float] | None = N
     uniq.sort(key=lambda e: e.index)
     for e in uniq:
         parse_fields(e, style)
+    if acl:
+        # 全名格式的每一条都有“. 年份.”：没有年份的是附录等混进来的正文段落，不是参考文献；去掉后重新编号，保持连续
+        uniq = [e for e in uniq if e.year]
+        for i, e in enumerate(uniq, 1):
+            e.index = i
     return style, uniq
 
 
@@ -203,10 +272,20 @@ def parse_fields(e: RefEntry, style: str) -> None:
         if um:
             e.url = um.group(0).rstrip(".,;)")
     e.year = _year(raw)
+    if style == "author-year":
+        fm = _YEAR_PAREN.search(raw)
+        if fm and 1900 <= int(fm.group(1)) <= date.today().year + 1:
+            e.year = int(fm.group(1))  # APA：年份紧跟在作者后面；条目里后面出现的括号年份（会议年份等）不算
 
+    if style == "author-year" and _parse_acl(e):
+        return
     authors, pos = _parse_authors(raw)
     if not authors:
         authors, pos = _parse_initials_first(raw)
+    if not authors and style == "author-year":  # 机构作者：“OpenAI. (2023).”“World Health Organization. (2020).”
+        om = _APA_ORG.match(raw)
+        if om:
+            authors, pos = [om.group(1).strip(" .,")], om.end(1)
     rest = raw[pos:].lstrip(" .,:;")
     if style == "author-year":  # “Smith, J. & Lee, K. (2020). Title. Venue.”
         ym = re.match(r"\(?\s*(?:19|20)\d{2}[a-z]?\s*\)?[.,]?\s*", rest)

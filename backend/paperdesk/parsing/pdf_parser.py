@@ -28,7 +28,7 @@ is_caption = layout.is_caption
 #   3 = 记录原文加粗的文字片段（文字视图还原加粗）、还原行内公式（文字视图渲染）
 #   4 = 图多的页面也能分栏（回退到全文档的栏沟）、通栏大图的版面区向页边扩展（图例和坐标刻度归入图内文字）
 #   5 = 行内的求和（带上下限）还原成公式、行内求和号不再被切成单独一行；行首片段的结尾空格不再丢（“chooseM”“then-step”）
-PARSER_VERSION = 12
+PARSER_VERSION = 13
 COVER_RE = re.compile(r"引用本文\s*[:：]|您可能感兴趣的其他文章|在线阅读\s*View online")
 
 

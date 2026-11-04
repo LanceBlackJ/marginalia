@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { BookmarkPlus, PanelLeftClose, PanelLeftOpen, Trash2 } from 'lucide-react'
 import { Button, EmptyState, IconButton, Segmented } from '@/components/ui'
+import { useTextStore } from '@/features/text/textStore'
 import { useMarksStore } from './marksStore'
+import { activeOutlineIndex } from './outlinePos'
 import { useReaderStore, type LeftTab } from './readerStore'
 import type { PDFDocumentProxy } from './pdf/pdfjs'
 
@@ -9,6 +11,8 @@ function OutlineTab() {
   const outline = useReaderStore((s) => s.outline)
   const source = useReaderStore((s) => s.outlineSource)
   const currentPage = useReaderStore((s) => s.currentPage)
+  const anchorOrd = useReaderStore((s) => s.textAnchor)
+  const items = useTextStore((s) => s.items)
   const jumpToSection = useReaderStore((s) => s.jumpToSection)
 
   if (outline.length === 0) {
@@ -19,10 +23,7 @@ function OutlineTab() {
       />
     )
   }
-  let currentIdx = -1
-  outline.forEach((it, i) => {
-    if (it.page <= currentPage) currentIdx = i
-  })
+  const currentIdx = activeOutlineIndex(outline, items, anchorOrd, currentPage)
   const minLevel = Math.min(...outline.map((o) => o.level))
   return (
     <div>
@@ -161,9 +162,13 @@ function NarrowStrip() {
   const setLeftNarrow = useReaderStore((s) => s.setLeftNarrow)
   const minLevel = outline.length > 0 ? Math.min(...outline.map((o) => o.level)) : 0
   const top = outline.filter((o) => o.level === minLevel)
+  const anchorOrd = useReaderStore((s) => s.textAnchor)
+  const items = useTextStore((s) => s.items)
+  // 完整目录里的当前章节，再归到它所在的顶层章节
+  const full = activeOutlineIndex(outline, items, anchorOrd, currentPage)
   let currentIdx = -1
   top.forEach((it, i) => {
-    if (it.page <= currentPage) currentIdx = i
+    if (outline.indexOf(it) <= full) currentIdx = i
   })
   return (
     <aside className="pd-reader-left pd-reader-left--narrow" aria-label="论文导航">

@@ -14,7 +14,7 @@ _BRACKET = re.compile(rf"(?<![A-Za-z0-9])\[\s*({_NUMS})\s*\]")
 _REF_WORD = re.compile(rf"\b[Rr]efs?\.?\s+({_NUMS})")
 _SUP = re.compile(r"(?<![^\W\d_])([^\W\d_]{3,})(\d{1,3}(?:[,–‐-]\d{1,3}){0,4})(?=[\s.,;:)\]]|$)")
 _PAREN = re.compile(r"\(([^()]{3,200})\)")
-_NAME = r"[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+"
+_NAME = r"(?:(?:van|von|de|der|den|di|da|del|della|la|le|ten|ter|bin|al|el|du|dos|das)\s+){0,2}[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+"
 _AY_PART = re.compile(
     rf"({_NAME})(?:\s+et al\.?|\s+(?:and|&)\s+{_NAME})?,?\s+((?:19|20)\d{{2}})[a-z]?"
 )
@@ -62,6 +62,10 @@ def author_year_index(entries: list[dict]) -> dict[tuple[str, int], list[int]]:
         sn = first_author_surname(e)
         if sn and e.get("year"):
             out.setdefault((sn, e["year"]), []).append(e["index"])
+            first = next((a for a in e.get("authors") or [] if a and a != "et al."), "")
+            words = [w for w in re.findall(r"[A-Za-zÀ-ÿ]+", first) if w[0].isupper()]
+            if "," not in first and len(words) >= 2:  # 机构作者：正文常用缩写（World Health Organization → WHO）
+                out.setdefault(("".join(w[0] for w in words).lower(), e["year"]), []).append(e["index"])
     return out
 
 

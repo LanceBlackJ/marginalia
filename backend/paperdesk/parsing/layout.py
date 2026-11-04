@@ -365,8 +365,10 @@ def _split_by_gutter(group: list[Span], gutter: tuple[float, float] | None) -> l
     if gutter is None:
         return [("F", group)]
     g0, g1 = gutter
-    left = [s for s in group if s.x1 <= g0 + 2]
-    right = [s for s in group if s.x0 >= g1 - 2]
+    mid_x = (g0 + g1) / 2
+    # 一栏的行尾可以略微伸进栏沟（参考文献页常见：左栏行尾离右栏起点只差几个点）：只要整个片段还在栏沟中线的一侧、没有碰到另一栏的文字，就仍属于那一栏
+    left = [s for s in group if s.x1 <= g0 + 2 or (s.x1 <= g1 - 2 and s.x1 <= mid_x)]
+    right = [s for s in group if s not in left and (s.x0 >= g1 - 2 or (s.x0 >= g0 + 2 and s.x0 >= mid_x))]
     mid = [s for s in group if s not in left and s not in right]
     if mid:
         return [("F", group)]  # 有片段跨过栏沟：整宽行（图注、作者行、通栏标题）

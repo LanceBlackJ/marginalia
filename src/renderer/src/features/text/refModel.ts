@@ -12,6 +12,8 @@ export interface ParaRefs {
   sup: ReadonlySet<number>
   /** 方括号、“refs 3”、作者-年份这类按文字定位的标记 */
   text: readonly CitationMarker[]
+  /** 译文用：后端没有标过位置的方括号编号（译文里破折号、括号、逗号常被改写），按这些确实存在的编号再认一遍 */
+  loose?: ReadonlySet<number>
 }
 
 /** 一个显示块可能由几个相邻段落拼成：把它们各自的引用信息合并起来；都没有就返回 null。 */
@@ -57,13 +59,41 @@ export function splitSupDigits(digits: string, valid: ReadonlySet<number>): RefP
   return out
 }
 
+const LOOSE_BRACKET = /[[［【]\s*(\d{1,3}(?:\s*[,，、–—‐‑‒−~～－-]\s*\d{1,3}){0,8})\s*[\]］】]/g
+
+/**
+ * 译文里的方括号引用：译文里的“[64–66]”常被改成“[64-66]”“［64—66］”“【64】”，后端按原文记下的标记文字对不上。
+ * 这里不依赖标记文字，只要括号里的编号在参考文献列表里确实存在，就当作引用（不存在的不处理，不会误加链接）。
+ */
+export function splitLooseBrackets(text: string, valid: ReadonlySet<number>): RefPiece[] {
+  const out: RefPiece[] = []
+  let cursor = 0
+  for (const m of text.matchAll(LOOSE_BRACKET)) {
+    const group = m[1].replace(/[，、]/g, ',').replace(/[–—‐‑‒−~～－]/g, '-')
+    const nums = expandNumbers(group).filter((n) => valid.has(n))
+    if (nums.length === 0) continue
+    const at = m.index ?? 0
+    if (at > cursor) out.push({ text: text.slice(cursor, at) })
+    out.push({ text: m[0], refs: nums })
+    cursor = at + m[0].length
+  }
+  if (out.length === 0) return [{ text }]
+  if (cursor < text.length) out.push({ text: text.slice(cursor) })
+  return out
+}
+
 /** 按后端给的标记文字，把一段显示文字切成“普通文字 / 可点击标记”。找不到的标记不处理（显示文字可能被整理过）。 */
 export function splitByMarkers(text: string, markers: readonly CitationMarker[]): RefPiece[] {
   if (markers.length === 0) return [{ text }]
   const out: RefPiece[] = []
   let cursor = 0
   for (const mk of [...markers].sort((a, b) => a.start - b.start)) {
-    const at = text.indexOf(mk.text, cursor)
+    let at = -1
+    if (mk.pre) {
+      const k = text.indexOf(mk.pre + mk.text, Math.max(0, cursor - mk.pre.length))
+      if (k >= 0) at = k + mk.pre.length
+    }
+    if (at < cursor) at = text.indexOf(mk.text, cursor)
     if (at < 0) continue
     if (at > cursor) out.push({ text: text.slice(cursor, at) })
     out.push({ text: mk.text, refs: mk.refs })

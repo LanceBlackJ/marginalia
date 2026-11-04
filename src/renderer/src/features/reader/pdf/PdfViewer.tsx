@@ -15,6 +15,7 @@ import { useTextStore } from '@/features/text/textStore'
 import { passageAtPoint } from '@/features/text/textModel'
 import { buildRegions, regionAtPoint } from '../regions'
 import { contentBounds } from './cropBounds'
+import { ordAtPdfPoint } from '../outlinePos'
 import type { Annotation } from '@/lib/types'
 
 /** 逐批读取每一页的真实尺寸；先用第一页尺寸占位，避免初始布局抖动。 */
@@ -140,6 +141,13 @@ export function PdfViewer({ doc }: { doc: PDFDocumentProxy }) {
           const pg = currentPageAt(lay, el.scrollTop, el.clientHeight)
           const changed = pg !== st.currentPage
           st.setCurrentPage(pg)
+          // 阅读线（和“当前页”同一条线）所在的段落：左边目录据此判断当前章节，而不是只看页码
+          const line = el.scrollTop + el.clientHeight * 0.25
+          const lr = lay.rows[rowAtOffset(lay, line)]
+          if (lr && scaleRef.current > 0) {
+            const ord = ordAtPdfPoint(itemsRef.current, lr.pages[0], (line - lr.top) / scaleRef.current)
+            if (ord !== null) st.setTextAnchor(ord)
+          }
           // 并排视图的同步滚动：PDF 栏翻到新的一页，文字栏跟到同一页
           if (changed && st.readView === 'split' && usePrefs.getState().syncScroll && !syncMuted()) st.jumpToPage(pg, 'pdf')
         }
@@ -153,6 +161,10 @@ export function PdfViewer({ doc }: { doc: PDFDocumentProxy }) {
   }, [])
   const layoutRef = useRef(layout)
   layoutRef.current = layout
+  const scaleRef = useRef(scale)
+  scaleRef.current = scale
+  const itemsRef = useRef(textItems)
+  itemsRef.current = textItems
 
   // 布局变化（缩放/模式/窗口尺寸）后保持阅读位置
   useLayoutEffect(() => {

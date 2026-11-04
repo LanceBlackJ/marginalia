@@ -26,7 +26,7 @@ export interface References {
   items: RefItem[]
 }
 
-export type MarkerKind = 'sup' | 'bracket' | 'ref' | 'authoryear'
+export type MarkerKind = 'sup' | 'bracket' | 'ref' | 'authoryear' | 'link'
 
 export interface CitationMarker {
   kind: MarkerKind
@@ -35,6 +35,8 @@ export interface CitationMarker {
   start: number
   end: number
   refs: number[]
+  /** 标记前面的几个字：短标记（“64”）在段落里可能出现好几次，靠前文定位到正确的那一处（PDF 链接识别的标记才有） */
+  pre?: string
 }
 
 export interface Citations {

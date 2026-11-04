@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CitationMarker, RefItem, RefResolution } from '@/lib/types.references'
-import { bibtex, expandNumbers, matchLabel, placePopover, plainCitation, refHeadline, splitByMarkers, splitSupDigits } from './refModel'
+import { bibtex, expandNumbers, matchLabel, placePopover, plainCitation, refHeadline, splitByMarkers, splitLooseBrackets, splitSupDigits } from './refModel'
 
 const ref = (over: Partial<RefItem> = {}): RefItem => ({
   index: 1, ord: 5, page: 7, ords: [5], raw: '1. Rivera, A. & Chen, L. Cascade failure in layered networks. Phys. Rev. E 80, 41 (2009).',
@@ -88,5 +88,35 @@ describe('labels', () => {
     expect(matchLabel('high')).toBe('匹配可信度高')
     expect(refHeadline(ref())).toBe('Cascade failure in layered networks')
     expect(refHeadline(ref({ title: '' }))).toMatch(/^Rivera, A\./)
+  })
+})
+
+describe('splitLooseBrackets（译文里被改写的方括号引用）', () => {
+  const valid = new Set([64, 65, 66, 70, 71])
+  it('破折号、全角括号、方头括号都认；只认确实存在的编号', () => {
+    const r = splitLooseBrackets('具有[64-66]卓越，［70］与【71】，[99]不存在', valid)
+    expect(r.filter((p) => p.refs).map((p) => [p.text, p.refs])).toEqual([['[64-66]', [64, 65, 66]], ['［70］', [70]], ['【71】', [71]]])
+    expect(r.map((p) => p.text).join('')).toBe('具有[64-66]卓越，［70］与【71】，[99]不存在')
+  })
+  it('原样的写法和中文逗号分隔也认', () => {
+    expect(splitLooseBrackets('[64–66]具有', valid)[0]).toEqual({ text: '[64–66]', refs: [64, 65, 66] })
+    expect(splitLooseBrackets('见[64，70]', valid).find((p) => p.refs)?.refs).toEqual([64, 70])
+  })
+  it('没有可认的就原样返回', () => {
+    expect(splitLooseBrackets('没有引用 [Fig. 3]', valid)).toEqual([{ text: '没有引用 [Fig. 3]' }])
+  })
+})
+
+describe('splitByMarkers 用前文定位短标记（PDF 链接识别的标记）', () => {
+  it('“64”在前面的句子里也出现过：靠前文落在括号里的那一处', () => {
+    const text = 'We use 64 layers [64, 66] in total.'
+    const r = splitByMarkers(text, [{ kind: 'link', text: '64', start: 12, end: 14, refs: [64], pre: 'layers [' }])
+    expect(r.filter((p) => p.refs).map((p) => p.text)).toEqual(['64'])
+    expect(r.map((p) => p.text).join('')).toBe(text)
+    expect(r[0].text).toBe('We use 64 layers [') // 不会把前面那个“64 layers”当成引用
+  })
+  it('没有前文时和以前一样按顺序找', () => {
+    const r = splitByMarkers('see [3] and [4]', [{ kind: 'bracket', text: '[3]', start: 4, end: 7, refs: [3] }, { kind: 'bracket', text: '[4]', start: 12, end: 15, refs: [4] }])
+    expect(r.filter((p) => p.refs).map((p) => p.refs)).toEqual([[3], [4]])
   })
 })

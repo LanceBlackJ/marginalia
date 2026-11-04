@@ -1,3 +1,5 @@
+import { useTextStore } from '@/features/text/textStore'
+import { activeOutlineIndex } from './outlinePos'
 import { create } from 'zustand'
 import { api, errorMessage } from '@/lib/api'
 import type { BBox, Evidence, OutlineItem, PaperDetail, ReadingState, SelectionRef } from '@/lib/types'
@@ -331,13 +333,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   focusComposer: () => set((s) => ({ composerFocusTick: s.composerFocusTick + 1 })),
 
   currentSectionTitle: () => {
-    const { outline, currentPage } = get()
-    let title: string | null = null
-    for (const it of outline) {
-      if (it.page <= currentPage) title = it.title
-      else break
-    }
-    return title
+    const { outline, currentPage, textAnchor } = get()
+    const idx = activeOutlineIndex(outline, useTextStore.getState().items, textAnchor, currentPage)
+    return idx >= 0 ? outline[idx].title : null
   }
 }))
 

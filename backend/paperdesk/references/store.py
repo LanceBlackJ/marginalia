@@ -8,7 +8,7 @@ from ..context import AppContext
 from ..db import register_schema
 from ..util import ApiError, dumps, loads, utcnow
 from . import citations as cit
-from . import parse
+from . import links, parse
 
 register_schema("references", """
 CREATE TABLE IF NOT EXISTS paper_references (
@@ -82,14 +82,28 @@ def get_reference(app: AppContext, paper_id: str, index: int) -> dict:
 
 def _all_passages(app: AppContext, paper_id: str) -> list[dict]:
     with app.db.session() as conn:
-        rows = conn.execute("SELECT ord, page, kind, text FROM passages WHERE paper_id = ? ORDER BY ord", (paper_id,)).fetchall()
-    return [{"ord": r["ord"], "page": r["page"], "kind": r["kind"], "text": r["text"]} for r in rows]
+        rows = conn.execute("SELECT ord, page, kind, text, x0, y0, x1, y1 FROM passages WHERE paper_id = ? ORDER BY ord", (paper_id,)).fetchall()
+    return [{"ord": r["ord"], "page": r["page"], "kind": r["kind"], "text": r["text"], "bbox": [r["x0"], r["y0"], r["x1"], r["y1"]]} for r in rows]
+
+
+_LINK_CACHE: dict[tuple[str, str], list[dict]] = {}  # 读 PDF 的链接要几百毫秒：同一篇、同一份参考文献解析结果只算一次
 
 
 def load_citations(app: AppContext, paper_id: str) -> dict:
+    """正文里的引用标记：PDF 自带的内部超链接（指向参考文献条目的）优先，没有链接的引用再用正则补充。"""
     refs = load_references(app, paper_id)
     passages = _all_passages(app, paper_id)
     items = cit.detect_all(passages, refs["items"], refs["style"])
+    pdf = app.paths.paper_dir(paper_id) / "original.pdf"
+    if refs["items"] and pdf.is_file():
+        key = (paper_id, hashlib.sha256(dumps([(e["index"], e["ords"]) for e in refs["items"]]).encode()).hexdigest()[:16] + str(pdf.stat().st_mtime_ns))
+        if key not in _LINK_CACHE:
+            try:
+                _LINK_CACHE[key] = links.link_markers(pdf, passages, refs["items"], refs["style"])
+            except Exception:  # noqa: BLE001  链接读不到只是退回正则识别
+                _LINK_CACHE[key] = []
+        if _LINK_CACHE[key]:
+            items = links.merge_markers(items, _LINK_CACHE[key], {p["ord"]: p["text"] for p in passages})
     return {"style": refs["style"], "ref_count": refs["count"], "items": items}
 
 
