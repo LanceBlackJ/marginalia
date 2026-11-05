@@ -540,9 +540,46 @@
   padding-bottom: var(--sp-lg);
 }
 .pd-ask-target {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+}
+.pd-ask-target svg {
+  flex: none;
+}
+.pd-ask-target-text {
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.pd-ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.pd-chip {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--fs-aux);
+  cursor: pointer;
+}
+.pd-chip:hover:not(:disabled) {
+  border-color: var(--text);
+}
+.pd-chip:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+.pd-ask-hint {
+  min-width: 0;
 }
 .pd-ask-input {
   min-height: 52px;
@@ -564,10 +601,29 @@
   align-items: center;
   gap: var(--sp-sm);
 }
+.pd-ccard-kind {
+  flex: none;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 16px;
+}
 .pd-ccard-target {
   flex: 1;
   min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
   font-weight: 600;
+}
+.pd-lead {
+  margin-top: var(--sp-sm);
+  font-size: var(--fs-body, 14px);
+  line-height: 1.7;
+}
+.pd-lead .pd-cmd p:last-child {
+  margin-bottom: 0;
 }
 .pd-ccard-head .pd-aux {
   flex: none;
@@ -578,8 +634,8 @@
   color: var(--text-2);
 }
 .pd-ccard-verify {
-  margin: var(--sp-sm) 0;
-  color: var(--text-2);
+  margin: var(--sp-md) 0 0;
+  color: var(--text-3);
 }
 .pd-ccard-verify[data-status='no_evidence'],
 .pd-ccard-verify[data-status='partial'] {
@@ -678,6 +734,165 @@
 .pd-lref--static {
   cursor: default;
 }
+.pd-lref[data-kind='paper'] {
+  border-style: dashed;
+  font-family: var(--font-sans);
+}
+.pd-filelink {
+  display: inline;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 1px dotted var(--text-3);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  cursor: pointer;
+}
+.pd-filelink:hover {
+  border-bottom-style: solid;
+}
+
+/* 一起交给模型的论文段落 */
+.pd-pctx-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pd-pctx-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pd-pctx-row:hover .pd-pctx-where {
+  text-decoration: underline;
+}
+.pd-pctx-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+.pd-pctx-where {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-aux);
+  font-weight: 600;
+}
+.pd-pctx-tag {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 16px;
+}
+.pd-pctx-tag[data-source='confirmed'] {
+  border-color: var(--text);
+  color: var(--text);
+}
+.pd-pctx-tag[data-source='lexical'] {
+  border-style: dashed;
+  color: var(--text-3);
+}
+.pd-pctx-text {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--fs-aux);
+  line-height: 1.5;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.pd-pctx-note {
+  margin: var(--sp-xs) 0 0;
+}
+
+/* 发给模型的内容（可展开核对） */
+.pd-sent {
+  margin: var(--sp-xs) 0 0;
+}
+.pd-sent-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  text-align: left;
+  cursor: pointer;
+}
+.pd-sent-btn:hover {
+  color: var(--text);
+}
+.pd-sent-list {
+  margin: var(--sp-xs) 0 0;
+  padding: 0 0 0 16px;
+  list-style: none;
+}
+.pd-sent-list li {
+  display: flex;
+  gap: var(--sp-sm);
+  padding: 1px 0;
+}
+.pd-sent-path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pd-sent-path--paper {
+  font-family: var(--font-sans);
+}
+
+/* 讲解面板的空状态 */
+.pd-start {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+  padding-top: var(--sp-lg);
+  border-top: 1px solid var(--border);
+}
+.pd-start-title {
+  margin: 0;
+  font-size: var(--fs-aux);
+  font-weight: 600;
+}
+.pd-start-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: var(--sp-sm) var(--sp-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md, 6px);
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+.pd-start-row:hover:not(:disabled) {
+  border-color: var(--text);
+}
+.pd-start-row:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+.pd-start-name {
+  font-weight: 600;
+}
 .pd-ev-list {
   margin: 0;
   padding: 0;
@@ -708,6 +923,15 @@
 }
 .pd-ev[data-invalid='true'] .pd-ev-loc {
   color: var(--text-3);
+}
+.pd-ev-loc--paper {
+  font-family: var(--font-sans);
+  font-size: var(--fs-aux);
+}
+.pd-ev-snippet--paper {
+  font-family: var(--font-sans);
+  font-size: var(--fs-aux);
+  white-space: pre-wrap;
 }
 .pd-ev-snippet {
   max-height: 180px;
@@ -1242,6 +1466,18 @@
 .pd-ov-roles b {
   font-weight: 600;
 }
+.pd-ov-lead {
+  margin: 0 0 var(--sp-sm);
+  color: var(--text-2);
+  line-height: 1.7;
+}
+.pd-ov-more {
+  display: inline-block;
+  margin-top: var(--sp-sm);
+}
+.pd-ov-entries li[data-vendored] .pd-ov-mono {
+  color: var(--text-2);
+}
 
 /* ---------- 一致性 ---------- */
 .pd-cons-table {
@@ -1455,6 +1691,23 @@
 }
 .pd-cw-notes li + li {
   margin-top: 4px;
+}
+.pd-cw-upgrade {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 8px 24px;
+  border-top: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.6;
+}
+@media (min-width: 1280px) {
+  .pd-cw-upgrade {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
 }
 @media (min-width: 1280px) {
   .pd-cw-head-top,

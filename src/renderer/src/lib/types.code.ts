@@ -12,6 +12,8 @@ export interface EntryPoint {
   reason: string
   command?: string | null
   role?: FileRole | null
+  /** 在疑似拷贝来的第三方目录里（旧分析结果没有这个字段） */
+  vendored?: boolean
 }
 
 export interface RepoOverview {
@@ -24,6 +26,8 @@ export interface RepoOverview {
   dependency_files: string[]
   config_files: string[]
   entry_points: EntryPoint[]
+  /** 文件很多又自带依赖文件的子目录，多半是拷贝来的第三方项目（只含最外层） */
+  vendored?: Array<{ path: string; files: number; lines: number }>
   top_dirs: Array<{ path: string; files: number }>
   roles: Record<string, number>
   skipped: { binary: number; too_large: number }
@@ -47,6 +51,8 @@ export interface CodeRepo {
   error: string | null
   warnings: string[]
   overview: RepoOverview | null
+  /** 分析逻辑有新版而这个仓库还是旧结果：可以一键重新分析（不用重新下载，论文关联会迁移） */
+  analysis_outdated?: boolean
   created_at: string
 }
 
@@ -183,6 +189,7 @@ export interface FlowRoot {
   label: string
   reason: string
   role?: FileRole | null
+  vendored?: boolean
 }
 
 export interface Flow {
@@ -208,7 +215,21 @@ export interface CodeEvidence {
   snippet: string
   verified: boolean
   reason: string | null
-  kind: 'code'
+  /** code：代码里真实的行；paper：论文原文段落（只作背景，点击跳到论文） */
+  kind: 'code' | 'paper'
+  ord?: number
+  page?: number | null
+  section?: string | null
+}
+
+/** 解释时一并给了模型的论文段落。source 标明为什么选它：已确认/系统建议/语义相近/用词相近。 */
+export type PaperContextSource = 'confirmed' | 'suggested' | 'semantic' | 'lexical'
+export interface PaperContextItem {
+  ord: number
+  page: number
+  section: string | null
+  source: PaperContextSource
+  text?: string
 }
 
 export type VerificationStatus = 'verified' | 'partial' | 'no_evidence' | 'unverified'
@@ -228,6 +249,7 @@ export interface CodeCard {
     evidence_notes: Array<{ ref: number; note: string }>
     inferences: Array<{ text: string; basis_refs: number[] }>
     follow_ups: string[]
+    paper_context?: PaperContextItem[]
   }
   evidence: CodeEvidence[]
   verification: { status: VerificationStatus; invalid_citations: number[]; notes: string[] }
@@ -256,6 +278,7 @@ export interface ExplainMeta {
     snippet_count: number
     chars_sent: number
     includes: Record<string, boolean>
+    papers?: PaperContextItem[]
   }
 }
 

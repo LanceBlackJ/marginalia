@@ -7,7 +7,7 @@ from typing import Callable
 
 from ..context import AppContext
 from ..util import ApiError, dumps, loads, new_id, utcnow
-from .analyze import analyze_repo
+from .analyze import ANALYSIS_VERSION, analyze_repo
 from .safeio import ExtractReport, FileEntry, copy_folder, safe_extract_zip
 
 MAX_VIEW_BYTES = 600_000
@@ -23,6 +23,7 @@ def _row_to_dict(r) -> dict:
         "owner": r["owner"], "name": r["name"], "branch": r["branch"], "commit_sha": r["commit_sha"], "commit_date": r["commit_date"],
         "downloaded_at": r["downloaded_at"], "size_bytes": r["size_bytes"], "status": r["status"], "error": r["error"],
         "warnings": loads(r["warnings_json"], []), "overview": loads(r["overview_json"]), "created_at": r["created_at"],
+        "analysis_outdated": r["status"] == "ready" and (r["analysis_version"] or 1) < ANALYSIS_VERSION,
     }
 
 

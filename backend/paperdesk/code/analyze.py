@@ -13,6 +13,9 @@ from .py_analyze import analyze_python
 from .safeio import FileEntry
 from .ts_analyze import EXT_LANG, analyze_ts
 
+# 分析逻辑有实质变化（入口排序、第三方拷贝识别、论文关联候选等）时加 1：旧仓库会提示“有新版分析，可重新分析”。
+# 版本 1 = 没有记录过版本的旧数据。
+ANALYSIS_VERSION = 2
 MAX_ANALYZE_FILES = 6000
 MAX_ANALYZE_BYTES = 1_500_000
 MANIFEST_NAMES = {"setup.py", "pyproject.toml", "package.json", "makefile"}
@@ -72,15 +75,13 @@ def analyze_repo(app: AppContext, repo_id: str, root: Path, entries: list[FileEn
     log(f"静态分析完成：{len(analyses)} 个源码文件")
 
     # 依赖与框架
-    deps: list[str] = []
+    deps_by_path: dict[str, list[str]] = {}
     dep_files: list[str] = []
     for path, text in manifests.items():
         d = scan.parse_dependencies(path, text)
         if d or PurePosixPath(path).name.lower() in scan.DEP_FILES:
             dep_files.append(path)
-        deps += d
-    py_imports = {imp.module.split(".")[0] for fa in analyses.values() if fa.language in ("python", "cython") for imp in fa.imports.values() if imp.module}
-    frameworks = scan.detect_frameworks(deps, py_imports)
+        deps_by_path[path] = d
 
     files_rows: list[dict] = []
     for e in entries:
@@ -123,6 +124,27 @@ def analyze_repo(app: AppContext, repo_id: str, root: Path, entries: list[FileEn
         )
     log(f"符号 {n_sym} 个，调用关系 {len(resolved)} 条")
 
+    # 拷贝来的第三方目录（如整个 transformers）：框架/依赖只按作者自己的部分识别，它们另外列出
+    from .context import vendored_dirs
+
+    vend = sorted(vendored_dirs(files_rows))
+    vend = [d for d in vend if not any(d.startswith(o + "/") for o in vend)]  # 只留最外层
+
+    def in_vendored(path: str) -> bool:
+        return any(path.startswith(d + "/") for d in vend)
+
+    py_imports = {
+        imp.module.split(".")[0]
+        for p, fa in analyses.items() if not in_vendored(p) and fa.language in ("python", "cython")
+        for imp in fa.imports.values() if imp.module
+    }
+    own_deps = [x for p, d in deps_by_path.items() if not in_vendored(p) for x in d]
+    frameworks = scan.detect_frameworks(own_deps, py_imports)
+    vendored = [
+        {"path": d, "files": sum(1 for f in files_rows if f["path"].startswith(d + "/")), "lines": sum(f["lines"] for f in files_rows if f["path"].startswith(d + "/"))}
+        for d in vend
+    ]
+
     # 入口点
     entry_points: list[dict] = []
     role_of = {f["path"]: f["role"] for f in files_rows}
@@ -148,8 +170,15 @@ def analyze_repo(app: AppContext, repo_id: str, root: Path, entries: list[FileEn
             m["role"] = role_of.get(m["path"])
             entry_points.append(m)
     entry_points.sort(key=lambda e: (ROLE_ORDER.get(e.get("role") or "", 9), e["path"]))
+    from .context import order_entry_points
 
-    config_files = [f["path"] for f in files_rows if f["role"] == "config"]
+    entry_points = order_entry_points(entry_points, files_rows)
+    for e in entry_points:
+        e["vendored"] = in_vendored(e["path"])
+
+    # 数据集目录里的 json 等被归为配置文件，但它们是数据，不是“配置”
+    DATA_DIRS = {"data", "dataset", "datasets", "fixtures", "test_data"}
+    config_files = [f["path"] for f in files_rows if f["role"] == "config" and not DATA_DIRS & set(f["path"].lower().split("/")[:-1])]
     skipped = [f for f in files_rows if f["skipped"]]
     overview = {
         "files": len(files_rows),
@@ -158,16 +187,17 @@ def analyze_repo(app: AppContext, repo_id: str, root: Path, entries: list[FileEn
         "calls": len(resolved),
         "languages": scan.summarize_languages(files_rows),
         "frameworks": frameworks,
-        "dependency_files": dep_files[:30],
-        "config_files": config_files[:40],
+        "dependency_files": sorted(dep_files, key=in_vendored)[:30],
+        "config_files": sorted(config_files, key=in_vendored)[:40],
         "entry_points": entry_points[:40],
-        "top_dirs": scan.top_dirs([f["path"] for f in files_rows]),
+        "vendored": vendored,
+        "top_dirs": scan.dir_groups([f["path"] for f in files_rows]),
         "roles": _count([f["role"] for f in files_rows]),
         "skipped": {"binary": sum(1 for f in skipped if f["skipped"] == "binary"), "too_large": sum(1 for f in skipped if f["skipped"] == "too_large")},
         "parse_warnings": [{"path": p, "message": m} for p, fa in analyses.items() for m in fa.errors][:20],
     }
     with app.db.session() as conn:
-        conn.execute("UPDATE code_repos SET overview_json = ?, flow_json = NULL WHERE id = ?", (dumps(overview), repo_id))
+        conn.execute("UPDATE code_repos SET overview_json = ?, flow_json = NULL, analysis_version = ? WHERE id = ?", (dumps(overview), ANALYSIS_VERSION, repo_id))
     return overview
 
 

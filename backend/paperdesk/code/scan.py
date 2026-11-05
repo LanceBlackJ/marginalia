@@ -177,6 +177,15 @@ def summarize_languages(files: list[dict]) -> dict[str, dict]:
     return dict(sorted(agg.items(), key=lambda kv: -kv[1]["lines"]))
 
 
+def dir_groups(paths: list[str], depth: int = 2) -> list[dict]:
+    """按文件所在目录（最多取前 depth 级）统计文件数；根目录下的文件记为 "."。"""
+    c: Counter = Counter()
+    for p in paths:
+        parent = PurePosixPath(p).parts[:-1]
+        c["/".join(parent[:depth]) or "."] += 1
+    return [{"path": k, "files": v} for k, v in c.most_common(30)]
+
+
 def top_dirs(paths: list[str], depth: int = 1) -> list[dict]:
     c: Counter = Counter()
     for p in paths:

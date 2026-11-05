@@ -24,8 +24,19 @@ from . import service
 
 METHOD_SECTION = re.compile(r"method|model|framework|approach|algorithm|encod|decod|train|architecture|implementation|network|learning|optimi|inference|"
                             r"方法|模型|算法|训练|编码|解码|框架|网络|实现", re.I)
+NOT_METHOD = re.compile(r"related|background|experiment|empirical|result|evaluat|conclusion|discussion|limitation|ethic|acknowledg|appendix|reference|ablation|baseline|dataset|future work|引言|相关工作|实验|结果|结论|讨论|附录|参考文献", re.I)
 GENERIC_TITLES = re.compile(r"^(?:\d+\.?\s*)?(methods?|model|results?|discussion|introduction|abstract|references?|conclusions?|online methods|首部信息)\s*$", re.I)
-STOP = set("the a an of and or for to in on with by from at as is are we our this that these those it its be using use used based can".split())
+GENERIC_TITLE_WORDS = set("language languages model models large small learning neural network networks deep adaptation method methods approach analysis study towards using based".split())
+STOP = set(
+    "the a an of and or for to in on with by from at as is are we our this that these those it its be using use used based can "
+    "self not only any all each other such which where when then also here there into over under than more most may will would "
+    "one two pre different describe described given let thus hence since while both its their".split()
+)
+_SURFACE: dict[str, str] = {}  # 词干 → 最短的原词，用来把匹配词显示成人能读的样子（paramet → parameter）
+
+
+def surface(term: str) -> str:
+    return _SURFACE.get(term, term)
 
 
 def split_identifier(text: str) -> list[str]:
@@ -36,12 +47,42 @@ def split_identifier(text: str) -> list[str]:
 def stem(w: str) -> str:
     for suf in ("ization", "ations", "ation", "ings", "ing", "ers", "er", "ed", "es", "s"):
         if len(w) > len(suf) + 3 and w.endswith(suf):
-            return w[: -len(suf)]
+            w = w[: -len(suf)]
+            break
+    if len(w) > 4 and w.endswith("e"):  # scale / scaling、update / updating 要落在同一个词干上
+        w = w[:-1]
     return w
 
 
+def ident_tokens(text: str) -> list[str]:
+    """把文字或标识符拆成小写词。驼峰要拆开（LoRALayer → lora、layer），但 LoRA 这种缩写本身也是一个词：
+    相邻的短片段会再并回去（lo+ra → lora），否则论文里的 “LoRA” 和代码里的 lora_A / LoRALayer 对不上。"""
+    out: list[str] = []
+    for word in re.findall(r"[A-Za-z][A-Za-z0-9]*", text or ""):
+        spaced = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", word))
+        parts = spaced.split()
+        low = [p.lower() for p in parts]
+        if len(parts) > 1:
+            for i in range(len(low) - 1):
+                if len(low[i]) <= 3 and len(low[i] + low[i + 1]) <= 6:
+                    out.append(low[i] + low[i + 1])
+            low = [p for p in low if len(p) > 2]  # 驼峰碎片里的 lo、ra 这类两个字母的碎片没有意义
+        else:
+            low = [p for p in low if len(p) > 1]
+        out += [p for p in low if not p.isdigit()]
+    return out
+
+
 def tokens(text: str) -> list[str]:
-    return [stem(t) for t in split_identifier(text) if t not in STOP]
+    out = []
+    for t in ident_tokens(text):
+        if t in STOP:
+            continue
+        s = stem(t)
+        if s not in _SURFACE or len(t) < len(_SURFACE[s]):
+            _SURFACE[s] = t
+        out.append(s)
+    return out
 
 
 # ---------------- 论文侧：方法模块 ----------------
@@ -57,11 +98,23 @@ def deterministic_modules(app: AppContext, paper_id: str) -> list[dict]:
     out: list[dict] = []
     # 哪些章节有子章节：优先取子章节，避免把总标题 “Methods” 当成一个模块
     has_child = {secs[i]["id"] for i in range(len(secs) - 1) if secs[i + 1]["level"] > secs[i]["level"]}
+    # 祖先章节：方法章节（如 “4 OUR METHOD”）下面的小节（4.1、4.2）标题里不一定带“方法”之类的词，但它们讲的就是方法；
+    # 反过来，相关工作、实验这些章节下面的小节，即使标题里有 learning、model 之类的词，也不是方法。
+    stack: list[tuple[int, bool, bool]] = []  # (level, 是方法章节, 是非方法章节)
     for s in secs:
         title = re.sub(r"^\s*\d+(\.\d+)*\.?\s*", "", s["title"]).strip(" .")
+        while stack and stack[-1][0] >= s["level"]:
+            stack.pop()
+        in_method = any(m for _, m, _ in stack)
+        in_other = any(o for _, _, o in stack)
+        is_other = bool(NOT_METHOD.search(title))
+        is_method = bool(METHOD_SECTION.search(title)) and not is_other
+        stack.append((s["level"], is_method, is_other))
         if not title or GENERIC_TITLES.match(s["title"].strip()) and s["id"] in has_child:
             continue
-        if not METHOD_SECTION.search(title) or title.lower() in ("references", "related work", "related works"):
+        if in_other or is_other:
+            continue
+        if not (is_method or (in_method and s["level"] <= 3)):
             continue
         ps = by_sec.get(s["id"], [])
         if not ps:
@@ -127,6 +180,13 @@ async def ai_modules(app: AppContext, paper_id: str, cfg: dict, provider, base: 
 # ---------------- 代码侧：BM25 ----------------
 class SymbolIndex:
     def __init__(self, app: AppContext, repo_id: str):
+        from . import context as cx  # 延迟导入：context 依赖本模块的 split_identifier
+        repo = service.get_repo(app, repo_id)
+        with app.db.session() as conn:
+            files = conn.execute("SELECT path, lines, role, language FROM code_files WHERE repo_id = ? AND skipped IS NULL", (repo_id,)).fetchall()
+        self.vendored = cx.vendored_dirs(list(files))
+        self.test_files = {f["path"] for f in files if f["role"] == "test"}
+        self.title_terms = set(cx.paper_terms({"title": cx.paper_info(app, repo["paper_id"])["title"], "abstract": ""}))
         with app.db.session() as conn:
             syms = conn.execute(
                 "SELECT id, path, name, qualname, kind, line_start, line_end, signature, doc FROM code_symbols WHERE repo_id = ? AND kind IN ('function','method','class','main')", (repo_id,)).fetchall()
@@ -135,6 +195,7 @@ class SymbolIndex:
         for c in calls:
             callnames.setdefault(c["caller_id"], []).append(c["callee_name"])
         self.syms = {s["id"]: dict(s) for s in syms}
+        bodies = self._body_tokens(app, repo_id, syms)
         self.docs: dict[int, Counter] = {}
         for s in syms:
             toks: list[str] = []
@@ -143,12 +204,40 @@ class SymbolIndex:
             toks += tokens(s["doc"] or "") * 2 + tokens(s["signature"] or "")
             for cn in callnames.get(s["id"], [])[:40]:
                 toks += tokens(cn)
+            toks += bodies.get(s["id"], [])
             self.docs[s["id"]] = Counter(toks)
         self.n = max(1, len(self.docs))
         self.avg = sum(sum(c.values()) for c in self.docs.values()) / self.n or 1.0
         self.df: Counter = Counter()
         for c in self.docs.values():
             self.df.update(c.keys())
+
+    def _body_tokens(self, app: AppContext, repo_id: str, syms) -> dict[int, list[str]]:
+        """函数/类体里出现的标识符（lora_A、merged、scaling 这类名字不在函数名和注释里，但论文正文会提到）。
+        只读作者自己的非测试代码——拷贝来的第三方目录太大，而且本来就不该成为候选。每个符号最多取 80 个不同的词、每个词算一次。"""
+        by_file: dict[str, list] = {}
+        for s in syms:
+            p = s["path"]
+            if p in self.test_files or any(p.startswith(d + "/") for d in self.vendored):
+                continue
+            by_file.setdefault(p, []).append(s)
+        out: dict[int, list[str]] = {}
+        for path, items in by_file.items():
+            try:
+                lines = service.file_lines(app, repo_id, path) or []
+            except ApiError:
+                continue
+            for s in items:
+                text = "\n".join(lines[s["line_start"] - 1: min(s["line_end"], s["line_start"] + 400)])
+                out[s["id"]] = list(dict.fromkeys(tokens(text)))[:80]
+        return out
+
+    def query_terms(self, text: str, limit: int = 30) -> list[str]:
+        """论文一节的正文 → 去代码里找的词：只留代码里真有的词，按 出现次数 × 在代码里的稀有程度 取前几个。
+        论文里的泛词（model、network）在代码里到处都是，稀有度低，自然排后面。"""
+        tf = Counter(t for t in tokens(text) if t in self.df)
+        scored = {t: c * math.log(1 + self.n / self.df[t]) for t, c in tf.items() if self.df[t] < max(0.2 * self.n, 8)}  # 几乎每个符号里都有的词（self、model……）没有区分力；小仓库不按比例砍
+        return sorted(scored, key=lambda t: -scored[t])[:limit]
 
     def score(self, query: list[str], top: int = 8) -> list[tuple[int, float, list[str]]]:
         res = []
@@ -163,11 +252,26 @@ class SymbolIndex:
                     continue
                 idf = math.log(1 + (self.n - self.df[term] + 0.5) / (self.df[term] + 0.5))
                 sc += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * dl / self.avg)) * min(qw, 2)
-                hit.append(term)
+                hit.append(surface(term))
             if sc > 0:
                 res.append((sid, sc, hit))
+        res = [(sid, sc * self.weight(sid), hit) for sid, sc, hit in res]
         res.sort(key=lambda x: -x[1])
         return res[:top]
+
+    def weight(self, sid: int) -> float:
+        """论文关联的候选不该是测试代码或拷贝来的第三方代码；名称里带论文标题里的专有词（LoRA 论文里的 lora）的，更可能是论文自己的实现。"""
+        sym = self.syms[sid]
+        p = sym["path"]
+        w = 1.0
+        if p in self.test_files or "/test" in p.lower() or "test_" in p.rsplit("/", 1)[-1].lower():
+            w *= 0.15
+        if any(p.startswith(d + "/") for d in self.vendored):
+            w *= 0.12
+        name = f"{p} {sym['qualname']}".lower()
+        if any(t in name for t in self.title_terms if len(t) >= 4 and t not in GENERIC_TITLE_WORDS):
+            w *= 1.8
+        return w
 
 
 def dedupe_copies(app: AppContext, repo_id: str, ranked: list[tuple[int, float, list[str]]], idx: "SymbolIndex") -> list[tuple[dict, float, list[str], list[str]]]:
@@ -185,11 +289,13 @@ def dedupe_copies(app: AppContext, repo_id: str, ranked: list[tuple[int, float, 
     return out
 
 
-def module_query(m: dict) -> list[str]:
+def module_query(m: dict, idx: "SymbolIndex | None" = None, body: str = "") -> list[str]:
     q = tokens(m["name"]) * 3
     for k in m.get("keywords", []):
         q += tokens(k) * 2
     q += tokens(m.get("description", ""))
+    if idx is not None and body:
+        q += idx.query_terms(body)  # 整节正文里和代码词汇重合的词（只看描述的前 360 字符会漏掉 scaling、merge 这类实现细节）
     return q
 
 
@@ -224,6 +330,16 @@ async def rerank(app: AppContext, repo: dict, mod: dict, cands: list[tuple[dict,
         return None
 
 
+def _module_text(app: AppContext, paper_id: str, mod: dict) -> str:
+    """论文模块对应的原文（它的 passage_ords 所指的段落）。"""
+    ords = mod.get("passage_ords") or []
+    if not ords:
+        return ""
+    with app.db.session() as conn:
+        rows = conn.execute(f"SELECT text FROM passages WHERE paper_id = ? AND ord IN ({','.join('?' * len(ords))}) ORDER BY ord", (paper_id, *ords)).fetchall()
+    return " ".join(r["text"] for r in rows)
+
+
 async def associate(app: AppContext, repo_id: str, ctx: JobContext | None = None, *, use_ai: bool = True) -> dict:
     repo = service.get_repo(app, repo_id)
     if repo["status"] != "ready":
@@ -249,7 +365,7 @@ async def associate(app: AppContext, repo_id: str, ctx: JobContext | None = None
     sem = asyncio.Semaphore(3)  # 各模块的重排互相独立，并行调用以缩短等待
 
     async def judge(mod: dict):
-        ranked = idx.score(module_query(mod), 10)
+        ranked = idx.score(module_query(mod, idx, _module_text(app, paper_id, mod)), 10)
         if not ranked:
             return mod, [], None
         cands4 = dedupe_copies(app, repo_id, ranked, idx)[:6]

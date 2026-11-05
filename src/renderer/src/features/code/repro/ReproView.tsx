@@ -19,26 +19,27 @@ const STEPS: Array<{ value: Sub; title: string; summary: string }> = [
 ]
 
 /** 隔离环境的检测结果：Docker 在运行才能点“在隔离环境中运行”，否则置灰并写明原因。 */
-function useSandbox(): SandboxInfo | null {
+function useSandbox(): { info: SandboxInfo | null; failed: boolean } {
   const [info, setInfo] = useState<SandboxInfo | null>(null)
+  const [failed, setFailed] = useState(false)
   useEffect(() => {
     let alive = true
     reproApi
       .sandbox()
       .then((s) => alive && setInfo(s))
-      .catch(() => alive && setInfo(null))
+      .catch(() => alive && setFailed(true)) // 失败要说出来，不能一直显示“正在检测”
     return () => {
       alive = false
     }
   }, [])
-  return info
+  return { info, failed }
 }
 
 export function ReproView() {
   const paperId = useCodeStore((s) => s.paperId)
   const repoId = useCodeStore((s) => s.repoId)
   const [open, setOpen] = useState<Sub>('assess')
-  const info = useSandbox()
+  const { info, failed } = useSandbox()
   if (!paperId || !repoId) {
     return <EmptyState title="还没有可用的代码仓库" description="先在“代码”里获取并分析代码，才能做复现评估。" />
   }
@@ -50,15 +51,15 @@ export function ReproView() {
       <div className="pd-repro">
         <ViewHead
           title="复现"
-          desc="按“评估 → 计划 → 结果对比”三步来。评估是静态分析，不运行代码。要运行，只能在 Docker 容器里：默认不联网，代码只读，限制内存和时长，每次都要你确认。也可以导出计划，自己运行后把结果带回来对比。"
+          desc="评估只做静态分析，不运行代码。要运行只能在 Docker 里（默认不联网、代码只读），每一步都要你确认；也可以导出计划自己运行，再把结果带回来对比。"
           actions={
-            <Button icon={<Play size={14} />} disabled={!info?.can_run_here} title={info?.reason ?? '正在检测隔离环境'} onClick={() => setOpen('plan')}>
+            <Button icon={<Play size={14} />} disabled={!info?.can_run_here} title={info?.reason ?? (failed ? '无法检测隔离环境' : '正在检测隔离环境')} onClick={() => setOpen('plan')}>
               在隔离环境中运行
             </Button>
           }
         />
         <div className="pd-repro-env">
-          <span className="pd-aux pd-muted">{info ? (found.length ? `已检测到：${found.join('、')}。` : '这台机器没有检测到 Docker 或 WSL2。') : '正在检测隔离环境…'}</span>
+          <span className="pd-aux pd-muted">{info ? (found.length ? `已检测到：${found.join('、')}。` : '这台机器没有检测到 Docker 或 WSL2。') : failed ? '无法检测隔离环境（后端没有响应），不影响评估和导出计划。' : '正在检测隔离环境…'}</span>
           {info && (
             <Disclosure label="隔离环境的说明">
               <p className="pd-aux pd-muted" style={{ margin: 0 }}>

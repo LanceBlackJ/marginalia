@@ -109,7 +109,8 @@ export function Outline() {
   const file = useCodeStore((s) => s.file)
   const selected = useCodeStore((s) => s.selectedSymbol)
   const selectSymbol = useCodeStore((s) => s.selectSymbol)
-  const symbols = useMemo(() => (file?.symbols ?? []).filter((s: CodeSymbol) => s.kind !== 'module'), [file])
+  // 函数里面的小辅助函数（比如到处都有的 def T(w)）不列进大纲：它们不是读代码的入口，只会把真正的函数淹没
+  const symbols = useMemo(() => (file?.symbols ?? []).filter((s: CodeSymbol) => s.kind !== 'module' && !(s.kind === 'function' && s.parent)), [file])
   if (!file || symbols.length === 0) return null
   return (
     <div className="pd-outline">

@@ -1,7 +1,9 @@
 """代码理解模块的表结构（通过 register_schema 自注册，幂等）。"""
 from __future__ import annotations
 
-from ..db import register_schema
+from ..db import register_column, register_schema
+
+register_column("code", "code_repos", "analysis_version", "INTEGER NOT NULL DEFAULT 1")
 
 register_schema(
     "code",

@@ -52,8 +52,14 @@ def _load(app: AppContext, repo_id: str):
         for r in conn.execute("SELECT * FROM code_calls WHERE repo_id = ? ORDER BY caller_id, line, id", (repo_id,)).fetchall():
             calls.setdefault(r["caller_id"], []).append(dict(r))
         row = conn.execute("SELECT overview_json, flow_json FROM code_repos WHERE id = ?", (repo_id,)).fetchone()
+        files = conn.execute("SELECT path, role FROM code_files WHERE repo_id = ?", (repo_id,)).fetchall()
     stored = loads(row["flow_json"], {}) if row else {}
-    return syms, calls, loads(row["overview_json"], {}) if row else {}, (stored or {}).get("annotations", {})
+    overview = loads(row["overview_json"], {}) if row else {}
+    if overview.get("entry_points"):  # 旧的分析结果也按新规则把第三方拷贝里的入口排后面
+        from .context import order_entry_points
+
+        overview = {**overview, "entry_points": order_entry_points(overview["entry_points"], list(files))}
+    return syms, calls, overview, (stored or {}).get("annotations", {})
 
 
 def choose_roots(syms: dict[int, dict], overview: dict) -> list[dict]:
@@ -70,7 +76,7 @@ def choose_roots(syms: dict[int, dict], overview: dict) -> list[dict]:
         s = cands[0]
         if s["id"] not in seen:
             seen.add(s["id"])
-            roots.append({"symbol_id": s["id"], "path": s["path"], "label": f"{s['path']} · {s['name'] if s['kind'] != 'main' else '__main__'}", "reason": e["reason"], "role": e.get("role")})
+            roots.append({"symbol_id": s["id"], "path": s["path"], "label": f"{s['path']} · {s['name'] if s['kind'] != 'main' else '__main__'}", "reason": e["reason"], "role": e.get("role"), "vendored": bool(e.get("vendored"))})
     return roots
 
 
@@ -81,7 +87,12 @@ def build_flow(app: AppContext, repo_id: str, symbol_id: int | None = None, *, m
     roots = choose_roots(syms, overview)
     if symbol_id is None:
         if roots:
-            symbol_id = roots[0]["symbol_id"]
+            # 默认看训练入口：作者自己的 > 第三方拷贝；训练 > 一般入口 > 评估/测试脚本（评估脚本通常只是读结果，看不出方法）
+            rank = {"train": 0, "entry": 1, "model": 2, "data": 3, "tool": 4, "test": 5}
+            def trainish(r: dict) -> int:  # 同为“入口”时，名字像训练/微调的先看（解码、评估、数据预处理脚本排后面）
+                return 0 if re.search(r"train|(^|[_\-/])ft([_\-.]|$)|finetune|fit", r["path"].rsplit("/", 1)[-1], re.I) else 1
+
+            symbol_id = min(roots, key=lambda r: (bool(r.get("vendored")), rank.get(r.get("role") or "", 4), trainish(r)))["symbol_id"]
         else:  # 没有入口：退化为包含最多调用的函数，并如实说明
             symbol_id = max(syms, key=lambda i: len(calls.get(i, [])))
     root = syms.get(symbol_id)

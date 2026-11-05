@@ -2,8 +2,8 @@ import { memo, useEffect, useMemo } from 'react'
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeProps } from '@xyflow/react'
 import { Sparkles } from 'lucide-react'
 import { Button, EmptyState, Segmented, Select, Spinner } from '@/components/ui'
-import type { Flow, FlowAnnotation, FlowNode } from '@/lib/types.code'
-import { CERTAINTY_LABEL, FLOW_NODE_H, FLOW_NODE_W, layoutFlow, lineRange } from './codeUtils'
+import type { Flow, FlowAnnotation, FlowNode, FlowRoot } from '@/lib/types.code'
+import { CERTAINTY_LABEL, FLOW_NODE_H, FLOW_NODE_W, ROLE_LABEL, layoutFlow, lineRange } from './codeUtils'
 import { useCodeStore } from './codeStore'
 import '@xyflow/react/dist/style.css'
 
@@ -68,6 +68,12 @@ function build(flow: Flow, selected: number | null): { nodes: Node<NodeData>[]; 
   return { nodes, edges }
 }
 
+/** 起点下拉里的一项：文件路径，括号里写角色和是否在拷贝来的第三方目录里（入口都是 __main__，不重复写）。 */
+function rootLabel(r: FlowRoot): string {
+  const tags = [r.role ? ROLE_LABEL[r.role] : '', r.vendored ? '第三方拷贝' : ''].filter(Boolean)
+  return tags.length ? `${r.path}（${tags.join('，')}）` : r.path
+}
+
 /** 说明为什么被截断、怎么看到更多：深度不够 → 调大深度；节点数到上限 → 换起点。 */
 function truncationHint(flow: Flow): string {
   const by = flow.truncated_by ?? []
@@ -123,10 +129,13 @@ export function FlowView() {
   }
 
   const hasAnnotations = Object.keys(flow.annotations).length > 0
-  const rootOptions = flow.roots.map((r) => ({ value: String(r.symbol_id), label: `${r.label} · ${r.path}` }))
+  // 起点下拉：文件路径 +（角色 / 第三方拷贝）；作者自己的排前面，拷贝来的第三方入口排后面
+  const rootOptions = [...flow.roots]
+    .sort((a, b) => Number(!!a.vendored) - Number(!!b.vendored))
+    .map((r) => ({ value: String(r.symbol_id), label: rootLabel(r) }))
   if (!rootOptions.some((o) => o.value === String(flow.root))) {
     const rn = flow.nodes.find((n) => n.id === flow.root)
-    rootOptions.unshift({ value: String(flow.root), label: rn ? `${rn.label} · ${rn.path}` : `符号 ${flow.root}` })
+    rootOptions.unshift({ value: String(flow.root), label: rn ? `${rn.path} · ${rn.label}` : `符号 ${flow.root}` })
   }
 
   return (

@@ -415,3 +415,14 @@ def test_reanalyze_rebuilds_the_index_without_redownloading_and_keeps_links(repo
     links = api.get(f"/code/repos/{rid}/links").json()["items"]
     mine = next(l for l in links if l["id"] == link["id"])
     assert mine["symbol_id"] == new_sym["id"], "关联应按路径+符号名迁移到新的符号 id"
+
+
+def test_old_analysis_is_flagged_outdated_until_reanalyzed(repo):
+    api, pid, rid, ov = repo
+    assert api.get(f"/code/repos/{rid}").json()["analysis_outdated"] is False
+    with api.ctx.db.session() as conn:
+        conn.execute("UPDATE code_repos SET analysis_version = 1 WHERE id = ?", (rid,))
+    assert api.get(f"/code/repos/{rid}").json()["analysis_outdated"] is True
+    job = api.wait_job(api.post(f"/code/repos/{rid}/reanalyze", {}).json()["job_id"])
+    assert job["status"] == "completed", job
+    assert api.get(f"/code/repos/{rid}").json()["analysis_outdated"] is False

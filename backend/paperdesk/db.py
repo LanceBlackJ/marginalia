@@ -299,12 +299,16 @@ class Database:
                 conn.executescript(MIGRATIONS[i])
                 conn.execute(f"PRAGMA user_version = {i + 1}")
                 conn.commit()
-            for _module, table, column, ddl in _MODULE_COLUMNS:
-                cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-                if column not in cols:
-                    conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+            def add_columns() -> None:
+                for _module, table, column, ddl in _MODULE_COLUMNS:
+                    cols = {r[1] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+                    if cols and column not in cols:  # 表还不存在（由模块自己建）时跳过，建好后再补一次
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
+            add_columns()  # 先补列：模块的建表脚本里可能给这些列建索引
             for sql in _MODULE_SCHEMAS.values():
                 conn.executescript(sql)
+            add_columns()
             conn.commit()
         finally:
             conn.close()

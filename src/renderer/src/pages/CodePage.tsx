@@ -187,6 +187,14 @@ export function CodePage() {
           )}
         </div>
       )}
+      {repo?.analysis_outdated && (
+        <div className="pd-cw-upgrade" role="status">
+          <span>这个仓库是用旧版分析的：入口排序、第三方拷贝识别和论文对应都有改进。重新分析不用重新下载，已确认的对应会保留。</span>
+          <Button size="sm" disabled={reanalyzing} onClick={() => void useCodeStore.getState().reanalyze()}>
+            {reanalyzing ? '正在重新分析…' : '重新分析'}
+          </Button>
+        </div>
+      )}
       {notesOpen && repo && repo.warnings.length > 0 && (
         <ul className="pd-cw-notes" aria-label="提示">
           {repo.warnings.map((w, i) => (
