@@ -947,3 +947,19 @@
   gap: 3px;
   max-width: 100%;
 }
+
+/* 图解析卡片：AI 看到了什么、读出的数字 */
+.pd-card-figure {
+  margin: 6px 0 0;
+}
+.pd-card-figure p {
+  margin: 0 0 4px;
+}
+.pd-card-fignums {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.pd-composer-ctx .pd-chip--fig {
+  border-style: dashed;
+}

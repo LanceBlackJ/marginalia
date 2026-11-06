@@ -4,6 +4,7 @@ import type {
   EquationItem,
   EquationLatex,
   ExplainEquationRequest,
+  ExplainFigureRequest,
   FigureAnalysis,
   FigureAnswer,
   FigureGroup,
@@ -24,6 +25,9 @@ export const visionApi = {
     post<LocateResult>(`/api/papers/${paperId}/equations/locate`, body),
   explainEquation: (body: ExplainEquationRequest, onEvent: (event: string, data: unknown) => void, signal?: AbortSignal) =>
     apiPostSSE('/api/ai/explain-equation', body, onEvent, signal),
+  /** 图/表的 AI 解析：流式产出一张对话卡片（放进右侧面板），事件和公式解释一样 */
+  explainFigure: (body: ExplainFigureRequest, onEvent: (event: string, data: unknown) => void, signal?: AbortSignal) =>
+    apiPostSSE('/api/ai/explain-figure', body, onEvent, signal),
 
   figures: (paperId: string) => get<{ items: FigureGroup[] }>(`/api/papers/${paperId}/vision/figures`),
   status: (paperId: string) => get<VisionStatus>(`/api/papers/${paperId}/vision/status`),

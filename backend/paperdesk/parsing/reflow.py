@@ -40,12 +40,17 @@ def mentioned(text: str) -> set[tuple[str, str]]:
 
 
 def _continues(prev: Any, nxt: Any) -> bool:
-    """nxt 是 prev 被切断的后半段：prev 末尾没有句末标点，nxt 以小写字母开头（和前端接段落的规则一致）。"""
+    """nxt 是 prev 被切断的后半段：prev 末尾没有句末标点，nxt 以小写字母开头；或（专有名词被栏尾切开，“…the Hugging | Face community”）
+    nxt 以大写单词开头，但确实换了页/栏、prev 够长。和前端接段落的规则一致（textModel.continuesAcrossPage）。"""
     if prev.kind != "paragraph" or nxt.kind != "paragraph":
         return False
     if SENTENCE_END.search(prev.text.strip()):
         return False
-    return bool(re.match(r"\s*[a-zà-ÿ]", nxt.text))
+    if re.match(r"\s*[a-zà-ÿ]", nxt.text):
+        return True
+    if len(prev.text.strip()) < 80 or not re.match(r"\s*[A-ZÀ-Þ][a-zà-ÿ]+[\s,]", nxt.text):
+        return False
+    return nxt.page > prev.page or (nxt.bbox[1] < prev.bbox[1] - 50 and nxt.bbox[0] > prev.bbox[0] + 80)
 
 
 def _inside(p: Any, box: tuple[float, float, float, float], pad: float = 4.0) -> bool:

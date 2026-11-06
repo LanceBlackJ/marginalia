@@ -61,6 +61,33 @@ export function isEquationCard(card: InsightCard): card is EquationCard {
   return card.object_type === 'equation' && Array.isArray((card.answer as Partial<EquationAnswerExtras>).symbols)
 }
 
+export interface ExplainFigureRequest {
+  paper_id: string
+  figure_id: number
+  question?: string
+  chain_id?: string | null
+  conversation_id?: string | null
+  save?: boolean | null
+}
+
+/** 图解析卡片（object_type=figure）的 answer.figure：AI 看到了什么、读出的数字是图上印的还是估读的 */
+export interface FigureAnswerExtras {
+  figure: {
+    id: number
+    label: string | null
+    page: number
+    answerable: boolean
+    seen: string
+    numbers: Array<{ value: string; how: 'printed' | 'estimated' }>
+    model: string
+  }
+}
+export type FigureCard = InsightCard & { answer: CardAnswer & FigureAnswerExtras }
+
+export function isFigureCard(card: InsightCard): card is FigureCard {
+  return card.object_type === 'figure' && !!(card.answer as Partial<FigureAnswerExtras>).figure
+}
+
 export interface ExplainEquationRequest {
   paper_id: string
   equation_id: number

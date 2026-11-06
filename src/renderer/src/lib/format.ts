@@ -72,6 +72,7 @@ const TASK_LABELS: Record<string, string> = {
   method_analysis: '方法分析',
   formula: '公式',
   figure: '图表',
+  vision: '看图解析',
   experiment: '实验',
   free: '自由提问',
   free_qa: '自由提问',

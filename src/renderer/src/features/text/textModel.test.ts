@@ -9,6 +9,7 @@ import {
   applyMath,
   buildDoc,
   buildPlain,
+  continuesAcrossPage,
   findPassageByBBox,
   firstOrdOnPage,
   headingLevels,
@@ -244,5 +245,30 @@ describe('行内公式', () => {
     expect(out.find((s) => s.tex)).toMatchObject({ text: 'vi 2 V', tex: 'v_{i}\in \mathcal{V}' })
     const split = applyMath([{ text: 'a vi' }, { text: ' 2 V b', mark: true }], mathRanges(text, runs))
     expect(split.some((s) => s.tex)).toBe(false)
+  })
+})
+
+describe('被栏尾/页尾切断的段落', () => {
+  const long = 'Similarly, HuggingGPT operates as an agent that synergizes ChatGPT’s linguistic capabilities with a diverse array of AI models from the Hugging'
+  const left = item(1, 10, 'paragraph', 'S', long, [57, 530, 300, 640])
+
+  it('下一段以大写专有名词开头、并且换了栏：接上（“…the Hugging | Face community…”）', () => {
+    const right = item(2, 10, 'paragraph', 'S', 'Face community, thereby enhancing its proficiency in understanding audio content.', [333, 86, 540, 110])
+    const doc = buildDoc([left, right], [], { showNoise: false })
+    const passages = doc.blocks.filter((b) => b.type === 'passage')
+    expect(passages).toHaveLength(1)
+    expect(blockText((passages[0] as { parts: TextItem[] }).parts)).toContain('Hugging Face community')
+  })
+
+  it('换了页同样接上；小写开头不管换没换栏都接', () => {
+    expect(continuesAcrossPage(left, item(2, 11, 'paragraph', 'S', 'Face community, thereby', [57, 86, 300, 110]))).toBe(true)
+    expect(continuesAcrossPage(left, item(2, 10, 'paragraph', 'S', 'and then the next step', [57, 660, 300, 700]))).toBe(true)
+  })
+
+  it('不该接的不接：上一段已经句末收尾、同栏里紧跟着的新段落、上一段太短', () => {
+    const right = item(2, 10, 'paragraph', 'S', 'Face community, thereby enhancing its proficiency.', [333, 86, 540, 110])
+    expect(continuesAcrossPage(item(1, 10, 'paragraph', 'S', long + ' models.', [57, 530, 300, 640]), right)).toBe(false)
+    expect(continuesAcrossPage(left, item(2, 10, 'paragraph', 'S', 'Face community, thereby', [57, 660, 300, 700]))).toBe(false) // 同一栏往下：新段落
+    expect(continuesAcrossPage(item(1, 10, 'paragraph', 'S', 'Short heading line', [57, 530, 300, 540]), right)).toBe(false)
   })
 })

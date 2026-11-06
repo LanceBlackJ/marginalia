@@ -70,6 +70,8 @@ interface TextState {
   status: 'idle' | 'loading' | 'ready' | 'error'
   error: string | null
   items: TextItem[]
+  /** 手里这一版段落的版本号（后端给的）：和译文那边的版本号对不上，说明段落已经过期（比如重新解析过） */
+  revision: string | null
 
   trans: Map<number, string>
   /** 已翻译的表格（键：表题序号） */
@@ -118,6 +120,8 @@ interface TextState {
   cancelTranslation: () => Promise<void>
 }
 
+/** 正在因为“段落过期”而重新载入：载入过程中取译文不要再触发一次重新载入。 */
+let reloadingStale = false
 let pollTimer: number | undefined
 
 function stopPolling(): void {
@@ -196,6 +200,7 @@ export const useTextStore = create<TextState>((set, get) => {
     status: 'idle',
     error: null,
     items: [],
+    revision: null,
     trans: new Map(),
     tableTr: {},
     headingTr: {},
@@ -308,14 +313,14 @@ export const useTextStore = create<TextState>((set, get) => {
       stopPolling()
       set({
         ...TBL_INIT, retranslating: new Set<number>(),
-        paperId, status: 'loading', error: null, items: [], trans: new Map(), tableTr: {}, headingTr: {}, trTotal: 0, trDone: 0, trComplete: false, trModels: [],
+        paperId, status: 'loading', error: null, items: [], revision: null, trans: new Map(), tableTr: {}, headingTr: {}, trTotal: 0, trDone: 0, trComplete: false, trModels: [],
         jobId: null, jobMsg: '', progress: undefined, equationsByOrd: new Map(), figuresByCaption: new Map(),
         eq: { total: 0, done: 0, failed: 0, complete: false }, eqList: [], eqJobId: null, eqProgress: undefined, eqMsg: '', eqError: null
       })
       try {
         const t = await textApi.text(paperId)
         if (get().paperId !== paperId) return
-        set({ items: t.items, status: 'ready' })
+        set({ items: t.items, revision: t.revision ?? null, status: 'ready' })
       } catch (err) {
         if (get().paperId === paperId) set({ status: 'error', error: errorMessage(err) })
         return
@@ -394,7 +399,7 @@ export const useTextStore = create<TextState>((set, get) => {
       stopPolling()
       set({
         ...TBL_INIT, retranslating: new Set<number>(),
-        paperId: null, status: 'idle', error: null, items: [], trans: new Map(), tableTr: {}, headingTr: {}, trTotal: 0, trDone: 0, trComplete: false, trModels: [],
+        paperId: null, status: 'idle', error: null, items: [], revision: null, trans: new Map(), tableTr: {}, headingTr: {}, trTotal: 0, trDone: 0, trComplete: false, trModels: [],
         jobId: null, jobMsg: '', progress: undefined, equationsByOrd: new Map(), figuresByCaption: new Map(),
         eq: { total: 0, done: 0, failed: 0, complete: false }, eqList: [], eqJobId: null, eqProgress: undefined, eqMsg: '', eqError: null
       })
@@ -406,6 +411,18 @@ export const useTextStore = create<TextState>((set, get) => {
       try {
         const t = await textApi.translation(id)
         if (get().paperId !== id) return
+        // 手里的段落是旧版（例如阅读页开着的时候这篇论文被重新解析了，段落序号整体变了），而译文是按新版序号给的：
+        // 直接配在一起整篇都会错位。先把段落重新载入成新版，load 会接着取译文。
+        const mine = get().revision
+        if (t.revision && mine && t.revision !== mine && !reloadingStale) {
+          reloadingStale = true
+          try {
+            await get().load(id)
+          } finally {
+            reloadingStale = false
+          }
+          return
+        }
         const cellsMissing = (t.cells_total ?? 0) - (t.cells_done ?? 0)
         set({
           trans: new Map(t.items.map((i) => [i.ord, i.translation])),

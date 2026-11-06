@@ -1185,3 +1185,40 @@ def test_figure_group_box_grows_to_include_axis_labels_and_panel_letters(api):
     x0, y0, x1, y1 = g["bbox"]
     assert x0 <= 60 and y0 <= 52  # 刻度和子图字母都进来了
     assert y1 <= 300  # 没有扩进图注
+
+
+# ---------------- 在右侧对话里解析图（卡片，不弹窗） ----------------
+def test_figure_explain_creates_a_conversation_card_with_the_honest_figure_answer(journal):
+    api, pid, _, fig = journal
+    api.fake.qa_reply = {"answerable": True, "answer": "FINDER 的 ANC 约 0.52，比 HDA 低。", "seen": "折线图",
+                         "numbers": [{"value": "0.52", "how": "printed"}]}
+    ev = api.sse("/ai/explain-figure", {"paper_id": pid, "figure_id": fig["id"]})
+    names = [e[0] for e in ev]
+    assert names[0] == "stage" and "meta" in names and "delta" in names and names[-1] == "done"
+    card = ev[-1][1]["card"]
+    assert card["object_type"] == "figure" and card["status"] == "complete" and card["conversation_id"]
+    assert card["question"].startswith("请解析这张图") and card["selection"]["figure_id"] == fig["id"]
+    f = card["answer"]["figure"]
+    assert f["seen"] == "折线图" and f["id"] == fig["id"]
+    assert f["numbers"] == [{"value": "0.52", "how": "estimated"}]  # 声称印在图上但文字层里没有：照样降级
+    assert card["verification"]["status"] == "partial" and any("读图估计" in n for n in card["verification"]["notes"])
+    assert len(_image_messages(api.fake)) == 1  # 图只发给视觉模型一次
+    cards = api.get(f"/papers/{pid}/cards?conversation_id={card['conversation_id']}").json()["items"]
+    assert [c["id"] for c in cards] == [card["id"]]  # 在当前对话里，右侧面板能看到
+
+
+def test_figure_explain_follow_up_uses_the_given_question_and_unanswerable_is_stated(journal):
+    api, pid, _, fig = journal
+    first = api.sse("/ai/explain-figure", {"paper_id": pid, "figure_id": fig["id"]})[-1][1]["card"]
+    ev = api.sse("/ai/explain-figure", {"paper_id": pid, "figure_id": fig["id"], "conversation_id": first["conversation_id"],
+                                          "question": "FINDER 在 ER 图上的运行时间是多少秒？"})
+    card = ev[-1][1]["card"]
+    assert card["conversation_id"] == first["conversation_id"] and card["question"].startswith("FINDER 在 ER")
+    assert card["answer"]["direct"].startswith("图中看不出") and card["answer"]["figure"]["answerable"] is False
+
+
+def test_figure_explain_error_leaves_no_card(journal):
+    api, pid, _, fig = journal
+    ev = api.sse("/ai/explain-figure", {"paper_id": pid, "figure_id": 999999})
+    assert ev[-1][0] == "error"
+    assert api.get(f"/papers/{pid}/cards").json()["items"] == []

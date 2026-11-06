@@ -198,7 +198,7 @@ def status(app: AppContext, paper_id: str, with_items: bool = True) -> dict:
     cells_done = sum(1 for c in cells if c["digest"] in cache)
     return {
         "total": len(todo), "done": done, "complete": bool(todo) and done >= len(todo),
-        "models": sorted(models), "skipped": skipped, "items": items,
+        "models": sorted(models), "skipped": skipped, "items": items, "revision": reader.revision(app, paper_id),
         "cells_total": len(cells), "cells_done": cells_done,
         "tables": table_translations(app, paper_id, cache) if with_items else {},
         "headings": heading_translations(app, paper_id, cache) if with_items else {},

@@ -668,48 +668,6 @@
   border-bottom: 1px solid var(--text);
 }
 
-/* 让 AI 解析图：对话框里的回答和追问输入 */
-.pd-figai-turn {
-  margin-bottom: var(--sp-md);
-}
-.pd-figai-q {
-  margin: 0 0 6px;
-  padding-left: 8px;
-  border-left: 2px solid var(--text);
-  color: var(--text-2);
-  font-size: 13px;
-}
-.pd-figai-nums {
-  margin: 6px 0;
-  padding-left: 18px;
-  font-size: 13px;
-}
-.pd-figai-form {
-  display: flex;
-  gap: 8px;
-  margin-top: var(--sp-md);
-}
-.pd-figai-form input {
-  flex: 1;
-  min-width: 0;
-  padding: 6px 10px;
-  background: transparent;
-  border: 1px solid var(--border-strong, var(--border));
-  color: var(--text);
-  font: inherit;
-}
-.pd-figai-form button {
-  padding: 6px 14px;
-  background: var(--text);
-  border: 0;
-  color: var(--bg);
-  font: inherit;
-  cursor: pointer;
-}
-.pd-figai-form button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
 .pd-tp-cap-label--btn {
   padding: 0;
   background: none;

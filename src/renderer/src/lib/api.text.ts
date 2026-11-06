@@ -19,6 +19,8 @@ export interface PaperText {
   count: number
   chars: number
   items: TextItem[]
+  /** 这一版段落的版本号；重新解析之后会变。旧后端没有这个字段 */
+  revision?: string
 }
 
 /** 一张表的译文：和原表同样的行列，翻译不了的格子（数字等）是 null。 */
@@ -33,6 +35,8 @@ export interface PaperTranslation {
   complete: boolean
   models: string[]
   items: Array<{ ord: number; translation: string }>
+  /** 译文对应的那一版段落的版本号：和 PaperText.revision 对不上，说明译文的序号和手里的段落不是同一版 */
+  revision?: string
   /** 表格单元格的翻译进度（和正文段落分开数） */
   cells_total?: number
   cells_done?: number

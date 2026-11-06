@@ -10,11 +10,12 @@ import { useNotesStore } from '@/features/notes/notesStore'
 import { SupplementPermissionHint } from '@/features/materials/SupplementPermissionHint'
 import { EquationHeader, EquationSections, SymbolTable } from '@/features/formula/EquationCardExtras'
 import { MathText } from '@/features/formula/Tex'
-import { isEquationCard } from '@/lib/types.vision'
+import { isEquationCard, isFigureCard } from '@/lib/types.vision'
 import { useInsightStore } from './insightStore'
 import { cardMetaParts, questionLine, verifyLabel } from './insightModel'
 import { QuestionBubble } from './QuestionBubble'
 import { QuestionEditor } from './QuestionEditor'
+import type { FigureCard } from '@/lib/types.vision'
 
 const VERIFY_HINT: Record<string, string | null> = {
   verified: null,
@@ -77,6 +78,25 @@ function EvidenceList({ evidence, notes }: { evidence: Evidence[]; notes: Map<st
   )
 }
 
+/** 图解析卡片：AI 看到了什么，读出的数字哪些是图上印的、哪些是估读的（估读的不能当精确值引用）。 */
+function FigureExtras({ card }: { card: FigureCard }) {
+  const f = card.answer.figure
+  return (
+    <div className="pd-card-figure">
+      {f.seen && <p className="pd-aux pd-muted">AI 看到的：{f.seen}</p>}
+      {f.numbers.length > 0 && (
+        <ul className="pd-card-fignums">
+          {f.numbers.map((n, i) => (
+            <li key={i}>
+              {n.value} <span className="pd-aux pd-muted">{n.how === 'printed' ? '图上印的' : '估读的'}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /** editable：这是当前对话里最后一次提问，可以修改后重新回答。 */
 export function CardView({ card, editable = false }: { card: InsightCard; editable?: boolean }) {
   const [expanded, setExpanded] = useState(false)
@@ -104,6 +124,8 @@ export function CardView({ card, editable = false }: { card: InsightCard; editab
         ? card.verification.notes.join(' ')
         : (VERIFY_HINT[card.verification.status] ?? null)
   const failed = card.status !== 'complete'
+  // 公式解释、图解析的卡片不是普通问答：改写提问走的是普通问答，不会再带公式/图，所以不提供“修改上一次提问”
+  const canEdit = editable && !isEquationCard(card) && !isFigureCard(card)
 
   const meta = cardMetaParts(card)
   const question = questionLine(card.question, card.selection?.text)
@@ -162,10 +184,10 @@ export function CardView({ card, editable = false }: { card: InsightCard; editab
         </span>
       </div>
 
-      {editing && editable ? (
+      {editing && canEdit ? (
         <QuestionEditor card={card} onClose={() => setEditing(false)} />
       ) : (
-        <QuestionBubble line={question} attachments={card.attachments?.map((a) => a.name)} onEdit={editable && !busy ? () => setEditing(true) : undefined} />
+        <QuestionBubble line={question} attachments={card.attachments?.map((a) => a.name)} onEdit={canEdit && !busy ? () => setEditing(true) : undefined} />
       )}
 
       {failed ? (
@@ -186,6 +208,8 @@ export function CardView({ card, editable = false }: { card: InsightCard; editab
           </div>
 
           {isEquationCard(card) && <SymbolTable card={card} />}
+
+          {isFigureCard(card) && <FigureExtras card={card} />}
 
           {card.answer.outside && <OutsideBlock text={card.answer.outside} web={card.answer.web ?? []} />}
 

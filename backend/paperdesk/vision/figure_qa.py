@@ -139,3 +139,80 @@ async def ask_figure(app: AppContext, paper_id: str, figure_id: int, question: s
         warnings.append("这张图是位图，没有文字层，所有内容都只能是读图结果。")
     return {"answerable": answerable, "answer": answer, "seen": V.clean(raw.get("seen")), "numbers": numbers,
             "warnings": warnings, "model": vmodel, "figure_id": fig["id"], **({} if premise_ok else {"premise": "mismatch"})}
+
+
+# ---------------------------------------------------------------- 在右侧对话里解析图
+DEFAULT_FIGURE_QUESTION = "请解析这张图：它画的是什么、关键的数据或趋势是什么、想说明什么结论。"
+
+
+async def explain_figure_events(
+    app: AppContext, paper_id: str, figure_id: int, *, question: str = "", chain_id: str | None = None,
+    conversation_id: str | None = None, save: bool = True,
+):
+    """图（和图里的表）的 AI 解析：和公式解释一样，产出一张对话卡片放进右侧面板，不再单独弹窗。
+    回答仍然走 ask_figure（看图、图中看不出就明说、数字区分“图上印的/读图估计的”、不在图里的数字会告警）；
+    SSE：stage → meta → delta → done{card}（或 error）。卡片 object_type=figure，answer.figure 里带 seen/numbers/warnings。"""
+    from ..ai import cards
+    from ..ai import usage as usage_log
+    from ..ai.service import llm_error_event
+
+    service = AIService(app)
+    card_id: str | None = None
+    created_chain = False
+    finalized = False
+    try:
+        fig = figures.load_figure(app, paper_id, figure_id)
+        q = question.strip() or DEFAULT_FIGURE_QUESTION
+        _provider, cfg = service.provider()  # 没配置模型/Key 时在这里报可读错误
+        vmodel = choose_model(TaskType.VISION, cfg).model
+        olabel = fig["label"] or f"第 {fig['page']} 页的图"
+        sel_store = {"text": (fig["caption"] or "")[:600], "page": fig["page"], "figure_id": fig["id"],
+                     "passage_ords": [fig["caption_ord"]] if fig["caption_ord"] is not None else []}
+        card_id = cards.new_id()
+        with app.db.session() as conn:
+            conv_id = cards.resolve_conversation(conn, paper_id, conversation_id)
+            before = conn.execute("SELECT COUNT(*) FROM insight_chains WHERE paper_id = ?", (paper_id,)).fetchone()[0]
+            chain_id, chain_title = cards.resolve_chain(conn, paper_id, chain_id, "figure", f"figure:{fig['id']}", olabel)
+            created_chain = conn.execute("SELECT COUNT(*) FROM insight_chains WHERE paper_id = ?", (paper_id,)).fetchone()[0] > before
+            cards.create_card(
+                conn, card_id=card_id, paper_id=paper_id, chain_id=chain_id, object_type="figure", object_label=olabel,
+                selection=sel_store, question=q, intent="figure", task_type=TaskType.VISION.value, model=vmodel, saved=save,
+                conversation_id=conv_id,
+            )
+            cards.touch_conversation(conn, conv_id, q)
+        includes = {"question": True, "selection": True, "notes": False, "supplements": False, "code": False, "images": True}
+        yield "stage", {"stage": "look", "message": "正在看图…"}
+        yield "meta", {
+            "card_id": card_id, "chain_id": chain_id, "chain_title": chain_title, "conversation_id": conv_id,
+            "task_type": TaskType.VISION.value, "model": vmodel, "escalated": False,
+            "context": {"passage_ords": [], "passage_count": 0, "chars_sent": 0, "includes": includes, "supplement_docs": [], "supplement_passages": []},
+        }
+        res = await ask_figure(app, paper_id, fig["id"], q)
+        yield "delta", {"text": res["answer"]}
+        notes = list(res["warnings"])
+        if res.get("premise") == "mismatch":
+            notes.append("这个问题的前提和这张图对不上，所以没有把图发给模型。")
+        answer = {
+            "direct": res["answer"], "detail": None, "evidence_notes": [], "inferences": [], "follow_ups": [],
+            "figure": {"id": fig["id"], "label": fig["label"], "page": fig["page"], "answerable": res["answerable"], "seen": res["seen"],
+                       "numbers": res["numbers"], "model": res["model"]},
+        }
+        verification = {"status": "partial" if notes else "verified", "notes": notes, "invalid_citations": [], "invalid_refs": []}
+        with app.db.session() as conn:
+            cards.finalize_card(
+                conn, card_id, status="complete", model=res["model"] or vmodel, raw=res["answer"], answer=answer, evidence=[],
+                verification=verification, usage={"prompt_tokens": 0, "completion_tokens": 0}, task_type=TaskType.VISION.value,
+            )
+        finalized = True
+        yield "done", {"card": cards.get_card(app, card_id)}
+    except LLMError as err:
+        yield llm_error_event(err, card_id)
+        await service._abandon_card(card_id, "", created_chain, paper_id, failed=False)
+        finalized = True
+    except ApiError as err:
+        yield "error", {"code": err.code, "message": err.message, **({"card_id": card_id} if card_id else {})}
+        await service._abandon_card(card_id, "", created_chain, paper_id, failed=False)
+        finalized = True
+    finally:
+        if card_id and not finalized:  # 用户中途停止：还没有任何输出，卡片不留
+            await service._abandon_card(card_id, "", created_chain, paper_id, failed=False)

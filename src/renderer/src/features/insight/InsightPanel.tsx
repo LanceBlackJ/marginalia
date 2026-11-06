@@ -9,7 +9,7 @@ import { CardView } from './CardView'
 import { Composer } from './Composer'
 import { ConversationBar } from './ConversationBar'
 import { PendingCardView } from './PendingCardView'
-import { isEquationCard } from '@/lib/types.vision'
+import { isEquationCard, isFigureCard } from '@/lib/types.vision'
 import { lastCardId, useInsightStore, visibleCards } from './insightStore'
 
 const STARTERS = ['这篇论文要解决什么问题？', '作者为什么要这样设计方法？', '实验结果是否支持作者的结论？']
@@ -112,7 +112,7 @@ export function InsightPanel() {
             }
           />
         ) : (
-          list.map((c) => <CardView key={c.id} card={c} editable={!pending && c.id === lastId && !!c.conversation_id && !isEquationCard(c)} />)
+          list.map((c) => <CardView key={c.id} card={c} editable={!pending && c.id === lastId && !!c.conversation_id && !isEquationCard(c) && !isFigureCard(c)} />)
         )}
 
         {pending && <PendingCardView pending={pending} />}

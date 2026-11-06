@@ -1,6 +1,7 @@
 """阅读器所需的查询：大纲、按页段落、选中文字定位、论文内全文检索。"""
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
 import unicodedata
@@ -87,7 +88,18 @@ def full_text(app: AppContext, paper_id: str) -> dict:
          "bbox": [r["x0"], r["y0"], r["x1"], r["y1"]], "bold": _bold_of(r), "math": _math_of(r)}
         for r in rows
     ]
-    return {"count": len(items), "chars": sum(len(i["text"]) for i in items), "items": items}
+    return {"count": len(items), "chars": sum(len(i["text"]) for i in items), "items": items, "revision": revision(app, paper_id)}
+
+
+def revision(app: AppContext, paper_id: str) -> str:
+    """这篇论文当前这一版段落的“版本号”：段落序号、长度、开头文字有任何变化（例如重新解析之后序号整体前移）它就变。
+    阅读页拿着旧版段落去配新版的译文会整体错位；两边各带一个版本号，对不上就重新载入。"""
+    with app.db.session() as conn:
+        rows = conn.execute("SELECT ord, length(text) AS n, substr(text, 1, 16) AS head FROM passages WHERE paper_id = ? ORDER BY ord", (paper_id,)).fetchall()
+    h = hashlib.sha1()
+    for r in rows:
+        h.update(f"{r['ord']}:{r['n']}:{r['head']}\n".encode("utf-8"))
+    return h.hexdigest()[:12]
 
 
 def get_passage(app: AppContext, paper_id: str, ord_: int) -> dict:

@@ -31,6 +31,8 @@ export interface PendingCard {
   stage?: string | null
   /** 这是“修改上一次提问并重新回答”：被改写的那张卡片的 id。它在列表里让位给这张进行中的卡片；没成功时原卡片原样回来。 */
   editingCardId?: string
+  /** 图解析：被解析的图 id（重试用） */
+  figureId?: number
 }
 
 export interface AskInput {
@@ -44,6 +46,8 @@ export interface AskInput {
   equationId?: number
   /** 修改并重答这张卡片（必须是当前对话里最后一张） */
   editCardId?: string
+  /** 图解析：给出图的 id 时走 /ai/explain-figure（把这张图的截图发给视觉模型，回答仍带“图中看不出就明说”的防编造处理） */
+  figureId?: number
 }
 
 interface InsightState {
@@ -192,8 +196,9 @@ export const useInsightStore = create<InsightState>((set, get) => {
           escalatedTo: null,
           equationId: input.equationId,
           latex: null,
-          stage: input.equationId != null ? '正在识别公式…' : null,
-          editingCardId: input.editCardId
+          stage: input.equationId != null ? '正在识别公式…' : input.figureId != null ? '正在看图…' : null,
+          editingCardId: input.editCardId,
+          figureId: input.figureId
         }
       })
 
@@ -217,7 +222,13 @@ export const useInsightStore = create<InsightState>((set, get) => {
               cb,
               signal
             )
-          : api.ai.ask(body, cb, signal)
+          : input.figureId != null
+            ? visionApi.explainFigure(
+                { paper_id: paperId, figure_id: input.figureId, question: input.question, chain_id: body.chain_id, conversation_id: activeConversation, save: input.save ?? null },
+                cb,
+                signal
+              )
+            : api.ai.ask(body, cb, signal)
 
       let finished = false
       try {

@@ -9,7 +9,8 @@ import { askQuick, type QuickIntent } from '@/features/reader/selectionActions'
 import type { SelectionInfo } from '@/features/reader/pdf/selection'
 import { usePrefs } from '@/stores/prefsStore'
 import { getDraft, setDraft } from '@/lib/drafts'
-import { useInsightStore } from './insightStore'
+import { isFigureCard } from '@/lib/types.vision'
+import { lastCardId, useInsightStore } from './insightStore'
 
 const QUICK: Array<{ intent: QuickIntent; label: string; hint: string }> = [
   { intent: 'explain', label: '解释', hint: '解释选中的内容' },
@@ -34,6 +35,7 @@ export function Composer() {
   const selectionLive = useReaderStore((s) => s.selection)
   const focusTick = useReaderStore((s) => s.composerFocusTick)
   const cards = useInsightStore((s) => s.cards)
+  const conversation = useInsightStore((s) => s.activeConversation)
   const pending = useInsightStore((s) => s.pending)
   const ask = useInsightStore((s) => s.ask)
   const stop = useInsightStore((s) => s.stop)
@@ -60,6 +62,12 @@ export function Composer() {
     setDraft('composer', paperId, text)
   }, [text, paperId])
   const [refs, setRefs] = useState<InsightCard[]>([])
+  // 对话里最后一张是“图解析”卡片：接着问默认还是在问这张图，会再把这张图发给视觉模型（可以点 × 取消，改成普通提问）
+  const lastId = lastCardId(cards, conversation)
+  const lastCard = lastId ? cards.find((c) => c.id === lastId) : undefined
+  const figureCtx = lastCard && isFigureCard(lastCard) ? { cardId: lastCard.id, id: lastCard.answer.figure.id, label: lastCard.answer.figure.label ?? '这张图' } : null
+  const [figureOff, setFigureOff] = useState<string | null>(null)
+  const figureOn = figureCtx !== null && figureOff !== figureCtx.cardId
   const [mention, setMention] = useState(false)
   const taRef = useRef<HTMLTextAreaElement>(null)
   const streaming = pending?.status === 'streaming'
@@ -93,7 +101,13 @@ export function Composer() {
     const question = composeQuestion(text, refs) || '请看看我附上的文件，结合这篇论文回答。'
     // 提问针对选中的内容：已加入上下文的，或论文里刚选中（并保留着）的那段话
     const sel = contextSelection ?? (selectionLive ? { text: selectionLive.text, page: selectionLive.page } : null)
-    void ask({ question, intent: 'free', selection: sel, attachments: files.length > 0 ? files.map(({ name, mime, data }) => ({ name, mime, data })) : undefined })
+    void ask({
+      question,
+      intent: 'free',
+      selection: sel,
+      attachments: files.length > 0 ? files.map(({ name, mime, data }) => ({ name, mime, data })) : undefined,
+      figureId: figureOn ? figureCtx.id : undefined
+    })
     setText('')
     setFiles([])
     setRefs([])
@@ -157,8 +171,17 @@ export function Composer() {
         </div>
       )}
 
-      {(target || refs.length > 0) && (
+      {(target || refs.length > 0 || figureOn) && (
         <div className="pd-composer-ctx">
+          {figureOn && (
+            <span className="pd-chip pd-chip--fig" title="接着问会再把这张图发给视觉模型；点 × 改成普通提问">
+              <span className="pd-chip-kind">看图</span>
+              <span className="pd-ellipsis">{figureCtx.label}</span>
+              <button type="button" aria-label="不再带着这张图提问" onClick={() => setFigureOff(figureCtx.cardId)}>
+                <X size={12} />
+              </button>
+            </span>
+          )}
           {target && (
             <span className="pd-chip pd-chip--sel" title={target.text}>
               <span className="pd-chip-kind">第 {target.page} 页</span>

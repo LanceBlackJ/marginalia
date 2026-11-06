@@ -3,13 +3,12 @@ import { Eye, Sparkles } from 'lucide-react'
 import { Menu } from '@/components/ui'
 import { useTextStore } from './textStore'
 import { useFigViewer, type FigTarget } from './figViewerStore'
-import { aiParseTable } from './figAi'
+import { aiParseFigure, aiParseTable } from './figAi'
 import { labelKey } from './figRefs'
 
 /** 点图/表的标签（正文里的“Fig. 3”、图注开头的“图 3”）：选“查看”还是“让 AI 解析”。 */
 export function FigLabelMenu({ target, className, title, children }: { target: FigTarget; className?: string; title?: string; children: ReactNode }) {
   const open = useFigViewer((s) => s.open)
-  const openAi = useFigViewer((s) => s.openAi)
   return (
     <Menu
       align="start"
@@ -29,7 +28,10 @@ export function FigLabelMenu({ target, className, title, children }: { target: F
             if (target.kind === 'table') {
               const t = [...useTextStore.getState().tablesByCaption.values()].find((x) => x.kind !== 'figure_data' && labelKey(x.label) === target.key)
               if (t) aiParseTable(t)
-            } else openAi(target)
+            } else {
+              const f = [...useTextStore.getState().figuresByCaption.values()].find((x) => x.kind === 'figure' && labelKey(x.label) === target.key)
+              if (f) aiParseFigure(f)
+            }
           }
         }
       ]}

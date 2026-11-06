@@ -41,8 +41,16 @@ export function headingLevels(outline: OutlineItem[]): Map<string, number> {
 
 const SENTENCE_END = /[.?!:;”"’)\]]\s*$/
 
+/** 下一段确实换了页，或换了栏（同一页里跑到右边那一栏的上方）。 */
+function crossesPageOrColumn(prev: TextItem, next: TextItem): boolean {
+  if (next.page > prev.page) return true
+  return next.bbox[1] < prev.bbox[1] - 50 && next.bbox[0] > prev.bbox[0] + 80
+}
+
 /**
- * 上一段在页尾或栏尾被切断：末尾没有句末标点，下一段（下一页，或同一页换栏后）以小写字母开头。
+ * 上一段在页尾或栏尾被切断：末尾没有句末标点，下一段（下一页，或同一页换栏后）接着写。
+ * - 下一段以小写字母开头：一定是接着的。
+ * - 以大写开头（“…from the Hugging | Face community…”，专有名词被栏尾切开）：只有确实换了页/栏、上一段够长时才接。
  * 同一页内只在上一段足够长（不是一行小标题）时才接，避免把短行、列表项误接。
  */
 export function continuesAcrossPage(prev: TextItem, next: TextItem): boolean {
@@ -50,7 +58,8 @@ export function continuesAcrossPage(prev: TextItem, next: TextItem): boolean {
   if (next.page < prev.page) return false
   if (next.page === prev.page && prev.text.trim().length < 80) return false
   if (SENTENCE_END.test(prev.text)) return false
-  return /^\s*\p{Ll}/u.test(next.text)
+  if (/^\s*\p{Ll}/u.test(next.text)) return true
+  return prev.text.trim().length >= 80 && crossesPageOrColumn(prev, next) && /^\s*\p{Lu}\p{Ll}+[\s,]/u.test(next.text)
 }
 
 export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { showNoise: boolean; raw?: boolean }): TextDoc {

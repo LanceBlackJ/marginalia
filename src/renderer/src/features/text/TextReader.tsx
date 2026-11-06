@@ -32,7 +32,6 @@ import { FigureDataBlock } from './FigureDataBlock'
 import { FigLabelMenu } from './FigLabelMenu'
 import { ParaInsightCard } from '@/features/paragraph/ParaInsightCard'
 import { useParaStore } from '@/features/paragraph/paraStore'
-import { FigAiDialog } from './FigAiDialog'
 import { ZoomImage } from '@/components/ZoomImage'
 import { LinkAnchor, Linkified } from './Linkified'
 import { splitLinks } from './links'
@@ -136,12 +135,10 @@ function FigViewer({ paperId }: { paperId: string }) {
   const target = useFigViewer((s) => s.target)
   const close = useFigViewer((s) => s.close)
   const formula = useFigViewer((s) => s.formula)
-  const aiTarget = useFigViewer((s) => s.ai)
   const figs = useTextStore((s) => s.figuresByCaption)
   const tables = useTextStore((s) => s.tablesByCaption)
   const fig = target?.kind === 'fig' ? ([...figs.values()].find((f) => f.kind === 'figure' && labelKey(f.label) === target.key) ?? null) : null
   const table = target?.kind === 'table' ? ([...tables.values()].find((t) => t.kind !== 'figure_data' && labelKey(t.label) === target.key) ?? null) : null
-  const aiFig = aiTarget?.kind === 'fig' ? ([...figs.values()].find((f) => f.kind === 'figure' && labelKey(f.label) === aiTarget.key) ?? null) : null
   const asImage = fig !== null || (table !== null && table.status !== 'ready')
   const img = useBlobUrl(
     !target ? null : fig ? () => textApi.regionVector(paperId, fig.page, fig.bbox, 220) : table && table.status !== 'ready' ? () => textApi.tableVector(paperId, table.caption_ord, 200) : null,
@@ -156,7 +153,6 @@ function FigViewer({ paperId }: { paperId: string }) {
           </div>
         </Dialog>
       )}
-      {aiFig && <FigAiDialog paperId={paperId} fig={aiFig} onClose={close} />}
       <Lightbox open={Boolean(target) && asImage} onClose={close} src={img.url} alt={fig?.label ?? table?.label ?? ''} />
       {table && table.status === 'ready' && (
         <Dialog open onClose={close} title={table.label} width={980}>

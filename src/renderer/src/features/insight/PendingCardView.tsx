@@ -36,7 +36,8 @@ export function PendingCardView({ pending }: { pending: PendingCard }) {
       intent: pending.intent,
       selection: pending.selection,
       equationId: pending.equationId,
-      editCardId: pending.editingCardId
+      editCardId: pending.editingCardId,
+      figureId: pending.figureId
     })
   }
 

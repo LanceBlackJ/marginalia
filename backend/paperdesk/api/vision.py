@@ -94,6 +94,26 @@ class ExplainBody(BaseModel):
     refresh_latex: bool = False
 
 
+class ExplainFigureBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    paper_id: str
+    figure_id: int
+    question: str = ""
+    chain_id: str | None = None
+    conversation_id: str | None = None
+    save: bool | None = None
+
+
+@router.post("/ai/explain-figure")
+async def explain_figure(body: ExplainFigureBody, ctx: AppContext = Depends(get_ctx)):
+    """SSE：stage → meta → delta → done{card}（或 error）。图/表的 AI 解析放进右侧对话，卡片 object_type 为 figure。"""
+    _ensure_paper(ctx, body.paper_id)
+    return sse_response(figure_qa.explain_figure_events(
+        ctx, body.paper_id, body.figure_id, question=body.question, chain_id=body.chain_id,
+        conversation_id=body.conversation_id, save=True if body.save is None else body.save,
+    ))
+
+
 @router.post("/ai/explain-equation")
 async def explain_equation(body: ExplainBody, ctx: AppContext = Depends(get_ctx)):
     """SSE：stage → latex → meta → delta* → done{card}（或 error）。卡片 object_type 为 equation，answer 里带 symbols/relations/derivation。"""
