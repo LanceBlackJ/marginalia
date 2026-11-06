@@ -14,6 +14,7 @@ import { isEquationCard } from '@/lib/types.vision'
 import { useInsightStore } from './insightStore'
 import { cardMetaParts, questionLine, verifyLabel } from './insightModel'
 import { QuestionBubble } from './QuestionBubble'
+import { QuestionEditor } from './QuestionEditor'
 
 const VERIFY_HINT: Record<string, string | null> = {
   verified: null,
@@ -76,8 +77,10 @@ function EvidenceList({ evidence, notes }: { evidence: Evidence[]; notes: Map<st
   )
 }
 
-export function CardView({ card }: { card: InsightCard }) {
+/** editable：这是当前对话里最后一次提问，可以修改后重新回答。 */
+export function CardView({ card, editable = false }: { card: InsightCard; editable?: boolean }) {
   const [expanded, setExpanded] = useState(false)
+  const [editing, setEditing] = useState(false)
   const setSaved = useInsightStore((s) => s.setSaved)
   const removeCard = useInsightStore((s) => s.removeCard)
   const ask = useInsightStore((s) => s.ask)
@@ -159,7 +162,11 @@ export function CardView({ card }: { card: InsightCard }) {
         </span>
       </div>
 
-      <QuestionBubble line={question} attachments={card.attachments?.map((a) => a.name)} />
+      {editing && editable ? (
+        <QuestionEditor card={card} onClose={() => setEditing(false)} />
+      ) : (
+        <QuestionBubble line={question} attachments={card.attachments?.map((a) => a.name)} onEdit={editable && !busy ? () => setEditing(true) : undefined} />
+      )}
 
       {failed ? (
         <p className="pd-field-error">{card.status === 'cancelled' ? '生成已取消。' : '生成失败。'}</p>

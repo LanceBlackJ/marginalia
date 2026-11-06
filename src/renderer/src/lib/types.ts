@@ -510,6 +510,8 @@ export interface AskRequest {
   web?: boolean
   /** 截图/图片、PDF、文本文件（base64），只用于这一次提问 */
   attachments?: Array<{ name: string; mime: string; data: string }>
+  /** 修改这张卡片的提问并重新回答（只能是对话里最后一张）：后端原地改写，失败时还原 */
+  edit_card_id?: string | null
 }
 
 export interface TranslateRequest {

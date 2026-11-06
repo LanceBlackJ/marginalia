@@ -81,6 +81,44 @@ def create_card(
     )
 
 
+# ---------------------------------------------------------------- 修改最后一次提问
+def edit_target(conn: sqlite3.Connection, paper_id: str, card_id: str) -> dict:
+    """可以被“修改后重新回答”的卡片：必须属于这篇论文、属于某个对话、不在生成中，并且是这个对话里最后一张。
+    只允许改最后一次提问——改中间的会让后面那些基于旧回答的追问失效。返回它的完整旧内容（失败时用来还原）。"""
+    row = conn.execute("SELECT * FROM insight_cards WHERE id = ? AND paper_id = ?", (card_id, paper_id)).fetchone()
+    if row is None:
+        raise ApiError("not_found", "要修改的提问不存在", 404)
+    if not row["conversation_id"]:
+        raise ApiError("bad_request", "这条提问不属于任何对话，不能修改")
+    if row["status"] == "streaming":
+        raise ApiError("conflict", "这条提问还在生成回答，请等它结束或先停止", 409)
+    last = conn.execute(
+        "SELECT id FROM insight_cards WHERE conversation_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1", (row["conversation_id"],)
+    ).fetchone()
+    if last is None or last["id"] != card_id:
+        raise ApiError("bad_request", "只能修改对话里最后一次提问")
+    return dict(row)
+
+
+def reset_card_for_edit(
+    conn: sqlite3.Connection, card_id: str, *, question: str, intent: str, selection: dict | None, task_type: str, model: str,
+    attachments: list[dict] | None,
+) -> None:
+    """同一张卡片原地改写：换上新的问题，清掉旧回答，重新进入生成中。id 不变，所以知识库来源、思维导图关联等指向它的引用不会断。"""
+    conn.execute(
+        "UPDATE insight_cards SET question=?, intent=?, selection_json=?, task_type=?, model=?, status='streaming', answer_json=NULL, "
+        "raw_markdown='', evidence_json='[]', verification_json=NULL, usage_json=NULL, attachments_json=? WHERE id=?",
+        (question, intent, dumps(selection) if selection else None, task_type, model, dumps(attachments) if attachments else None, card_id),
+    )
+
+
+def restore_card(conn: sqlite3.Connection, snap: dict) -> None:
+    """重新回答没有成功（出错、取消）：把卡片还原成修改前的样子，原来的问题和回答一个字都不丢。"""
+    cols = ("question", "intent", "selection_json", "task_type", "model", "status", "answer_json", "raw_markdown", "evidence_json",
+            "verification_json", "usage_json", "attachments_json")
+    conn.execute(f"UPDATE insight_cards SET {', '.join(c + '=?' for c in cols)} WHERE id=?", (*[snap[c] for c in cols], snap["id"]))
+
+
 # ---------------------------------------------------------------- 对话
 def _conv_dict(r: sqlite3.Row) -> dict:
     return {"id": r["id"], "paper_id": r["paper_id"], "title": r["title"], "card_count": r["n"], "updated_at": r["updated_at"],
@@ -238,16 +276,16 @@ def list_cards(app: AppContext, paper_id: str, chain_id: str | None, saved: bool
     return [card_to_dict(r) for r in rows]
 
 
-def recent_history(app: AppContext, conversation_id: str | None, limit: int = 4, answer_chars: int = 900) -> list[dict]:
+def recent_history(app: AppContext, conversation_id: str | None, limit: int = 4, answer_chars: int = 900, exclude_id: str | None = None) -> list[dict]:
     """这个对话里最近几轮已经答完的问答（旧的在前），随新问题一起发给模型，让对话连得上。
-    只取同一个对话：别的对话、别的论文的问答不会带进来。"""
+    只取同一个对话：别的对话、别的论文的问答不会带进来。exclude_id：正在被修改重答的那张卡片，不能把它自己的旧问答当上文。"""
     if not conversation_id:
         return []
     with app.db.session() as conn:
         rows = conn.execute(
             "SELECT question, selection_json, answer_json, attachments_json FROM insight_cards "
-            "WHERE conversation_id = ? AND status = 'complete' ORDER BY created_at DESC, rowid DESC LIMIT ?",
-            (conversation_id, limit),
+            "WHERE conversation_id = ? AND status = 'complete' AND id != ? ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            (conversation_id, exclude_id or "", limit),
         ).fetchall()
     out: list[dict] = []
     for r in reversed(rows):

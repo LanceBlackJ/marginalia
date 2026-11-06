@@ -98,11 +98,82 @@
     opacity: 1;
   }
 }
+/* 问题所在的一行：靠右；这是最后一次提问时，左边有个“修改”铅笔，鼠标放到这一行上才出现 */
+.pd-card-question-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.pd-card-qedit-btn {
+  display: inline-grid;
+  place-items: center;
+  margin-top: 6px;
+  padding: 4px;
+  background: none;
+  border: 0;
+  color: var(--text-2);
+  cursor: pointer;
+  opacity: 0;
+}
+.pd-card-question-row:hover .pd-card-qedit-btn,
+.pd-card-qedit-btn:focus-visible {
+  opacity: 1;
+}
+.pd-card-qedit-btn:hover {
+  color: var(--text);
+}
+@media (hover: none) {
+  .pd-card-qedit-btn {
+    opacity: 1;
+  }
+}
+/* 修改提问：原地展开的输入框，黑色实线边框 */
+.pd-qedit {
+  margin: 2px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--text);
+  background: var(--bg);
+}
+.pd-qedit-quote {
+  display: -webkit-box;
+  margin: 0 0 6px;
+  padding-left: 8px;
+  overflow: hidden;
+  border-left: 2px solid var(--border-strong, var(--border));
+  color: var(--text-2);
+  font-size: 12.5px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.pd-qedit-input {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.pd-qedit-files {
+  padding: 6px 0 0;
+}
+.pd-qedit-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
 /* 我发的问题：实心的深色气泡靠右，一眼就能看出哪句是我问的；选中的文字和问题合在一起，最多显示四行，鼠标放上去看全文 */
 .pd-card-question {
   width: fit-content;
   max-width: 92%;
-  margin: 2px 0 6px auto;
+  margin: 2px 0 6px 0;
   padding: 8px 12px;
   background: var(--text);
   color: var(--bg);

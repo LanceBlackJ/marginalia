@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 import pymupdf
@@ -19,6 +20,7 @@ class Region:
     x1: float
     y1: float
     kind: str  # image | vector
+    table: bool = False  # 由“图注 + 横线”认出的三线表：里面的文字不论长短都是表格内容，不是正文
 
     @property
     def area(self) -> float:
@@ -57,6 +59,10 @@ def detect_regions(page: pymupdf.Page, native_w: float, native_h: float) -> list
         rects.append((r.x0, r.y0, r.x1, r.y1))
     if len(rects) >= 12:
         regions.extend(_cluster(rects, native_w, native_h))
+    try:
+        regions.extend(_rule_tables(page, drawings, native_w))
+    except Exception:  # noqa: BLE001  取不到文字块或绘图异常时，只是少识别一张表
+        pass
 
     # 合并相互重叠的区域，并过滤页眉/页脚/分隔线之类的细长装饰
     merged: list[Region] = []
@@ -65,9 +71,10 @@ def detect_regions(page: pymupdf.Page, native_w: float, native_h: float) -> list
             ix0, iy0, ix1, iy1 = max(r.x0, m.x0), max(r.y0, m.y0), min(r.x1, m.x1), min(r.y1, m.y1)
             if ix1 > ix0 and iy1 > iy0 and (ix1 - ix0) * (iy1 - iy0) >= 0.5 * min(r.area, m.area):
                 m.x0, m.y0, m.x1, m.y1 = min(m.x0, r.x0), min(m.y0, r.y0), max(m.x1, r.x1), max(m.y1, r.y1)
+                m.table = m.table or r.table
                 break
         else:
-            merged.append(Region(r.x0, r.y0, r.x1, r.y1, r.kind))
+            merged.append(Region(r.x0, r.y0, r.x1, r.y1, r.kind, r.table))
     out = []
     for r in merged:
         w, h = r.x1 - r.x0, r.y1 - r.y0
@@ -75,6 +82,59 @@ def detect_regions(page: pymupdf.Page, native_w: float, native_h: float) -> list
         thin = h < 0.04 * native_h or w < 0.04 * native_w
         if not band and not thin and r.area >= 0.008 * page_area and w >= 30 and h >= 30:
             out.append(r)
+    return out
+
+
+TABLE_CAPTION_RE = re.compile(r"^\s*(?:Table|TABLE|表)\s*[A-Z]?\d+")
+ANY_CAPTION_RE = re.compile(r"^\s*(?:Table|TABLE|表|Fig\.|Figure|FIGURE|图)\s*[A-Z]?\d+")
+
+
+def _rule_rows(drawings: list, native_w: float) -> list[tuple[float, float, float]]:
+    """横线：高度不超过 1.6pt 的绘图（描边线或极扁的填充条）。同一高度上首尾相连的小段合成一条（三线表的线常被切成每列一段），
+    只留宽度够大的，返回 [(y, x0, x1)]。"""
+    by_y: dict[int, list[tuple[float, float]]] = {}
+    for d in drawings:
+        r = d.get("rect")
+        if r is None or r.height > 1.6 or r.width < 12:
+            continue
+        by_y.setdefault(round((r.y0 + r.y1) / 2), []).append((r.x0, r.x1))
+    rows: list[tuple[float, float, float]] = []
+    for y, segs in by_y.items():
+        segs.sort()
+        runs: list[list[float]] = []
+        for x0, x1 in segs:
+            if runs and x0 <= runs[-1][1] + 3:
+                runs[-1][1] = max(runs[-1][1], x1)
+            else:
+                runs.append([x0, x1])
+        x0, x1 = max(runs, key=lambda r: r[1] - r[0])
+        if x1 - x0 >= 0.3 * native_w:
+            rows.append((float(y), x0, x1))
+    return sorted(rows)
+
+
+def _rule_tables(page: pymupdf.Page, drawings: list, native_w: float) -> list[Region]:
+    """三线表（只有几条横线、没有竖线和边框）不会被“绘图聚类”认成图形，里面的格子文字就成了正文段落。
+    以 Table 图注为锚点：图注正下方（30pt 内）的第一条通栏横线是表头线，到下一个图注之前、与它同宽的最后一条横线是表尾线，
+    中间整块算表格区域。没有横线的表（纯空白对齐）不处理。"""
+    blocks = [b for b in page.get_text("blocks") if b[6] == 0]
+    caps = sorted((b[1], b[3], b[0], b[2], bool(TABLE_CAPTION_RE.match(b[4]))) for b in blocks if ANY_CAPTION_RE.match(b[4]))
+    if not any(c[4] for c in caps):
+        return []
+    rules = _rule_rows(drawings, native_w)
+    out: list[Region] = []
+    for i, (cy0, cy1, cx0, cx1, is_table) in enumerate(caps):
+        if not is_table:
+            continue
+        top = next((r for r in rules if cy1 - 3 <= r[0] <= cy1 + 30 and min(r[2], cx1 + 400) - max(r[1], cx0) > 20), None)
+        if top is None:
+            continue
+        limit = caps[i + 1][0] if i + 1 < len(caps) else float("inf")
+        width = top[2] - top[1]
+        same = [r for r in rules if top[0] <= r[0] < limit and min(r[2], top[2]) - max(r[1], top[1]) >= 0.6 * width]
+        if len(same) < 2:
+            continue
+        out.append(Region(min(r[1] for r in same), top[0] - 1, max(r[2] for r in same), same[-1][0] + 1, "vector", table=True))
     return out
 
 

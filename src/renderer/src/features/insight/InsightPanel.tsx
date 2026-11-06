@@ -9,7 +9,8 @@ import { CardView } from './CardView'
 import { Composer } from './Composer'
 import { ConversationBar } from './ConversationBar'
 import { PendingCardView } from './PendingCardView'
-import { useInsightStore, visibleCards } from './insightStore'
+import { isEquationCard } from '@/lib/types.vision'
+import { lastCardId, useInsightStore, visibleCards } from './insightStore'
 
 const STARTERS = ['这篇论文要解决什么问题？', '作者为什么要这样设计方法？', '实验结果是否支持作者的结论？']
 
@@ -42,7 +43,9 @@ export function InsightPanel() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
-  const list = visibleCards(cards, active, conversation)
+  // 重答期间，被改写的那张卡片让位给进行中的卡片；没成功时它原样回来
+  const list = visibleCards(cards, active, conversation).filter((c) => c.id !== pending?.editingCardId)
+  const lastId = lastCardId(cards, conversation)
 
   // 发起新提问时一定滚到最新卡片
   const pendingId = pending?.tempId
@@ -109,7 +112,7 @@ export function InsightPanel() {
             }
           />
         ) : (
-          list.map((c) => <CardView key={c.id} card={c} />)
+          list.map((c) => <CardView key={c.id} card={c} editable={!pending && c.id === lastId && !!c.conversation_id && !isEquationCard(c)} />)
         )}
 
         {pending && <PendingCardView pending={pending} />}

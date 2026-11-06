@@ -29,6 +29,8 @@ export interface PendingCard {
   equationId?: number
   latex?: EquationLatex | null
   stage?: string | null
+  /** 这是“修改上一次提问并重新回答”：被改写的那张卡片的 id。它在列表里让位给这张进行中的卡片；没成功时原卡片原样回来。 */
+  editingCardId?: string
 }
 
 export interface AskInput {
@@ -40,6 +42,8 @@ export interface AskInput {
   attachments?: Array<{ name: string; mime: string; data: string }>
   /** 公式解释（F5）：给出公式 id 时走 /ai/explain-equation（先识别公式 LaTeX，再讲解） */
   equationId?: number
+  /** 修改并重答这张卡片（必须是当前对话里最后一张） */
+  editCardId?: string
 }
 
 interface InsightState {
@@ -80,6 +84,16 @@ export function visibleCards(cards: InsightCard[], active: string | null, conver
   if (active === null) return inConv
   if (active === TEMP_CHAIN) return inConv.filter((c) => !c.saved)
   return inConv.filter((c) => c.chain_id === active)
+}
+
+/**
+ * 当前对话里最后一张卡片的 id：只有它的提问可以修改后重答（改中间的会让后面基于旧回答的追问失效）。
+ * 公式解释、思维导图节点等不属于对话的卡片不算。
+ */
+export function lastCardId(cards: InsightCard[], conversation: string | null): string | null {
+  if (!conversation) return null
+  const inConv = cards.filter((c) => c.conversation_id === conversation)
+  return inConv.length > 0 ? inConv[inConv.length - 1].id : null
 }
 
 export const useInsightStore = create<InsightState>((set, get) => {
@@ -178,7 +192,8 @@ export const useInsightStore = create<InsightState>((set, get) => {
           escalatedTo: null,
           equationId: input.equationId,
           latex: null,
-          stage: input.equationId != null ? '正在识别公式…' : null
+          stage: input.equationId != null ? '正在识别公式…' : null,
+          editingCardId: input.editCardId
         }
       })
 
@@ -191,7 +206,8 @@ export const useInsightStore = create<InsightState>((set, get) => {
         save: input.save ?? null,
         conversation_id: activeConversation,
         web: usePrefs.getState().askWeb,
-        attachments: input.attachments
+        attachments: input.attachments,
+        edit_card_id: input.editCardId ?? null
       }
 
       const stream = (cb: (event: string, data: unknown) => void, signal: AbortSignal): Promise<void> =>

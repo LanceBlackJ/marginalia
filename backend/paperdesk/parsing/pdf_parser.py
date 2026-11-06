@@ -28,7 +28,8 @@ is_caption = layout.is_caption
 #   3 = 记录原文加粗的文字片段（文字视图还原加粗）、还原行内公式（文字视图渲染）
 #   4 = 图多的页面也能分栏（回退到全文档的栏沟）、通栏大图的版面区向页边扩展（图例和坐标刻度归入图内文字）
 #   5 = 行内的求和（带上下限）还原成公式、行内求和号不再被切成单独一行；行首片段的结尾空格不再丢（“chooseM”“then-step”）
-PARSER_VERSION = 13
+#  14 = 三线表（图注 + 几条通栏横线，没有竖线和边框）认成表格区域，格子里的长文字不再当正文段落、不再被逐段翻译
+PARSER_VERSION = 14
 COVER_RE = re.compile(r"引用本文\s*[:：]|您可能感兴趣的其他文章|在线阅读\s*View online")
 
 
@@ -415,8 +416,13 @@ def _flag_figure_lines(pg: _Page, body: float) -> None:
         return
     total = sum(len(l.text) for l in pg.lines) or 1
     flagged = 0
+    table_lines: set[int] = set()  # 三线表区域里的行：不受“短行”限制，也不参与下面“其实是正文页”的判断
     for ln in pg.lines:
         cx, cy = (ln.x0 + ln.x1) / 2, (ln.y0 + ln.y1) / 2
+        if any(r.table and r.contains_point(cx, cy) for r in pg.regions):
+            ln.in_figure = True
+            table_lines.add(id(ln))
+            continue
         inside = any(r.contains_point(cx, cy) for r in pg.regions)
         near = False
         if not inside and ln.size <= 0.97 * body and len(ln.text) <= 70 and len(ln.text.split()) <= 10                 and not layout.is_caption(ln.text):
@@ -424,12 +430,13 @@ def _flag_figure_lines(pg: _Page, body: float) -> None:
         if (inside and len(ln.text) <= 110 and len(ln.text.split()) <= 18) or near:
             ln.in_figure = True
             flagged += len(ln.text)
-    flagged_lines = [l for l in pg.lines if l.in_figure]
+    flagged_lines = [l for l in pg.lines if l.in_figure and id(l) not in table_lines]
     avg = sum(len(l.text) for l in flagged_lines) / max(1, len(flagged_lines))
     if flagged / total > 0.6 and avg > 55:  # 被标成“图”的行平均很长：其实是带边框的正文页，别当图内文字
         for ln in pg.lines:
-            ln.in_figure = False
-        pg.regions = []
+            if id(ln) not in table_lines:
+                ln.in_figure = False
+        pg.regions = [r for r in pg.regions if r.table]
 
 
 def _nearest_region(pg: _Page, ln: Line) -> Region | None:

@@ -31,7 +31,13 @@ export function PendingCardView({ pending }: { pending: PendingCard }) {
 
   const retry = (): void => {
     dismiss()
-    void ask({ question: pending.question, intent: pending.intent, selection: pending.selection, equationId: pending.equationId })
+    void ask({
+      question: pending.question,
+      intent: pending.intent,
+      selection: pending.selection,
+      equationId: pending.equationId,
+      editCardId: pending.editingCardId
+    })
   }
 
   return (
@@ -113,6 +119,11 @@ export function PendingCardView({ pending }: { pending: PendingCard }) {
             <div className="pd-aux" style={{ marginTop: 2 }}>
               {pending.error.message}
             </div>
+            {pending.editingCardId && (
+              <div className="pd-aux pd-muted" style={{ marginTop: 2 }}>
+                原来的提问和回答没有改动。
+              </div>
+            )}
           </div>
         </div>
       ) : pending.text ? (
@@ -163,7 +174,7 @@ export function PendingCardView({ pending }: { pending: PendingCard }) {
             )}
             <span className="pd-spacer" />
             <Button size="sm" variant="ghost" icon={<X size={13} />} onClick={dismiss}>
-              关闭
+              {pending.editingCardId ? '保留原来的' : '关闭'}
             </Button>
           </>
         )}

@@ -40,6 +40,7 @@ class AskRequest:
     web: bool = False  # 论文里没有时，是否联网查资料补充
     conversation_id: str | None = None  # 属于哪个对话；不填就用最近的一个
     attachments: list[dict] | None = None  # 截图/图片、PDF、文本文件：[{name, mime, data(base64)}]
+    edit_card_id: str | None = None  # 修改并重新回答这张卡片（只能是对话里最后一张）：原地改写，失败时还原
 
 
 def llm_error_event(err: LLMError, card_id: str | None = None) -> Event:
@@ -215,6 +216,7 @@ class AIService:
 
     async def ask_events(self, req: AskRequest) -> AsyncIterator[Event]:
         card_id: str | None = None
+        snapshot: dict | None = None  # 修改重答时，这张卡片修改前的完整内容（失败/取消时还原）
         created_chain = False
         acc = {"text": "", "usage": Usage()}
         finalized = False
@@ -236,7 +238,11 @@ class AIService:
             else:
                 with self.app.db.session() as conn:
                     conv_id = cards.resolve_conversation(conn, req.paper_id, req.conversation_id)
-            history = cards.recent_history(self.app, conv_id)  # 这个对话的前几轮问答：新问题常是接着问的
+            if req.edit_card_id and not req.object_key:
+                with self.app.db.session() as conn:
+                    snapshot = cards.edit_target(conn, req.paper_id, req.edit_card_id)  # 不是最后一张、还在生成等情况在这里报错
+                conv_id = snapshot["conversation_id"]
+            history = cards.recent_history(self.app, conv_id, exclude_id=req.edit_card_id if snapshot else None)  # 这个对话的前几轮问答：新问题常是接着问的
             # 很短的追问（“为什么呢”“它是什么意思”）单独检索找不到东西：把上一个问题接上一起检索
             rq = question
             if history and len(question) < 20 and not sel_text:
@@ -276,18 +282,27 @@ class AIService:
             otype, okey, olabel = cards.object_key_for(sel, pack.selection_ords)
             if req.object_key:
                 otype, okey, olabel = req.object_type or otype, req.object_key, req.object_label or olabel
-            card_id = cards.new_id()
+            card_id = req.edit_card_id if snapshot else cards.new_id()
             with self.app.db.session() as conn:
-                before = conn.execute("SELECT COUNT(*) FROM insight_chains WHERE paper_id = ?", (req.paper_id,)).fetchone()[0]
-                chain_id, chain_title = cards.resolve_chain(conn, req.paper_id, req.chain_id, otype, okey, olabel)
-                after = conn.execute("SELECT COUNT(*) FROM insight_chains WHERE paper_id = ?", (req.paper_id,)).fetchone()[0]
-                created_chain = after > before
-                cards.create_card(
-                    conn, card_id=card_id, paper_id=req.paper_id, chain_id=chain_id, object_type=otype,
-                    object_label=olabel, selection=sel_store, question=question, intent=req.intent,
-                    task_type=task.value, model=choice.model, saved=saved, conversation_id=conv_id,
-                    attachments=prepared.names,
-                )
+                if snapshot:  # 修改重答：沿用原来的卡片和分析链，只换问题、清掉旧回答
+                    chain_id = snapshot["chain_id"]
+                    row = conn.execute("SELECT title FROM insight_chains WHERE id = ?", (chain_id,)).fetchone()
+                    chain_title = row["title"] if row else ""
+                    cards.reset_card_for_edit(
+                        conn, card_id, question=question, intent=req.intent, selection=sel_store, task_type=task.value,
+                        model=choice.model, attachments=prepared.names,
+                    )
+                else:
+                    before = conn.execute("SELECT COUNT(*) FROM insight_chains WHERE paper_id = ?", (req.paper_id,)).fetchone()[0]
+                    chain_id, chain_title = cards.resolve_chain(conn, req.paper_id, req.chain_id, otype, okey, olabel)
+                    after = conn.execute("SELECT COUNT(*) FROM insight_chains WHERE paper_id = ?", (req.paper_id,)).fetchone()[0]
+                    created_chain = after > before
+                    cards.create_card(
+                        conn, card_id=card_id, paper_id=req.paper_id, chain_id=chain_id, object_type=otype,
+                        object_label=olabel, selection=sel_store, question=question, intent=req.intent,
+                        task_type=task.value, model=choice.model, saved=saved, conversation_id=conv_id,
+                        attachments=prepared.names,
+                    )
                 cards.touch_conversation(conn, conv_id, question or sel_text)
 
             n_supp = len(pack.supp_refs)
@@ -380,11 +395,11 @@ class AIService:
             yield "done", {"card": cards.get_card(self.app, card_id)}
         except LLMError as err:
             yield llm_error_event(err, card_id)
-            await self._abandon_card(card_id, acc["text"], created_chain, req.paper_id, failed=True)
+            await self._abandon_card(card_id, acc["text"], created_chain, req.paper_id, failed=True, snapshot=snapshot)
             finalized = True
         except ApiError as err:
             yield "error", {"code": err.code, "message": err.message, **({"card_id": card_id} if card_id else {})}
-            await self._abandon_card(card_id, acc["text"], created_chain, req.paper_id, failed=True)
+            await self._abandon_card(card_id, acc["text"], created_chain, req.paper_id, failed=True, snapshot=snapshot)
             finalized = True
         finally:
             if card_id and not finalized:  # 客户端中断（GeneratorExit / CancelledError）：用户点了“停止生成”
@@ -403,9 +418,9 @@ class AIService:
                                 usage={"prompt_tokens": 0, "completion_tokens": 0}, task_type=task.value,
                             )
                     except Exception:  # noqa: BLE001  解析失败也不能丢掉已经输出的文字
-                        await self._abandon_card(card_id, partial, created_chain, req.paper_id, failed=True)
+                        await self._abandon_card(card_id, partial, created_chain, req.paper_id, failed=True, snapshot=snapshot)
                 else:
-                    await self._abandon_card(card_id, "", created_chain, req.paper_id, failed=False)
+                    await self._abandon_card(card_id, "", created_chain, req.paper_id, failed=False, snapshot=snapshot)
 
     async def _outside_answer(self, provider, cfg, choice, task, question: str, sel_text: str, title: str,
                               history: list[dict], web_items: list[dict], paper_id: str) -> str:
@@ -425,11 +440,14 @@ class AIService:
         self._log_usage(task, choice.model, res.usage, msgs, res.text, paper_id)
         return re.sub(r"\[P\d+\]", "", res.text or "").strip()
 
-    async def _abandon_card(self, card_id: str | None, partial: str, created_chain: bool, paper_id: str, *, failed: bool) -> None:
+    async def _abandon_card(self, card_id: str | None, partial: str, created_chain: bool, paper_id: str, *, failed: bool,
+                            snapshot: dict | None = None) -> None:
         if not card_id:
             return
         with self.app.db.session() as conn:
-            if failed and partial.strip():
+            if snapshot:  # 修改重答没成：原来的问题和回答原样还原，不留半截内容，也不删卡片
+                cards.restore_card(conn, snapshot)
+            elif failed and partial.strip():
                 cards.finalize_card(conn, card_id, status="failed", model="", raw=partial, answer=None, evidence=[],
                                     verification=None, usage={"prompt_tokens": 0, "completion_tokens": 0}, task_type="")
                 conn.execute("UPDATE insight_cards SET saved = 0 WHERE id = ?", (card_id,))

@@ -869,3 +869,49 @@ def test_passage_insight_is_verified_cached_and_reader_oriented(imported):
     assert api.get(f"/papers/{pid}/passages/{ord_}/insight").json()["cached"] is True
     assert len(api.post(f"/papers/{pid}/passages/{ord_}/insight", {"force": True}).json()["insight"]["watch"]) == 3
     assert len(api.fake.requests) == n + 1  # 重新分析才会再调用
+
+
+# ---- 修改最后一次提问并重新回答 ----
+def _ask(api, pid, q, **kw):
+    ev = api.sse("/ai/ask", {"paper_id": pid, "question": q, "intent": "free", **kw})
+    return ev[-1][1].get("card"), ev
+
+
+def test_editing_the_last_question_rewrites_the_same_card_with_earlier_turns_as_context(imported):
+    api, pid = imported
+    first, _ = _ask(api, pid, "第一个问题：拓扑注意力是什么")
+    second, _ = _ask(api, pid, "那为什么呢OLDWORDING", conversation_id=first["conversation_id"])
+    edited, ev = _ask(api, pid, "那为什么需要它？补充：我关心的是计算开销NEWWORDING", conversation_id=first["conversation_id"], edit_card_id=second["id"])
+    assert ev[-1][0] == "done" and edited["id"] == second["id"]  # 原地改写：卡片 id 不变，指向它的引用不会断
+    cards_now = api.get(f"/papers/{pid}/cards?conversation_id={first['conversation_id']}").json()["items"]
+    assert [c["question"] for c in cards_now] == ["第一个问题：拓扑注意力是什么", "那为什么需要它？补充：我关心的是计算开销NEWWORDING"]
+    msgs = api.fake.requests[-1]["body"]["messages"]
+    text = " ".join(str(m["content"]) for m in msgs)
+    assert "NEWWORDING" in str(msgs[-1]["content"]) and "OLDWORDING" not in text  # 旧的措辞和旧回答都不再发给模型
+    assert any("第一个问题" in str(m["content"]) for m in msgs[:-1] if m["role"] == "user")  # 更早的一轮仍然是上文
+
+
+def test_only_the_last_question_of_a_conversation_can_be_edited(imported):
+    api, pid = imported
+    first, _ = _ask(api, pid, "第一个问题")
+    second, _ = _ask(api, pid, "第二个问题", conversation_id=first["conversation_id"])
+    _card, ev = _ask(api, pid, "想改第一个", conversation_id=first["conversation_id"], edit_card_id=first["id"])
+    assert ev[-1][0] == "error" and "最后一次提问" in ev[-1][1]["message"]
+    _card, ev = _ask(api, pid, "不存在的", edit_card_id="nope")
+    assert ev[-1][0] == "error"
+    items = api.get(f"/papers/{pid}/cards?conversation_id={first['conversation_id']}").json()["items"]
+    assert [c["question"] for c in items] == ["第一个问题", "第二个问题"]  # 被拒绝的修改没有动任何内容
+
+
+def test_failed_edit_restores_the_original_question_and_answer(imported):
+    api, pid = imported
+    api.put("/settings/ai", {"max_retries": 0})
+    card, _ = _ask(api, pid, "what is attention ORIGINAL")
+    before = api.get(f"/papers/{pid}/cards").json()["items"][0]
+    api.fake.fail_next.append((429, "rate limit"))
+    _c, ev = _ask(api, pid, "what is topology attention EDITED", conversation_id=card["conversation_id"], edit_card_id=card["id"])
+    assert ev[-1][0] == "error"
+    after = api.get(f"/papers/{pid}/cards").json()["items"]
+    assert len(after) == 1 and after[0]["id"] == card["id"]
+    for k in ("question", "status", "raw_markdown", "answer", "evidence", "verification", "model"):
+        assert after[0][k] == before[k], k  # 出错也不能让用户丢掉原来的内容

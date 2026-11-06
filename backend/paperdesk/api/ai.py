@@ -135,6 +135,7 @@ class AskBody(BaseModel):
     web: bool = False
     conversation_id: str | None = None
     attachments: list[AttachmentBody] = []
+    edit_card_id: str | None = None  # 修改这张卡片的提问并重新回答（只能是对话里最后一张）
 
 
 @router.post("/ai/ask")
@@ -144,7 +145,7 @@ async def ask(body: AskBody, ctx: AppContext = Depends(get_ctx)):
     req = AskRequest(
         paper_id=body.paper_id, question=body.question, intent=body.intent,
         selection=body.selection.model_dump() if body.selection else None, chain_id=body.chain_id, save=body.save, web=body.web, conversation_id=body.conversation_id,
-        attachments=[a.model_dump() for a in body.attachments],
+        attachments=[a.model_dump() for a in body.attachments], edit_card_id=body.edit_card_id,
     )
     return sse_response(AIService(ctx).ask_events(req))
 
