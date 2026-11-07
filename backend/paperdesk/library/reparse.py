@@ -45,6 +45,10 @@ CREATE TABLE IF NOT EXISTS reparse_backup (
 """)
 # 笔记的引用位置在重新解析后对不上时标为失效（保留原文引用与页码，不删除）
 register_column("reparse", "notes", "stale", "INTEGER NOT NULL DEFAULT 0")
+# 书签可以精确到正文的某一段（右键添加）：记段落序号与这段开头的原文；重新解析后按原文找回，找不到就标为位置已失效
+register_column("reparse", "bookmarks", "passage_ord", "INTEGER")
+register_column("reparse", "bookmarks", "quote", "TEXT")
+register_column("reparse", "bookmarks", "stale", "INTEGER NOT NULL DEFAULT 0")
 
 DERIVED = ("sections", "passages", "page_info", "figures", "equations")
 CACHES = ("equation_latex", "figure_analysis", "table_analysis")
@@ -490,7 +494,10 @@ def _apply(app: AppContext, paper_id: str, parsed: ParsedDoc) -> dict:
         notes = {"total": 0, "mapped": 0, "stale": 0}
         _remap_ord_rows(conn, "notes", "paper_id = ?", (paper_id,), "passage_ord", "quote", "page", "stale", om, new_passages, journal, notes)
         stats["notes"] = notes
-        targets = {"total": 0, "mapped": 0, "stale": 0}
+        bms = {"total": 0, "mapped": 0, "stale": 0}
+        _remap_ord_rows(conn, "bookmarks", "paper_id = ?", (paper_id,), "passage_ord", "quote", "page", "stale", om, new_passages, journal, bms)
+        stats["bookmarks"] = bms
+        targets ={"total": 0, "mapped": 0, "stale": 0}
         _remap_ord_rows(conn, "repro_targets", "paper_id = ?", (paper_id,), "ord", "quote", "page", None, om, new_passages, journal, targets)
         stats["repro_targets"] = targets
         _remap_json_targets(conn, paper_id, om, fm, em, journal, stats)
@@ -541,8 +548,10 @@ def undo(app: AppContext, paper_id: str) -> dict:
         scratch: list = []
         _remap_ord_rows(conn, "notes", "paper_id = ?", (paper_id,), "passage_ord", "quote", "page", "stale", rev_om, old["passages"],
                         scratch, {"total": 0, "mapped": 0, "stale": 0}, skip=covered)
-        _remap_ord_rows(conn, "repro_targets", "paper_id = ?", (paper_id,), "ord", "quote", "page", None, rev_om, old["passages"],
+        _remap_ord_rows(conn, "bookmarks", "paper_id = ?", (paper_id,), "passage_ord", "quote", "page", "stale", rev_om, old["passages"],
                         scratch, {"total": 0, "mapped": 0, "stale": 0}, skip=covered)
+        _remap_ord_rows(conn, "repro_targets", "paper_id = ?", (paper_id,), "ord", "quote", "page", None, rev_om, old["passages"],
+                        scratch,{"total": 0, "mapped": 0, "stale": 0}, skip=covered)
         _remap_json_targets(conn, paper_id, rev_om, rev_fm, rev_em, scratch, {}, skip=covered)
 
         # 2) 派生数据与缓存：删掉现在的，按原 id 把快照里的放回去

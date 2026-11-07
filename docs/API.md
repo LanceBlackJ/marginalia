@@ -86,7 +86,7 @@
 
 | 方法 | 路径 | body → 返回 |
 |---|---|---|
-| GET/POST | `/api/papers/{id}/bookmarks` | POST `{page,label}` → `Bookmark{id,page,label,created_at}`；GET → `{"items":[…]}` |
+| GET/POST | `/api/papers/{id}/bookmarks` | POST `{page,label,passage_ord?,quote?}`（带 `passage_ord` = 书签落在正文某一段，重新解析后按 `quote` 找回，找不到 `stale=true`）→ `Bookmark{id,page,label,created_at,passage_ord,quote,stale}`；GET → `{"items":[…]}` |
 | DELETE | `/api/papers/{id}/bookmarks/{bid}` | `{"ok":true}` |
 | GET/POST | `/api/papers/{id}/notes` | POST `{text, page?, quote?, passage_ord?, card_id?}` → `Note{id,paper_id,page,quote,passage_ord,text,card_id,created_at,updated_at}` |
 | PATCH/DELETE | `/api/notes/{nid}` | PATCH `{text}` → Note；DELETE → `{"ok":true}` |

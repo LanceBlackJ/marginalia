@@ -79,6 +79,8 @@ def test_reparse_replaces_derived_data_and_remaps_user_data(imported):
     only_ord = api.post(f"/papers/{pid}/notes", {"text": "只有序号", "page": other["page"], "passage_ord": other["ord"] + SHIFT}).json()
     lost = api.post(f"/papers/{pid}/notes", {"text": "对不上的笔记", "page": 1, "quote": "zzqq 这段文字在论文里根本不存在 qqzz", "passage_ord": 77777}).json()
     page_only = api.post(f"/papers/{pid}/notes", {"text": "只记在某一页", "page": 2}).json()
+    bm_ok = api.post(f"/papers/{pid}/bookmarks", {"page": target["page"], "label": "这一段", "quote": target["text"][:90], "passage_ord": old_ord}).json()
+    bm_lost = api.post(f"/papers/{pid}/bookmarks", {"page": 1, "label": "没了", "quote": "zzqq 这段文字在论文里根本不存在 qqzz", "passage_ord": 77777}).json()
     now = "2026-01-01T00:00:00Z"
     with api.ctx.db.session() as conn:
         conn.execute(
@@ -117,6 +119,11 @@ def test_reparse_replaces_derived_data_and_remaps_user_data(imported):
     assert notes[page_only["id"]]["stale"] is False and notes[page_only["id"]]["passage_ord"] is None
     assert len(notes) == 4
 
+    # 段落书签跟笔记一样：按开头的原文找回新位置；对不上的保留页码和标签，标为位置已失效
+    bms = {b["id"]: b for b in api.get(f"/papers/{pid}/bookmarks").json()["items"]}
+    assert bms[bm_ok["id"]]["passage_ord"] == new_target["ord"] and bms[bm_ok["id"]]["stale"] is False
+    assert bms[bm_lost["id"]]["passage_ord"] is None and bms[bm_lost["id"]]["stale"] is True and bms[bm_lost["id"]]["page"] == 1
+
     with api.ctx.db.session() as conn:
         ev = json.loads(conn.execute("SELECT evidence_json FROM kb_items WHERE id='i1'").fetchone()[0])
         other_ev = json.loads(conn.execute("SELECT evidence_json FROM kb_items WHERE id='i2'").fetchone()[0])
@@ -129,7 +136,7 @@ def test_reparse_replaces_derived_data_and_remaps_user_data(imported):
     assert other_ev[0]["ord"] == old_ord  # 引用别的论文的证据不被改写
     assert finding == [new_target["ord"]]
     assert state["textAnchor"] == new_target["ord"] and state["mode"] == "continuous"
-    assert bm == 1 and an == 1  # 书签、批注按页码，不受影响
+    assert bm == 3 and an == 1  # 书签、批注按页码，不会丢（书签 = 页码书签 + 两个段落书签）
 
     stats = item["stats"]
     assert stats["notes"] == {"total": 3, "mapped": 2, "stale": 1}

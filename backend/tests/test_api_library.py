@@ -125,6 +125,11 @@ def test_bookmarks_notes_annotations(api, sample_pdf):
     pid = api.import_pdf(sample_pdf)["paper_id"]
     b = api.post(f"/papers/{pid}/bookmarks", {"page": 2, "label": "方法"}).json()
     assert api.get(f"/papers/{pid}/bookmarks").json()["items"][0]["label"] == "方法"
+    assert b["passage_ord"] is None and b["stale"] is False  # 只记页码的书签没有段落位置
+    p = api.post(f"/papers/{pid}/bookmarks", {"page": 2, "label": "这一段", "passage_ord": 5, "quote": "  开头的原文  "}).json()
+    assert p["passage_ord"] == 5 and p["quote"] == "开头的原文"
+    assert [x["id"] for x in api.get(f"/papers/{pid}/bookmarks").json()["items"]] == [b["id"], p["id"]]
+    assert api.delete(f"/papers/{pid}/bookmarks/{p['id']}").json()["ok"]
     assert api.delete(f"/papers/{pid}/bookmarks/{b['id']}").json()["ok"]
     assert api.delete(f"/papers/{pid}/bookmarks/{b['id']}").status_code == 404
 

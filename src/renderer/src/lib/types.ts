@@ -293,6 +293,12 @@ export interface Bookmark {
   page: number
   label: string
   created_at: string
+  /** 书签落在正文的哪一段（右键添加的有）；null = 只记了页码，或段落位置已失效 */
+  passage_ord: number | null
+  /** 那一段开头的原文（重新解析后靠它找回位置） */
+  quote: string | null
+  /** 重新解析后找不到原来的那一段了：只能回到那一页 */
+  stale: boolean
 }
 
 export interface Note {

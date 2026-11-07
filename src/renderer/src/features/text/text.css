@@ -668,3 +668,22 @@
   text-underline-offset: 3px;
   cursor: pointer;
 }
+
+/* 书签标记：右键某一段添加书签后，这一段左边留一个实心书签（在“这一段怎么读”小按钮的下面） */
+.pd-tp-bmflag {
+  position: absolute;
+  left: -24px;
+  top: 30px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.pd-tp-bmflag:hover {
+  color: var(--text-2);
+}

@@ -221,7 +221,8 @@ export const api = {
 
   bookmarks: {
     list: (paperId: string) => get<{ items: Bookmark[] }>(`/api/papers/${paperId}/bookmarks`),
-    create: (paperId: string, page: number, label: string) => post<Bookmark>(`/api/papers/${paperId}/bookmarks`, { page, label }),
+    create: (paperId: string, page: number, label: string, at?: { passage_ord: number; quote: string }) =>
+      post<Bookmark>(`/api/papers/${paperId}/bookmarks`, { page, label, ...at }),
     remove: (paperId: string, id: string) => del<{ ok: boolean }>(`/api/papers/${paperId}/bookmarks/${id}`)
   },
 

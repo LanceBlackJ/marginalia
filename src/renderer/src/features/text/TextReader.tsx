@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
-import { AlertCircle, ChevronDown, ChevronRight, Compass, Languages, StickyNote } from 'lucide-react'
+import { AlertCircle, Bookmark as BookmarkIcon, ChevronDown, ChevronRight, Compass, Languages, StickyNote } from 'lucide-react'
 import { toast } from '@/components/ui'
 import { Button, Dialog, EmptyState, ProgressBar, Skeleton } from '@/components/ui'
 import { Lightbox } from '@/components/ui/Lightbox'
@@ -32,6 +32,8 @@ import { activeSectionAt } from '@/features/reader/outlinePos'
 import { onCtrlWheel } from '@/features/reader/ctrlWheel'
 import { FigureDataBlock } from './FigureDataBlock'
 import { FigLabelMenu } from './FigLabelMenu'
+import { BookmarkMenu, type BookmarkMenuState } from './BookmarkMenu'
+import { bookmarkOnPassage, passageBookmark } from './bookmarkAt'
 import { ParaInsightCard } from '@/features/paragraph/ParaInsightCard'
 import { useParaStore } from '@/features/paragraph/paraStore'
 import { ZoomImage } from '@/components/ZoomImage'
@@ -610,12 +612,14 @@ interface PassageProps {
   tableTr?: TableTranslation
   /** 这个段落上的笔记：段落下面贴便签角标（原文、译文都有），原文里引用的文字另外标出来 */
   notes?: Note[]
+  /** 这一段上有书签（右键添加的）：左边留一个书签标记 */
+  bookmarked?: boolean
   /** 正在“重新翻译这一段” */
   retranslating: boolean
   onRetranslate: (ords: number[]) => void
 }
 
-const PassageView = memo(function PassageView({ parts, view, tr, marks, query, hit, flash, eq, fig, paperId, vocab, boldFirst, glossTerms, pageNo, eqRunning, eqError, table, tblRunning, tblError, onRetryTables, tableTr, notes, retranslating, onRetranslate }: PassageProps) {
+const PassageView = memo(function PassageView({ parts, view, tr, marks, query, hit, flash, eq, fig, paperId, vocab, boldFirst, glossTerms, pageNo, eqRunning, eqError, table, tblRunning, tblError, onRetryTables, tableTr, notes, bookmarked, retranslating, onRetranslate }: PassageProps) {
   const item = parts[0]
   const paraRefsMap = useRefStore((s) => s.paraRefs)
   const refs = useMemo(() => mergeParaRefs(parts.map((p) => p.ord), paraRefsMap), [parts, paraRefsMap])
@@ -679,6 +683,17 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
           onClick={() => void useParaStore.getState().open(paperId, item.ord)}
         >
           <Compass size={13} />
+        </button>
+      )}
+      {bookmarked && (
+        <button
+          type="button"
+          className="pd-tp-bmflag"
+          title="这里有书签（点开看书签列表，右键这一段可以移除）"
+          aria-label="这里有书签"
+          onClick={() => useReaderStore.getState().setLeft(true, 'bookmarks')}
+        >
+          <BookmarkIcon size={14} fill="currentColor" />
         </button>
       )}
       {pageNo !== null && (
@@ -853,6 +868,9 @@ export function TextReader() {
   )
 
   const notes = useNotesStore((s) => s.notes)
+  const bookmarks = useMarksStore((s) => s.bookmarks)
+  const [bmMenu, setBmMenu] = useState<BookmarkMenuState | null>(null)
+  const closeBmMenu = useCallback(() => setBmMenu(null), [])
   const marksByPage = useMemo(() => {
     const m = new Map<number, AnnMark[]>()
     for (const a of annotations) if (a.text) m.set(a.page, [...(m.get(a.page) ?? []), { id: a.id, text: a.text, color: a.color }])
@@ -1012,6 +1030,26 @@ export function TextReader() {
     }
   }, [status])
 
+  // 右键正文的某一段：在这里添加书签（这一段已经有书签就改成移除）。别处已经处理过的右键（引用标记、参考文献、链接）不管
+  const onContextMenu = (e: React.MouseEvent): void => {
+    if (e.defaultPrevented) return
+    const el = (e.target as HTMLElement).closest<HTMLElement>('[data-ord]')
+    if (!el || el.closest('.pd-tp--ref')) return
+    const ords = (el.dataset.ords ?? el.dataset.ord ?? '').split(' ').map(Number).filter(Number.isFinite)
+    const parts = items.filter((i) => ords.includes(i.ord))
+    const at = passageBookmark(parts)
+    if (!at) return
+    e.preventDefault()
+    const marks = useMarksStore.getState()
+    setBmMenu({
+      x: e.clientX,
+      y: e.clientY,
+      existingId: bookmarkOnPassage(marks.bookmarks, ords)?.id ?? null,
+      onAdd: () => void marks.addBookmark(at.page, at.label, { passage_ord: at.passage_ord, quote: at.quote }),
+      onRemove: (id) => void marks.removeBookmark(id)
+    })
+  }
+
   const onClick = (e: React.MouseEvent): void => {
     const sel = window.getSelection()
     if (sel && !sel.isCollapsed) return
@@ -1100,6 +1138,7 @@ export function TextReader() {
         onRetryTables={retryTables}
         tableTr={tablesByCaption.get(it.ord) ? tableTr[String(it.ord)] : undefined}
         notes={parts.flatMap((p) => notesByOrd.get(p.ord) ?? [])}
+        bookmarked={bookmarkOnPassage(bookmarks, ords) !== undefined}
         retranslating={ords.some((o) => retranslating.has(o))}
         onRetranslate={retranslateParts}
       />
@@ -1150,7 +1189,7 @@ export function TextReader() {
         : ''
 
   return (
-    <div className="pd-textreader" ref={containerRef} tabIndex={0} onScroll={onScroll} onClick={onClick} aria-label="论文文字阅读区域" style={{ ['--tp-size' as string]: `${textSize}px` }}>
+    <div className="pd-textreader" ref={containerRef} tabIndex={0} onScroll={onScroll} onClick={onClick} onContextMenu={onContextMenu} aria-label="论文文字阅读区域" style={{ ['--tp-size' as string]: `${textSize}px` }}>
       <FigViewer paperId={paperId} />
       {showBanner && (
         <div className="pd-tp-banner" role="status">
@@ -1276,6 +1315,7 @@ export function TextReader() {
       </div>
       <RefLayer />
       <NotePeek />
+      {bmMenu && <BookmarkMenu menu={bmMenu} onClose={closeBmMenu} />}
     </div>
   )
 }

@@ -23,17 +23,22 @@ def _check_paper(ctx: AppContext, paper_id: str) -> None:
 class BookmarkBody(BaseModel):
     page: int = Field(ge=1)
     label: str = ""
+    passage_ord: int | None = None  # 书签落在正文的哪一段（右键添加时有）；None = 只记页码
+    quote: str | None = None  # 这一段开头的原文，重新解析后用来找回位置
 
 
 def _bookmark(r) -> dict:
-    return {"id": r["id"], "page": r["page"], "label": r["label"], "created_at": r["created_at"]}
+    return {
+        "id": r["id"], "page": r["page"], "label": r["label"], "created_at": r["created_at"],
+        "passage_ord": r["passage_ord"], "quote": r["quote"], "stale": bool(r["stale"]),
+    }
 
 
 @router.get("/papers/{paper_id}/bookmarks")
 def list_bookmarks(paper_id: str, ctx: AppContext = Depends(get_ctx)):
     _check_paper(ctx, paper_id)
     with ctx.db.session() as conn:
-        rows = conn.execute("SELECT * FROM bookmarks WHERE paper_id = ? ORDER BY page, id", (paper_id,)).fetchall()
+        rows = conn.execute("SELECT * FROM bookmarks WHERE paper_id = ? ORDER BY page, COALESCE(passage_ord, -1), id", (paper_id,)).fetchall()
     return {"items": [_bookmark(r) for r in rows]}
 
 
@@ -42,8 +47,8 @@ def add_bookmark(paper_id: str, body: BookmarkBody, ctx: AppContext = Depends(ge
     _check_paper(ctx, paper_id)
     with ctx.db.session() as conn:
         cur = conn.execute(
-            "INSERT INTO bookmarks(paper_id, page, label, created_at) VALUES (?,?,?,?)",
-            (paper_id, body.page, body.label.strip()[:200], utcnow()),
+            "INSERT INTO bookmarks(paper_id, page, label, passage_ord, quote, created_at) VALUES (?,?,?,?,?,?)",
+            (paper_id, body.page, body.label.strip()[:200], body.passage_ord, (body.quote or "").strip()[:300] or None, utcnow()),
         )
         return _bookmark(conn.execute("SELECT * FROM bookmarks WHERE id = ?", (cur.lastrowid,)).fetchone())
 

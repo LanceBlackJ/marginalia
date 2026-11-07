@@ -127,6 +127,7 @@ function BookmarksTab() {
   const bookmarks = useMarksStore((s) => s.bookmarks)
   const remove = useMarksStore((s) => s.removeBookmark)
   const jumpToPage = useReaderStore((s) => s.jumpToPage)
+  const jumpToOrd = useReaderStore((s) => s.jumpToOrd)
 
   const add = (): void => {
     const st = useReaderStore.getState()
@@ -139,12 +140,17 @@ function BookmarksTab() {
         为当前页添加书签
       </Button>
       {bookmarks.length === 0 ? (
-        <EmptyState title="还没有书签" description="给重要的页面添加书签，之后可以一键回来。" />
+        <EmptyState title="还没有书签" description="在正文里右键某一段，选“在这里添加书签”；也可以给整页加，之后一键回来。" />
       ) : (
         bookmarks.map((b) => (
           <div key={b.id} className="pd-bookmark">
-            <button type="button" className="pd-bookmark-go pd-ellipsis" onClick={() => jumpToPage(b.page)} title={b.label}>
-              <span className="pd-muted">第 {b.page} 页</span>
+            <button
+              type="button"
+              className="pd-bookmark-go pd-ellipsis"
+              onClick={() => (b.passage_ord !== null ? void jumpToOrd(b.passage_ord) : jumpToPage(b.page))}
+              title={b.stale ? `${b.label}（重新解析后找不到原来的位置，只能回到这一页）` : b.label}
+            >
+              <span className="pd-muted">第 {b.page} 页{b.stale ? ' · 位置已失效' : ''}</span>
               <span style={{ marginLeft: 6 }}>{b.label}</span>
             </button>
             <IconButton icon={<Trash2 size={13} />} label="删除书签" size="sm" onClick={() => void remove(b.id)} />

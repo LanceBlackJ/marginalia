@@ -22,7 +22,8 @@ interface MarksState {
   addHighlight: (sel: SelectionInfo, color: HighlightColor) => Promise<void>
   removeAnnotation: (id: string) => Promise<void>
   setActiveAnnotation: (a: ActiveAnnotation | null) => void
-  addBookmark: (page: number, label: string) => Promise<void>
+  /** at 有值 = 书签落在正文的某一段（右键添加）；没有 = 只记页码 */
+  addBookmark: (page: number, label: string, at?: { passage_ord: number; quote: string }) => Promise<void>
   removeBookmark: (id: string) => Promise<void>
 }
 
@@ -70,16 +71,18 @@ export const useMarksStore = create<MarksState>((set, get) => ({
 
   setActiveAnnotation: (activeAnnotation) => set({ activeAnnotation }),
 
-  addBookmark: async (page, label) => {
+  addBookmark: async (page, label, at) => {
     const paperId = get().paperId
     if (!paperId) return
-    if (get().bookmarks.some((b) => b.page === page)) {
-      toast.info('这一页已经有书签了')
+    // 同一段不重复加；整页书签（没有段落位置的）同一页也不重复加
+    const dup = get().bookmarks.some((b) => (at ? b.passage_ord === at.passage_ord : b.page === page && b.passage_ord === null))
+    if (dup) {
+      toast.info(at ? '这一段已经有书签了' : '这一页已经有书签了')
       return
     }
     try {
-      const b = await api.bookmarks.create(paperId, page, label)
-      set((s) => ({ bookmarks: [...s.bookmarks, b].sort((x, y) => x.page - y.page) }))
+      const b = await api.bookmarks.create(paperId, page, label, at)
+      set((s) => ({ bookmarks: [...s.bookmarks, b].sort((x, y) => x.page - y.page || (x.passage_ord ?? -1) - (y.passage_ord ?? -1)) }))
       toast.success('已添加书签', `第 ${page} 页`)
     } catch (err) {
       toast.error('添加书签失败', errorMessage(err))
