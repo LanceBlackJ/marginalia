@@ -70,6 +70,13 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
   let hidden = 0
   let lastSection: string | null = null
   let lastPage = 0
+  // 目录里每个标题的位置，以及哪些标题下面有正文（没有的是“空父标题”，要补上）
+  const outlineIdx = new Map<string, number>()
+  outline.forEach((o, i) => {
+    if (!outlineIdx.has(o.title)) outlineIdx.set(o.title, i)
+  })
+  const hasText = new Set(items.map((i) => i.section_title).filter((t): t is string => !!t))
+  let lastIdx: number | null = null
   // 序号就是阅读顺序：解析时图、表已经挪到首次提到它的段落后面（页码因此不一定单调），不能再按页码重排
   const sorted = [...split.rest].sort((a, b) => a.ord - b.ord)
   for (const it of sorted) {
@@ -88,6 +95,18 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
     if (it.section_title && it.section_title !== lastSection) {
       lastSection = it.section_title
       if (it.section_title !== IMPLICIT_BODY) {
+        // 补上夹在上一个标题和这个标题之间、自己下面没有任何正文的标题（“2 Background”下面直接就是“2.1 …”）：
+        // 标题只在遇到某一节的第一段正文时才会出现，这类父标题不补的话，右边的“本文结构”就会比左边的目录少。
+        const k = outlineIdx.get(it.section_title)
+        if (k !== undefined && lastIdx !== null && k > lastIdx + 1) {
+          for (let j = lastIdx + 1; j < k; j++) {
+            const o = outline[j]
+            if (!hasText.has(o.title) && o.title !== IMPLICIT_BODY) {
+              blocks.push({ type: 'heading', key: `o${o.id}`, title: o.title, level: levels.get(o.title) ?? 2, page: o.page })
+            }
+          }
+        }
+        if (k !== undefined) lastIdx = k
         blocks.push({ type: 'heading', key: `h${it.ord}`, title: it.section_title, level: levels.get(it.section_title) ?? 2, page: it.page })
         pageStart = false // 页码标在标题上，不重复标在紧随其后的段落
       }

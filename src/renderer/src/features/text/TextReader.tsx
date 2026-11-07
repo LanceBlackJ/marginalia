@@ -27,7 +27,7 @@ import { buildRegions, regionForOrd } from '@/features/reader/regions'
 import { applyBold, applyMath, applyTerms, termRegExp, blockText, boldRanges, mathRanges, buildDoc, findPassageByBBox, pageAtLine, segmentsFor, type AnnMark, type Block, type Seg, type TextView } from './textModel'
 import { buildVocab, cleanDisplay, parseCaption, parseCaptionZh, splitCitations, splitFirstSentence, splitFirstSentenceZh, splitTag, stripBroken, type Vocab } from './textClean'
 import { FrontBlock } from './FrontBlock'
-import { TocRail, activeSection, type TocItem, type TocTable } from './TocRail'
+import { TocRail, type TocTable } from './TocRail'
 import { FigureDataBlock } from './FigureDataBlock'
 import { FigLabelMenu } from './FigLabelMenu'
 import { ParaInsightCard } from '@/features/paragraph/ParaInsightCard'
@@ -47,7 +47,7 @@ import './text.css'
 
 const READ_LINE = 90 // 阅读线：块的顶部越过这条线（距容器顶部的像素）就算“读到这一页”
 const CHUNK = 24 // 每 24 个块为一组，用 content-visibility 只渲染可见部分（不按页分块）
-const TOC_MIN_WIDTH = 980 // 阅读区至少这么宽才显示“本文结构”
+const TOC_MIN_WIDTH = 980 // 阅读区至少这么宽才显示右侧的“本文表格”清单
 const EMPTY_MARKS: AnnMark[] = []
 
 /** 进入视口附近后才为 true（一次性）：图片等重内容只在快要看到时才加载。 */
@@ -829,7 +829,6 @@ export function TextReader() {
 
   const [showNoise, setShowNoise] = useState(false)
   const [refsOpen, setRefsOpen] = useState(false)
-  const [activeSec, setActiveSec] = useState<string | null>(null)
   const [width, setWidth] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const handledJump = useRef(0)
@@ -842,13 +841,6 @@ export function TextReader() {
   const doc = useMemo(() => buildDoc(shown, outline, { showNoise, raw }), [shown, outline, showNoise, raw])
   const vocab = useMemo(() => (raw ? null : buildVocab(items)), [items, raw])
 
-  const toc = useMemo<TocItem[]>(
-    () =>
-      doc.blocks
-        .filter((b): b is Extract<Block, { type: 'heading' }> => b.type === 'heading')
-        .map((b) => ({ key: b.key, title: b.title, level: b.level, page: b.page })),
-    [doc.blocks]
-  )
   // 目录栏里的“本文表格”清单：带 “Table N:” 图注的表，和图里的数据网格（挂在图注上）
   const tocTables = useMemo<TocTable[]>(
     () =>
@@ -959,9 +951,6 @@ export function TextReader() {
           if (changed && st0.readView === 'split' && usePrefs.getState().syncScroll && !syncMuted()) st0.jumpToPage(pg, 'text')
         }
       }
-      const secs = Array.from(el.querySelectorAll<HTMLElement>('[data-sec]')).map((h) => ({ title: h.dataset.sec ?? '', top: h.getBoundingClientRect().top - top }))
-      const cur = activeSection(secs, READ_LINE + 40)
-      setActiveSec((prev) => (prev === cur ? prev : cur))
       // 阅读位置记忆：记下阅读线上方最近的段落（重开论文回到这里）
       if (performance.now() >= guardUntil.current) {
         const line = top + READ_LINE
@@ -1063,7 +1052,7 @@ export function TextReader() {
   const tblRunning = tblJobId !== null
   const tblPending = tbl.total > 0 && !tbl.complete
   const showBanner = translating || needTr || eqRunning || eqPending || !!eqError || tblRunning || tblPending || !!tblError
-  const showToc = prefs.toc && width >= TOC_MIN_WIDTH && toc.length >= 2
+  const showToc = prefs.toc && width >= TOC_MIN_WIDTH && tocTables.length > 0
   const abstractText = doc.abstract
 
   const renderPassage = (parts: TextItem[], pageNo: number | null): ReactElement => {
@@ -1222,10 +1211,10 @@ export function TextReader() {
               <input type="checkbox" checked={prefs.pages} onChange={(e) => prefs.setPages(e.target.checked)} />
               显示页码
             </label>
-            {width >= TOC_MIN_WIDTH && (
+            {width >= TOC_MIN_WIDTH && tocTables.length > 0 && (
               <label>
                 <input type="checkbox" checked={prefs.toc} onChange={(e) => prefs.setToc(e.target.checked)} />
-                本文结构
+                本文表格
               </label>
             )}
           </div>
@@ -1268,7 +1257,7 @@ export function TextReader() {
             显示图内文字{!showNoise && doc.hidden > 0 ? ` · 已隐藏 ${doc.hidden} 段` : ''}
           </label>
         </article>
-        {showToc && <TocRail items={toc} active={activeSec} tables={tocTables} />}
+        {showToc && <TocRail tables={tocTables} />}
       </div>
       <RefLayer />
       <NotePeek />

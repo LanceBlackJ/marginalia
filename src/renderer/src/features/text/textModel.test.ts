@@ -272,3 +272,31 @@ describe('被栏尾/页尾切断的段落', () => {
     expect(continuesAcrossPage(item(1, 10, 'paragraph', 'S', 'Short heading line', [57, 530, 300, 540]), right)).toBe(false)
   })
 })
+
+describe('自己下面没有正文的父标题', () => {
+  const ol: OutlineItem[] = [
+    { id: 'a', title: '1 Introduction', level: 1, page: 1 },
+    { id: 'b', title: '2 Background', level: 1, page: 2 },
+    { id: 'c', title: '2.1 Single agent', level: 2, page: 2 },
+    { id: 'd', title: '2.2 Multi agents', level: 2, page: 3 },
+    { id: 'e', title: '3 Method', level: 1, page: 4 }
+  ]
+  const its = [
+    item(0, 1, 'paragraph', '1 Introduction'),
+    item(1, 2, 'paragraph', '2.1 Single agent'), // “2 Background”下面没有自己的正文，直接是子小节
+    item(2, 3, 'paragraph', '2.2 Multi agents'),
+    item(3, 4, 'paragraph', '3 Method')
+  ]
+  const heads = (doc: ReturnType<typeof buildDoc>) => doc.blocks.filter((b) => b.type === 'heading').map((b) => (b.type === 'heading' ? `${b.title}@${b.level}` : ''))
+
+  it('补上这个标题，和左边的目录一致（级别、顺序都对）', () => {
+    const doc = buildDoc(its, ol, { showNoise: false })
+    expect(heads(doc)).toEqual(['1 Introduction@1', '2 Background@1', '2.1 Single agent@2', '2.2 Multi agents@2', '3 Method@1'])
+  })
+
+  it('有正文的标题不会重复；没有目录时照旧只按正文里的章节', () => {
+    const doc = buildDoc(its, ol, { showNoise: false })
+    expect(heads(doc).filter((h) => h.startsWith('3 Method'))).toHaveLength(1)
+    expect(heads(buildDoc(its, [], { showNoise: false }))).toEqual(['1 Introduction@2', '2.1 Single agent@2', '2.2 Multi agents@2', '3 Method@2'])
+  })
+})
