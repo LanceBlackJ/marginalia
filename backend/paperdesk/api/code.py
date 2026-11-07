@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict
 
 from ..code import service
@@ -159,6 +160,13 @@ def repo_tree(repo_id: str, ctx: AppContext = Depends(get_ctx)):
 @router.get("/code/repos/{repo_id}/file")
 def repo_file(repo_id: str, path: str = Query(...), ctx: AppContext = Depends(get_ctx)):
     return service.read_file(ctx, repo_id, path)
+
+
+@router.get("/code/repos/{repo_id}/raw")
+def repo_raw(repo_id: str, path: str = Query(...), ctx: AppContext = Depends(get_ctx)):
+    full, mime = service.raw_file(ctx, repo_id, path)
+    # SVG 里可能带脚本：只允许被当作图片显示，不让它作为页面执行
+    return FileResponse(full, media_type=mime, headers={"Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'", "X-Content-Type-Options": "nosniff"})
 
 
 @router.get("/code/repos/{repo_id}/symbols")

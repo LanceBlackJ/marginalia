@@ -380,3 +380,37 @@ def test_initials_first_authors_give_a_title():
     parse_fields(e, "numeric")
     assert e.authors[:2] == ["R. Li", "C. Zhang"]
     assert e.title.startswith("From english to pcsel")
+
+
+# ---------------------------------------------------------------- IEEE：小型大写标题、引号标题、et al.
+
+def test_smallcaps_references_heading_needs_no_bold_or_big_font():
+    from paperdesk.parsing import layout
+
+    def line(text, width=50.0):
+        return layout.Line(spans=[], x0=100, y0=0, x1=100 + width, y1=10, baseline=9, size=8.0, cls="L", text=text, bold=0.0, italic=0.0, math=0.0)
+
+    # IEEE 的 REFERENCES：首字母 10pt、其余 8pt，非粗体，和正文同大小
+    assert layout._is_heading_line(line("REFERENCES"), 250, 8.0)
+    assert layout._is_heading_line(line("References"), 250, 8.0)
+    # 正文里的一行不会因为含有这个词就变成标题
+    assert not layout._is_heading_line(line("references are listed below"), 250, 8.0)
+    assert not layout._is_heading_line(line("See the references", 120), 250, 8.0)
+
+
+IEEE = [
+    "[1] S. Liu et al., “Planning dynamically feasible trajectories for quadrotors using safe flight corridors,” IEEE Robot. Automat. Lett., vol. 2, no. 3, pp. 1688–1695, Jul. 2017.",
+    "[2] J. Arrizabalaga, Z. Manchester, and M. Ryll, “Differentiable collision-free parametric corridors,” in Proc. IEEE/RSJ Int. Conf. Intell. Robots Syst., 2024, pp. 1839–1846.",
+    "[3] A. Brohan, Y. Chebotar, C. Finn, R. Julian et al., Do as i can, not as i say: Grounding language in robotic affordances (2023). arXiv:2204.01691",
+]
+
+
+def test_ieee_quoted_titles_et_al_and_trailing_year_paren():
+    style, es = parse.split_entries(_ps(IEEE))
+    assert style == "numeric"
+    e1, e2, e3 = es
+    assert e1.authors == ["S. Liu", "et al."]
+    assert e1.title == "Planning dynamically feasible trajectories for quadrotors using safe flight corridors"
+    assert e1.venue.startswith("IEEE Robot. Automat. Lett.") and e1.year == 2017
+    assert e2.title == "Differentiable collision-free parametric corridors" and e2.venue.startswith("in Proc.")
+    assert e3.authors[-1] == "et al." and e3.title == "Do as i can, not as i say: Grounding language in robotic affordances"

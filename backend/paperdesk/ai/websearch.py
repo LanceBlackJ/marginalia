@@ -76,18 +76,54 @@ async def _openalex(client: httpx.AsyncClient, q: str) -> list[dict]:
     return out
 
 
-async def search(app: AppContext, question: str, selection_text: str = "") -> list[dict]:
-    """返回 [{n, title, url, source, snippet}]，编号从 1 开始；一个都没查到就返回空列表。"""
-    q = _query(question, selection_text)
-    if not q:
-        return []
-    lang = "zh" if _has_cjk(q) else "en"
+_EN_STOP = {"the", "and", "for", "with", "from", "that", "this", "are", "was", "how", "what", "why", "does", "use", "used", "using", "into", "about"}
+
+
+def _key_terms(*queries: str) -> list[str]:
+    """用来判断一条资料是否切题的关键词：英文单词（>=3 字母）和中文片段。"""
+    out: list[str] = []
+    for q in queries:
+        for w in re.findall(r"[A-Za-z][A-Za-z\-]{2,}", q or ""):
+            if w.lower() not in _EN_STOP:
+                out.append(w.lower())
+        for run in re.findall(r"[一-鿿]{2,}", q or ""):
+            out.append(run)
+    return list(dict.fromkeys(out))
+
+
+def _relevant(item: dict, terms: list[str]) -> bool:
+    """标题或摘要里至少要出现一个关键词：搜索引擎的模糊匹配会返回“原住民”“亚里士多德”这类毫不相干的条目，宁可不要。"""
+    if not terms:
+        return True
+    hay = f"{item.get('title', '')} {item.get('snippet', '')}".lower()
+    return any(t in hay for t in terms)
+
+
+async def search(app: AppContext, question: str, selection_text: str = "", plan: dict | None = None) -> list[dict]:
+    """返回 [{n, title, url, source, snippet}]，编号从 1 开始；一个都没查到（或都不切题）就返回空列表。
+
+    plan 是模型根据问题和论文题目整理出的检索词 {"zh": 中文术语, "en": 英文术语（带上所属领域）}；没有时退回到从问题里直接截取。
+    """
+    plan = plan or {}
+    zh, en, term = (plan.get("zh") or "").strip(), (plan.get("en") or "").strip(), (plan.get("term") or "").strip()
+    if not zh and not en:
+        raw = _query(question, selection_text)
+        if not raw:
+            return []
+        zh, en = (raw, "") if _has_cjk(raw) else ("", raw)
+    jobs = []
     async with app.async_http(8.0) as client:
-        got = await asyncio.gather(_wikipedia(client, q, lang), _openalex(client, q), return_exceptions=True)
+        if zh:
+            jobs.append(_wikipedia(client, zh, "zh"))
+        if en:
+            jobs.append(_wikipedia(client, term or en, "en"))  # 维基百科按条目名查：用术语本身，不带领域词
+            jobs.append(_openalex(client, en))  # OpenAlex 基本只收录英文题录：中文词查不到东西，只会返回噪音
+        got = await asyncio.gather(*jobs, return_exceptions=True)
+    terms = _key_terms(zh, term, en)
     items: list[dict] = []
     for g in got:
         if isinstance(g, list):
-            items.extend(g)
+            items.extend(it for it in g if _relevant(it, terms))
     items = items[:MAX_ITEMS]
     for i, it in enumerate(items, 1):
         it["n"] = i

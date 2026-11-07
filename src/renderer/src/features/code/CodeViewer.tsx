@@ -4,6 +4,24 @@ import { Button, Dialog, EmptyState, Input, Menu, Skeleton, type MenuItem } from
 import { deriveTarget, fmtBytes, lineRange, pathBase, ROLE_LABEL, targetLabel } from './codeUtils'
 import { useCodeStore } from './codeStore'
 import { highlightLines, languageForPath } from './highlight'
+import { FilePreview } from './FilePreview'
+
+const BINARY_KINDS: Record<string, string> = {
+  图片: 'png jpg jpeg jfif gif bmp webp avif ico tif tiff psd',
+  PDF: 'pdf',
+  压缩包: 'zip gz tgz bz2 xz 7z rar jar whl egg',
+  视频: 'mp4 webm m4v avi mov mkv',
+  音频: 'mp3 wav ogg m4a flac aac',
+  'Office 文档': 'doc docx xls xlsx ppt pptx odt ods odp',
+  '模型 / 数据文件': 'pt pth ckpt h5 hdf5 npy npz pkl pickle bin onnx pb tflite safetensors mat parquet feather sqlite db',
+  字体: 'ttf otf woff woff2',
+  '可执行 / 库文件': 'exe dll so dylib o a lib pyc pyd class'
+}
+function binaryKind(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  for (const [k, exts] of Object.entries(BINARY_KINDS)) if (exts.split(' ').includes(ext)) return `${k}（二进制）`
+  return '二进制文件'
+}
 
 export const LINE_H = 20
 const CHUNK = 100
@@ -48,6 +66,7 @@ export function CodeViewer() {
   const loading = useCodeStore((s) => s.fileLoading)
   const error = useCodeStore((s) => s.fileError)
   const openPath = useCodeStore((s) => s.openPath)
+  const repoId = useCodeStore((s) => s.repoId)
   const highlight = useCodeStore((s) => s.highlight)
   const lineSel = useCodeStore((s) => s.lineSel)
   const setLineSel = useCodeStore((s) => s.setLineSel)
@@ -171,9 +190,14 @@ export function CodeViewer() {
         />
       </div>
 
-      {file.content == null ? (
+      {file.content == null && file.preview && repoId ? (
+        <FilePreview repoId={repoId} file={file} />
+      ) : file.content == null ? (
         <div className="pd-code-empty">
-          <EmptyState title={file.skipped === 'binary' ? '二进制文件，不显示内容' : file.skipped === 'too_large' ? '文件过大，不显示内容' : '无法显示内容'} description={file.note ?? undefined} />
+          <EmptyState
+            title={file.skipped === 'binary' ? `${binaryKind(file.path)}，不显示内容` : file.skipped === 'too_large' ? '文件过大，不显示内容' : '无法显示内容'}
+            description={[fmtBytes(file.size), file.note].filter(Boolean).join(' · ')}
+          />
         </div>
       ) : (
         <div ref={scroller} className="pd-code-scroll" onMouseUp={onMouseUp}>

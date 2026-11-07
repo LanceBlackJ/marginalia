@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 import zipfile
 from dataclasses import dataclass, field
@@ -19,10 +20,30 @@ MAX_FILE_BYTES = 5 * 1024 * 1024          # 单个文本文件上限（更大的
 SKIP_DIRS = {".git", ".hg", ".svn", "node_modules", "__pycache__", ".venv", "venv", ".idea", ".vscode", ".mypy_cache", ".pytest_cache", "build", "dist", ".ipynb_checkpoints"}
 BINARY_EXT = {
     ".pt", ".pth", ".ckpt", ".h5", ".hdf5", ".npy", ".npz", ".pkl", ".pickle", ".bin", ".onnx", ".pb", ".tflite", ".safetensors",
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tif", ".tiff", ".ico", ".svg", ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar",
-    ".mp4", ".avi", ".mov", ".mp3", ".wav", ".so", ".dll", ".dylib", ".exe", ".o", ".a", ".lib", ".pyc", ".pyd", ".mat", ".ttf", ".otf", ".woff", ".woff2",
+    ".png", ".jpg", ".jpeg", ".jfif", ".gif", ".bmp", ".webp", ".avif", ".tif", ".tiff", ".ico", ".pdf", ".zip", ".gz", ".tgz", ".bz2", ".xz", ".7z", ".rar",
+    ".mp4", ".webm", ".m4v", ".avi", ".mov", ".mkv", ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac",
+    ".so", ".dll", ".dylib", ".exe", ".o", ".a", ".lib", ".pyc", ".pyd", ".mat", ".ttf", ".otf", ".woff", ".woff2",
     ".parquet", ".feather", ".sqlite", ".db", ".jar", ".class", ".whl", ".egg",
+    ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp", ".psd", ".blend", ".obj", ".glb", ".fbx", ".stl", ".ply", ".pcd", ".bag", ".mdb",
 }
+
+# 能在界面里直接看的二进制文件：落盘保存（有大小上限），文件树里仍标“二进制”，但打开时显示图片/PDF 首页/播放器。
+PREVIEW_KINDS: dict[str, str] = {
+    **{e: "image" for e in (".png", ".jpg", ".jpeg", ".jfif", ".gif", ".bmp", ".webp", ".avif", ".ico", ".svg")},
+    ".pdf": "pdf",
+    **{e: "video" for e in (".mp4", ".webm", ".m4v", ".mov")},
+    **{e: "audio" for e in (".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac")},
+}
+PREVIEW_MAX_BYTES = {"image": 25 * 1024 * 1024, "pdf": 40 * 1024 * 1024, "video": 60 * 1024 * 1024, "audio": 40 * 1024 * 1024}
+
+
+def preview_kind(path: str) -> str | None:
+    return PREVIEW_KINDS.get(os.path.splitext(path)[1].lower())
+
+
+def _keeps_preview(rel: str, size: int) -> bool:
+    kind = preview_kind(rel)
+    return kind is not None and size <= PREVIEW_MAX_BYTES[kind]
 
 
 @dataclass
@@ -107,6 +128,24 @@ def safe_extract_zip(zip_path: Path, dest: Path, *, strip_top: bool = True) -> E
                 break
             ext = os.path.splitext(rel)[1].lower()
             if ext in BINARY_EXT:
+                if _keeps_preview(rel, info.file_size) and report.total_bytes + info.file_size <= MAX_TOTAL_BYTES:
+                    target = dest / rel
+                    if _inside(dest, target):
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        limit = PREVIEW_MAX_BYTES[preview_kind(rel) or "image"]
+                        written = 0
+                        with zf.open(info) as src, open(target, "wb") as out:
+                            while chunk := src.read(1 << 16):
+                                written += len(chunk)
+                                if written > limit:  # 声明的大小可能撒谎
+                                    break
+                                out.write(chunk)
+                        if written > limit:
+                            target.unlink(missing_ok=True)
+                        else:
+                            report.total_bytes += written
+                        report.files.append(FileEntry(rel, written, "binary"))
+                        continue
                 report.files.append(FileEntry(rel, info.file_size, "binary"))
                 continue
             if info.file_size > MAX_FILE_BYTES:
@@ -169,6 +208,11 @@ def copy_folder(src: Path, dest: Path) -> ExtractReport:
                 continue
             ext = os.path.splitext(fn)[1].lower()
             if ext in BINARY_EXT:
+                if _keeps_preview(rel, size) and report.total_bytes + size <= MAX_TOTAL_BYTES:
+                    target = dest / rel
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(full, target)
+                    report.total_bytes += size
                 report.files.append(FileEntry(rel, size, "binary"))
                 continue
             if size > MAX_FILE_BYTES:

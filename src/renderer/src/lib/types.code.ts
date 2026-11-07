@@ -118,6 +118,8 @@ export interface FileData {
   lines: number
   role: FileRole
   skipped: string | null
+  /** 能直接预览的二进制/图片类文件；null 表示只能看文字或看不了 */
+  preview?: 'image' | 'pdf' | 'video' | 'audio' | null
   symbols: CodeSymbol[]
   content: string | null
   truncated: boolean

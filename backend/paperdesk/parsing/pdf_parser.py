@@ -386,7 +386,9 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
     figure_blocks: dict[tuple[int, int], Block] = {}
     refs_active = False
     for pg in pages:
-        in_refs = refs_active or any(REFERENCES_RE.match(l.text.strip()) for l in pg.lines if l.bold > 0.6 or l.size > body)
+        in_refs = refs_active or any(REFERENCES_RE.match(l.text.strip()) for l in pg.lines
+                                       if l.bold > 0.6 or l.size > body
+                                       or ((l.text.strip().isupper() or l.text.strip().istitle()) and l.width <= 0.5 * pg.native_w))  # 小型大写的标题字号和正文一样
         layout.normalize_classes(pg.lines)
         ordered = layout.reading_order([l for l in pg.lines])
         page_blocks = layout.segment_paragraphs(ordered, pg.no, body, in_references=in_refs)

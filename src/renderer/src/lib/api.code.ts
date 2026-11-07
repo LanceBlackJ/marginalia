@@ -99,6 +99,11 @@ export const codeApi = {
   reanalyze: (repoId: string) => post<{ job_id: string }>(`/api/code/repos/${repoId}/reanalyze`),
   tree: (repoId: string) => get<{ files: CodeFileEntry[] }>(`/api/code/repos/${repoId}/tree`),
   file: (repoId: string, path: string) => get<FileData>(`/api/code/repos/${repoId}/file`, { path }),
+  /** 图片/PDF/音视频的原始内容（要带令牌，所以取成 Blob）。 */
+  async raw(repoId: string, path: string): Promise<Blob> {
+    const res = await doFetch(`/api/code/repos/${repoId}/raw`, { query: { path } })
+    return res.blob()
+  },
   symbols: (repoId: string, q?: string, kind?: string, limit = 100) =>
     get<{ items: CodeSymbol[] }>(`/api/code/repos/${repoId}/symbols`, { q, kind, limit }),
   graph: (repoId: string, symbolId: number) => get<SymbolGraph>(`/api/code/repos/${repoId}/symbols/${symbolId}/graph`),

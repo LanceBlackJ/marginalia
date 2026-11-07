@@ -686,7 +686,7 @@ def test_ask_carries_previous_turns(imported):
 def test_ask_outside_paper_uses_own_knowledge_and_web_sources(imported, monkeypatch):
     from paperdesk.ai import websearch
 
-    async def fake_search(app, question, selection_text=""):
+    async def fake_search(app, question, selection_text="", plan=None):
         return [{"n": 1, "title": "Cascading failure", "url": "https://en.wikipedia.org/wiki/Cascading_failure",
                  "source": "维基百科", "snippet": "A cascading failure is a process in a system of interconnected parts."}]
 
@@ -778,7 +778,7 @@ def test_stopping_generation_keeps_what_was_already_written(imported):
 def test_when_the_paper_lacks_it_the_backend_adds_an_outside_answer(imported, monkeypatch):
     from paperdesk.ai import websearch
 
-    async def fake_search(app, question, selection_text=""):
+    async def fake_search(app, question, selection_text="", plan=None):
         return [{"n": 1, "title": "Agent generation", "url": "https://example.org/a", "source": "OpenAlex", "snippet": "LLMs can generate agents."}]
 
     monkeypatch.setattr(websearch, "search", fake_search)
@@ -915,3 +915,13 @@ def test_failed_edit_restores_the_original_question_and_answer(imported):
     assert len(after) == 1 and after[0]["id"] == card["id"]
     for k in ("question", "status", "raw_markdown", "answer", "evidence", "verification", "model"):
         assert after[0][k] == before[k], k  # 出错也不能让用户丢掉原来的内容
+
+
+def test_web_results_unrelated_to_the_query_are_dropped():
+    from paperdesk.ai import websearch
+
+    terms = websearch._key_terms("同伦", "homotopy path planning")
+    off = {"title": "原住民", "snippet": "原住民是指最早居住在某地的人群。"}
+    on = {"title": "同伦", "snippet": "在拓扑学中，同伦是两个连续函数之间的关系。"}
+    en = {"title": "Homotopy classes of paths", "snippet": "robot planning"}
+    assert not websearch._relevant(off, terms) and websearch._relevant(on, terms) and websearch._relevant(en, terms)

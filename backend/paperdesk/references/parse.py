@@ -223,6 +223,11 @@ def _parse_authors(text: str) -> tuple[list[str], int]:
 _INIT_FIRST = re.compile(r"\s*(?:and\s+|&\s*)?((?:[A-Z]\.\s?){1,3}(?:[a-z]+\s)?[A-Z][\w'’\-]+(?:\s[A-Z][\w'’\-]+)?)\s*(?:,|$)")
 
 
+_INIT_FIRST_ETAL = re.compile(r"\s*((?:[A-Z]\.\s?){1,3}[A-Z][\w'’\-]+)\s+et al\.?\s*,?")
+# IEEE：标题用引号括起来，逗号在引号里面：“Differentiable collision-free parametric corridors,” in Proc. …
+_QUOTED_TITLE = re.compile(r"[“\"]([^”\"]{8,}?)[,.]?[”\"]\s*,?\s*(.*)$", re.S)
+
+
 def _parse_initials_first(text: str) -> tuple[list[str], int]:
     """“Y. Dong, X. Zhu, Z. Pan, Title. Venue (2024)”：名字首字母在前的作者表（Springer 等）。"""
     authors: list[str] = []
@@ -233,6 +238,10 @@ def _parse_initials_first(text: str) -> tuple[list[str], int]:
             break
         authors.append(m.group(1).strip())
         pos = m.end()
+    et = _INIT_FIRST_ETAL.match(text, pos)  # “…, R. Julian et al., Title.”：最后一位作者后面直接跟 et al.
+    if et:
+        authors += [et.group(1).strip(), "et al."]
+        pos = et.end()
     return (authors, pos) if len(authors) >= 2 else ([], 0)
 
 
@@ -294,10 +303,17 @@ def parse_fields(e: RefEntry, style: str) -> None:
     e.authors = authors if len(authors) >= 1 else []
     if not authors or rest[:3] in ("In ", "in "):
         return
+    qm = _QUOTED_TITLE.match(rest)
+    if qm:
+        e.title = qm.group(1).strip(" ,.")
+        e.venue = qm.group(2).strip(" .,;")
+        e.messy = e.merged
+        return
     end = _title_end(rest)
     if end < 0:
         return
     title = rest[: end + (1 if rest[end] in "?!" else 0)].strip(" .")
+    title = re.sub(r"\s*\(\s*(?:19|20)\d{2}[a-z]?\s*\)$", "", title)  # Science 格式：“Title (2023). arXiv…”，纯年份括号在句号前；带出版社的括号是书名的一部分，不动
     venue = rest[end + 1:].strip(" .,;")
     # 标题里夹着页码区间或括号年份，说明这一条被别的栏的文字弄乱了：不报告标题，只留原文
     if len(title) < 8 or re.search(r"\d{3,}[–\-]\d{2,}|\(\w*,?\s*\d{4}\)", title):

@@ -479,6 +479,9 @@ def _is_heading_line(ln: Line, col_width: float, body: float, prev: "Line | None
     # 参考文献一节常常整节排成小字号（Springer 的 7.5pt），标题也跟着变小：名字对得上、又是粗体，就是标题
     if ln.bold >= 0.85 and short and re.match(r"(?i)^(?:\d+\.?\s*)?(?:references|bibliography|literature cited|参考文献)\s*$", t):
         return True
+    # IEEE 等把标题排成小型大写（首字母 10pt、其余 8pt，和正文一样大、不加粗、居中）：独占一行的 REFERENCES 不靠字体判断
+    if short and (t.isupper() or t.istitle()) and re.match(r"(?i)^(?:\d+\.?\s*|[IVX]+\.\s*)?(?:references|bibliography|literature cited|参考文献)\s*$", t):
+        return True
     if ln.bold >= 0.85 and short and len(t) <= 90 and ln.size >= body * 0.97:
         return True
     if ln.size >= body * 1.18 and short and not t.endswith((".", ",")):

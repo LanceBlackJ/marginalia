@@ -426,3 +426,23 @@ def test_old_analysis_is_flagged_outdated_until_reanalyzed(repo):
     job = api.wait_job(api.post(f"/code/repos/{rid}/reanalyze", {}).json()["job_id"])
     assert job["status"] == "completed", job
     assert api.get(f"/code/repos/{rid}").json()["analysis_outdated"] is False
+
+
+def test_images_are_kept_and_served_but_other_binaries_are_only_listed(repo):
+    api, pid, rid, _ = repo
+    src = api.ctx.paths.paper_dir(pid) / "code" / "src_repo"
+    png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
+    (src / "assets").mkdir(exist_ok=True)
+    (src / "assets" / "fig.png").write_bytes(png)
+    (src / "assets" / "deck.pptx").write_bytes(b"PK\x03\x04" + b"\x00" * 16)
+    r = api.post(f"/papers/{pid}/code/import", {"path": str(src)}).json()
+    assert api.wait_job(r["job_id"])["status"] == "completed"
+    rid2 = r["repo_id"]
+    img = api.get(f"/code/repos/{rid2}/file", params={"path": "assets/fig.png"}).json()
+    assert img["content"] is None and img["preview"] == "image"
+    raw = api.get(f"/code/repos/{rid2}/raw", params={"path": "assets/fig.png"})
+    assert raw.status_code == 200 and raw.content == png and raw.headers["content-type"] == "image/png"
+    other = api.get(f"/code/repos/{rid2}/file", params={"path": "assets/deck.pptx"}).json()
+    assert other["content"] is None and other["preview"] is None
+    assert api.get(f"/code/repos/{rid2}/raw", params={"path": "assets/deck.pptx"}).status_code == 400
+    assert api.get(f"/code/repos/{rid2}/raw", params={"path": "../../x.png"}).status_code == 400

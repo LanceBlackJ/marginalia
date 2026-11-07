@@ -8,7 +8,7 @@ from typing import Callable
 from ..context import AppContext
 from ..util import ApiError, dumps, loads, new_id, utcnow
 from .analyze import ANALYSIS_VERSION, analyze_repo
-from .safeio import ExtractReport, FileEntry, copy_folder, safe_extract_zip
+from .safeio import PREVIEW_MAX_BYTES, ExtractReport, FileEntry, copy_folder, preview_kind, safe_extract_zip
 
 MAX_VIEW_BYTES = 600_000
 
@@ -148,17 +148,21 @@ def read_file(app: AppContext, repo_id: str, path: str) -> dict:
         ).fetchall()
     if f is None:
         raise ApiError("not_found", "文件不存在", 404)
-    base = {"path": rel, "language": f["language"], "size": f["size"], "lines": f["lines"], "role": f["role"], "skipped": f["skipped"],
-            "symbols": [dict(s) for s in syms]}
-    if f["skipped"]:
-        reason = {"binary": "二进制文件，未提取内容", "too_large": "文件过大，未提取内容"}.get(f["skipped"], "未提取内容")
-        return {**base, "content": None, "truncated": False, "note": reason}
-    full = (repo_root(app, repo["paper_id"], repo_id) / rel).resolve()
     root = repo_root(app, repo["paper_id"], repo_id).resolve()
+    full = (root / rel).resolve()
     try:
         full.relative_to(root)
     except ValueError as exc:
         raise ApiError("bad_request", "路径不合法") from exc
+    kind = preview_kind(rel)
+    previewable = bool(kind) and full.is_file()  # 旧版本导入时二进制没有落盘：此时只能提示“重新获取”
+    base = {"path": rel, "language": f["language"], "size": f["size"], "lines": f["lines"], "role": f["role"], "skipped": f["skipped"],
+            "symbols": [dict(s) for s in syms], "preview": kind if previewable else None}
+    if f["skipped"]:
+        reason = {"binary": "二进制文件，未提取内容", "too_large": "文件过大，未提取内容"}.get(f["skipped"], "未提取内容")
+        if f["skipped"] == "binary" and kind and not previewable and f["size"] <= PREVIEW_MAX_BYTES[kind]:
+            reason = "这个文件在导入时没有保存，重新获取一次这份代码就能预览。"
+        return {**base, "content": None, "truncated": False, "note": reason}
     try:
         data = full.read_bytes()
     except OSError as exc:
@@ -167,6 +171,34 @@ def read_file(app: AppContext, repo_id: str, path: str) -> dict:
     text = data[:MAX_VIEW_BYTES].decode("utf-8", "replace")
     text = text.replace("\r\n", "\n").replace("\r", "\n")  # CRLF/CR -> LF，行号不变
     return {**base, "content": text, "truncated": truncated, "note": "文件过长，只显示前 600 KB" if truncated else None}
+
+
+PREVIEW_MIME = {
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".jfif": "image/jpeg", ".gif": "image/gif", ".bmp": "image/bmp",
+    ".webp": "image/webp", ".avif": "image/avif", ".ico": "image/x-icon", ".svg": "image/svg+xml", ".pdf": "application/pdf",
+    ".mp4": "video/mp4", ".m4v": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".m4a": "audio/mp4", ".flac": "audio/flac", ".aac": "audio/aac",
+}
+
+
+def raw_file(app: AppContext, repo_id: str, path: str) -> tuple[Path, str]:
+    """可预览文件的原始字节（只给图片/PDF/音视频；其它文件不开放）。"""
+    repo = get_repo(app, repo_id)
+    rel = clean_rel_path(path)
+    ext = PurePosixPath(rel).suffix.lower()
+    if preview_kind(rel) is None:
+        raise ApiError("bad_request", "这种文件不提供原始内容预览。")
+    root = repo_root(app, repo["paper_id"], repo_id).resolve()
+    full = (root / rel).resolve()
+    try:
+        full.relative_to(root)
+    except ValueError as exc:
+        raise ApiError("bad_request", "路径不合法") from exc
+    with app.db.session() as conn:
+        known = conn.execute("SELECT 1 FROM code_files WHERE repo_id = ? AND path = ?", (repo_id, rel)).fetchone()
+    if known is None or not full.is_file():
+        raise ApiError("not_found", "文件不存在，或导入时没有保存", 404)
+    return full, PREVIEW_MIME.get(ext, "application/octet-stream")
 
 
 def file_lines(app: AppContext, repo_id: str, path: str) -> list[str] | None:

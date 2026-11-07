@@ -206,6 +206,21 @@ class AIService:
             return []
         return [str(t).strip().lower() for t in arr if isinstance(t, str) and 2 <= len(t) <= 60][:8]
 
+    async def _plan_web(self, provider: LLMProvider, cfg: dict, question: str, sel_text: str, title: str, paper_id: str) -> dict:
+        """联网前让模型把问题整理成检索词（放在论文所在领域里理解）；失败就退回直接截取问题。"""
+        choice = choose_model(TaskType.QUERY_PLAN, {**cfg, "mode": "fast"})
+        messages = prompts.build_web_plan_messages(question, sel_text, title)
+        res = await provider.complete(choice.model, messages, temperature=0, max_tokens=120)
+        self._log_usage(TaskType.QUERY_PLAN, choice.model, res.usage, messages, res.text, paper_id)
+        m = re.search(r"\{.*\}", res.text, re.S)
+        if not m:
+            return {}
+        try:
+            d = json.loads(m.group(0))
+        except ValueError:
+            return {}
+        return {k: str(d.get(k) or "").strip()[:80] for k in ("zh", "term", "en")}
+
     @staticmethod
     def _needs_escalation(parsed: evidence.ParsedAnswer, pack: retrieval.ContextPack) -> str | None:
         if not parsed.answer["direct"].strip():
@@ -268,7 +283,11 @@ class AIService:
             web_items: list[dict] = []
             if req.web:
                 try:
-                    web_items = await websearch.search(self.app, question, sel_text)
+                    try:
+                        web_plan = await self._plan_web(provider, cfg, rq, sel_text, paper["title"], req.paper_id)
+                    except Exception:  # noqa: BLE001  整理检索词失败就直接用问题原文
+                        web_plan = {}
+                    web_items = await websearch.search(self.app, rq, sel_text, web_plan)
                 except Exception:  # noqa: BLE001  联网只是补充：查不到不影响回答
                     web_items = []
             needs_supp = None if supp_docs else supp_retrieval.needs_permission(
