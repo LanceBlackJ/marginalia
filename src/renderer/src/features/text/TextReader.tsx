@@ -28,6 +28,8 @@ import { applyBold, applyMath, applyTerms, termRegExp, blockText, boldRanges, ma
 import { buildVocab, cleanDisplay, parseCaption, parseCaptionZh, splitCitations, splitFirstSentence, splitFirstSentenceZh, splitTag, stripBroken, type Vocab } from './textClean'
 import { FrontBlock } from './FrontBlock'
 import { TocRail, type TocTable } from './TocRail'
+import { activeSectionAt } from '@/features/reader/outlinePos'
+import { onCtrlWheel } from '@/features/reader/ctrlWheel'
 import { FigureDataBlock } from './FigureDataBlock'
 import { FigLabelMenu } from './FigLabelMenu'
 import { ParaInsightCard } from '@/features/paragraph/ParaInsightCard'
@@ -932,6 +934,16 @@ export function TextReader() {
     if (scrollToJump()) handledJump.current = jump.id
   }, [jump, status, scrollToJump, refsOpen])
 
+  // Ctrl+鼠标滚轮：调正文字号（和“阅读外观”里的字号是同一个设置，每格 1px）
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    return onCtrlWheel(el, (dir) => useReaderStore.getState().setTextSize(useReaderStore.getState().textSize + dir))
+  }, [status])
+
+  // 离开文字阅读器（切到 PDF 视图等）后，这里算出的当前小节就不作数了：目录退回按阅读位置判断
+  useEffect(() => () => useReaderStore.getState().setActiveSectionTitle(null), [])
+
   // ---------- 当前页与当前章节跟踪 + 选区工具条位置 ----------
   const onScroll = useCallback(() => {
     if (rafId.current) return
@@ -951,6 +963,9 @@ export function TextReader() {
           if (changed && st0.readView === 'split' && usePrefs.getState().syncScroll && !syncMuted()) st0.jumpToPage(pg, 'text')
         }
       }
+      // 当前小节：按正文里标题的实际位置算（阅读线上方最近的标题），左边目录据此高亮——小节在大章节标题之后，所以停在小节里就是小节
+      const secs = Array.from(el.querySelectorAll<HTMLElement>('[data-sec]')).map((h) => ({ title: h.dataset.sec ?? '', top: h.getBoundingClientRect().top - top }))
+      useReaderStore.getState().setActiveSectionTitle(activeSectionAt(secs, READ_LINE + 40))
       // 阅读位置记忆：记下阅读线上方最近的段落（重开论文回到这里）
       if (performance.now() >= guardUntil.current) {
         const line = top + READ_LINE

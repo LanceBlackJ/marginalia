@@ -29,8 +29,34 @@ export function sectionStarts(outline: readonly OutlineItem[], items: readonly P
   return outline.map((o) => first.get(o.title) ?? null)
 }
 
-/** 当前章节在目录里的下标；没有阅读位置或目录对不上时，退回“起始页不超过当前页的最后一项”。 */
-export function activeOutlineIndex(outline: readonly OutlineItem[], items: readonly PosItem[], anchorOrd: number | null, currentPage: number): number {
+/**
+ * 正文里“阅读线上方最近的标题”：标题按出现顺序给出，取最后一个顶部已越过阅读线的；一个都没越过就取第一个。
+ * 标题是按正文里实际的位置判断的（小节的标题在大章节的标题之后），所以停在小节里就得到小节，不会停在大章节上。
+ */
+export function activeSectionAt(tops: ReadonlyArray<{ title: string; top: number }>, line: number): string | null {
+  let cur: string | null = tops.length ? tops[0].title : null
+  for (const t of tops) {
+    if (t.top <= line) cur = t.title
+    else break
+  }
+  return cur
+}
+
+/**
+ * 当前章节在目录里的下标。优先用 sectionTitle（文字阅读器里按标题的实际位置算出来的当前小节）；
+ * 没有它（PDF 视图、还没滚动过）或目录里找不到时，用阅读位置的段落序号；再不行退回“起始页不超过当前页的最后一项”。
+ */
+export function activeOutlineIndex(
+  outline: readonly OutlineItem[],
+  items: readonly PosItem[],
+  anchorOrd: number | null,
+  currentPage: number,
+  sectionTitle: string | null = null
+): number {
+  if (sectionTitle) {
+    const hit = outline.findIndex((o) => o.title === sectionTitle)
+    if (hit >= 0) return hit
+  }
   const byPage = (): number => {
     let idx = -1
     outline.forEach((o, i) => {

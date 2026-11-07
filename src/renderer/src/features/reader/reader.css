@@ -649,62 +649,59 @@
 .pd-rpanel-resizer[data-dragging='true'] {
   background: color-mix(in srgb, var(--text) 12%, transparent);
 }
-.pd-rpanel-tabs {
+/* 阅读区最右边的竖向图标栏：和最左边的应用导航同一个样子（图标、悬停左侧黑线、选中实心黑底），点哪个右边就出现哪个面板 */
+.pd-rrail {
   display: flex;
+  flex: none;
+  flex-direction: column;
   align-items: center;
-  gap: var(--sp-xs);
-  flex: none;
-  padding: 0 var(--sp-md);
-  border-bottom: 1px solid var(--border);
-  /* 标签多于面板宽度时横向滚动（不换行、不挤掉关闭按钮） */
-  overflow-x: auto;
-  scrollbar-width: none;
+  gap: 2px;
+  width: 44px;
+  padding: 10px 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg);
 }
-.pd-rpanel-tabs::-webkit-scrollbar {
-  display: none;
-}
-.pd-rpanel-tabs > * {
-  flex: none;
-}
-.pd-rpanel-tabs > .pd-spacer {
-  flex: 1 0 0;
-}
-.pd-rtab {
+.pd-rrail-item {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 42px;
-  padding: 0 var(--sp-sm);
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 34px;
+  padding: 0;
   border: 0;
+  border-radius: var(--r-sm);
   background: transparent;
   color: var(--text-2);
-  font-size: var(--fs-small);
-  white-space: nowrap;
-  transition: color var(--t-fast);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
 }
-.pd-rtab svg {
-  display: none;
-}
-.pd-rtab:hover:not(:disabled) {
+.pd-rrail-item:hover {
   color: var(--text);
+  box-shadow: inset 2px 0 0 var(--text);
 }
-.pd-rtab[aria-selected='true'] {
-  color: var(--text);
-  font-weight: 600;
-}
-.pd-rtab[aria-selected='true']::after {
-  content: '';
-  position: absolute;
-  left: var(--sp-sm);
-  right: var(--sp-sm);
-  bottom: -1px;
-  height: 2px;
+.pd-rrail-item[data-active='true'],
+.pd-rrail-item[data-active='true']:hover {
   background: var(--text);
+  color: var(--on-accent);
+  box-shadow: none;
 }
-.pd-rtab:disabled {
-  color: var(--text-3);
-  cursor: not-allowed;
+.pd-rrail-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  background: var(--text);
+  color: var(--on-accent);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 14px;
+  text-align: center;
+}
+.pd-rrail-item[data-active='true'] .pd-rrail-badge {
+  background: var(--on-accent);
+  color: var(--text);
 }
 .pd-context {
   flex: none;
@@ -1307,4 +1304,13 @@ kbd {
 .pd-ap-linkbtn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
+}
+
+/* 面板内容的缩放容器（Ctrl+滚轮调整 zoom）：和面板一样纵向撑满，里面的面板照常 flex 布局 */
+.pd-rpanel-zoom {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }

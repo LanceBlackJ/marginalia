@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeOutlineIndex, ordAtPdfPoint, sectionStarts, type PosItem } from './outlinePos'
+import { activeOutlineIndex, activeSectionAt, ordAtPdfPoint, sectionStarts, type PosItem } from './outlinePos'
 
 const mk = (ord: number, page: number, y1: number, section: string | null): PosItem => ({ ord, page, section_title: section, bbox: [0, y1 - 20, 100, y1] })
 // 第 3 页上依次开始了 3 / 3.1 / 3.2 三个小节
@@ -38,5 +38,30 @@ describe('左边目录的当前章节', () => {
   })
   it('目录项的起点是它标题下的第一个段落', () => {
     expect(sectionStarts(outline, items)).toEqual([10, 20, 22, 24, 30])
+  })
+})
+
+describe('按正文里标题的实际位置判断当前小节', () => {
+  // 标题按出现顺序：大章节在前，它的小节紧跟在后；top 是标题顶部相对阅读区的位置
+  const tops = [
+    { title: '3 Method', top: -900 },
+    { title: '3.1 Encoder', top: -300 },
+    { title: '3.2 Decoder', top: 80 },
+    { title: '4 Results', top: 600 }
+  ]
+  it('取阅读线上方最近的标题：停在小节里就是小节，不是大章节', () => {
+    expect(activeSectionAt(tops, 100)).toBe('3.2 Decoder')
+    expect(activeSectionAt(tops, -200)).toBe('3.1 Encoder')
+    expect(activeSectionAt(tops, 700)).toBe('4 Results')
+  })
+  it('一个标题都还没越过阅读线：取第一个；没有标题：null', () => {
+    expect(activeSectionAt(tops, -1000)).toBe('3 Method')
+    expect(activeSectionAt([], 100)).toBeNull()
+  })
+  it('目录据此高亮小节；阅读位置序号过期（停在大章节）也不影响；找不到这个标题才退回旧办法', () => {
+    expect(activeOutlineIndex(outline, items, 21, 3, '3.2 Decoder')).toBe(3)
+    expect(activeOutlineIndex(outline, items, null, 1, '3.1 Encoder')).toBe(2)
+    expect(activeOutlineIndex(outline, items, 21, 3, '目录里没有的标题')).toBe(1)
+    expect(activeOutlineIndex(outline, items, 21, 3, null)).toBe(1)
   })
 })

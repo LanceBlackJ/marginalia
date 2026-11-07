@@ -1,28 +1,25 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { X } from 'lucide-react'
-import { IconButton } from '@/components/ui'
+import { PANEL_SCALE_MAX, PANEL_SCALE_MIN, usePrefs } from '@/stores/prefsStore'
 import { ChainSwitcher } from '@/features/insight/ChainSwitcher'
 import { HistoryMenu } from '@/features/insight/HistoryMenu'
 import { InsightPanel } from '@/features/insight/InsightPanel'
 import { NotesPanel } from '@/features/notes/NotesPanel'
 import { GlossaryPanel } from '@/features/glossary/GlossaryPanel'
 import { OverviewPanel } from '@/features/overview/OverviewPanel'
-import { useNotesStore } from '@/features/notes/notesStore'
 import { QuizPanel } from '@/features/quiz/QuizPanel'
 import { MindMapPanel } from '@/features/mindmap/MindMapPanel'
 import { MaterialsPanel } from '@/features/materials/MaterialsPanel'
-import { useMaterialsStore } from '@/features/materials/materialsStore'
 import { ContextBar } from './ContextBar'
+import { onCtrlWheel } from './ctrlWheel'
 import { useReaderStore, type RightTab } from './readerStore'
 
 export function RightPanel() {
   const width = useReaderStore((s) => s.rightWidth)
   const tab = useReaderStore((s) => s.rightTab)
-  const setRight = useReaderStore((s) => s.setRight)
   const setRightWidth = useReaderStore((s) => s.setRightWidth)
-  const noteCount = useNotesStore((s) => s.notes.length)
   const isSupplement = useReaderStore((s) => s.paper?.role === 'supplement')
-  const materialCount = useMaterialsStore((s) => s.items.length)
+  const scale = usePrefs((s) => s.panelScale)
+  const asideRef = useRef<HTMLElement>(null)
   const [dragging, setDragging] = useState(false)
   const startRef = useRef<{ x: number; w: number } | null>(null)
 
@@ -41,26 +38,22 @@ export function RightPanel() {
     e.currentTarget.releasePointerCapture(e.pointerId)
   }
 
-  // 纯文字短标签：全部放得进面板宽度（不再横向滚动、不会有标签被挤到看不见）
-  const tabs: Array<{ key: RightTab; label: string }> = [
-    { key: 'ai', label: 'AI' },
-    { key: 'glossary', label: '术语' },
-    { key: 'overview', label: '概览' },
-    { key: 'notes', label: noteCount > 0 ? `笔记 ${noteCount}` : '笔记' },
-    { key: 'mindmap', label: '导图' },
-    { key: 'quiz', label: '自测' },
-    // 补充材料属于主论文；补充材料自己的阅读器里不再套娃
-    ...(isSupplement ? [] : [{ key: 'materials' as RightTab, label: materialCount > 0 ? `材料 ${materialCount}` : '材料' }])
-  ]
+  // 面板里是哪个，由最右边的图标栏（RightRail）选；补充材料自己的阅读器里没有“材料”
   const activeTab: RightTab = tab === 'materials' && isSupplement ? 'ai' : tab
-  const tabsRef = useRef<HTMLDivElement>(null)
+
+  // 在面板上按 Ctrl+鼠标滚轮：整个面板里的字一起放大/缩小（每格 10%，80%–160%），设置会记住
   useEffect(() => {
-    // 标签栏可横向滚动：切换标签后把选中的标签滚进可见范围
-    tabsRef.current?.querySelector<HTMLElement>('[aria-selected="true"]')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' })
-  }, [activeTab])
+    const el = asideRef.current
+    if (!el) return
+    return onCtrlWheel(el, (dir) => {
+      const cur = usePrefs.getState().panelScale
+      const next = Math.round(Math.min(PANEL_SCALE_MAX, Math.max(PANEL_SCALE_MIN, cur + dir * 0.1)) * 10) / 10
+      if (next !== cur) usePrefs.getState().set({ panelScale: next })
+    })
+  }, [])
 
   return (
-    <aside className="pd-rpanel" style={{ width }} aria-label="AI 面板">
+    <aside className="pd-rpanel" ref={asideRef} style={{ width }} aria-label="AI 面板">
       <div
         className="pd-rpanel-resizer"
         data-dragging={dragging}
@@ -72,15 +65,7 @@ export function RightPanel() {
         onPointerUp={onUp}
         onPointerCancel={onUp}
       />
-      <div className="pd-rpanel-tabs" role="tablist" ref={tabsRef}>
-        {tabs.map((t) => (
-          <button key={t.key} type="button" role="tab" className="pd-rtab" aria-selected={activeTab === t.key} onClick={() => setRight(true, t.key)}>
-            {t.label}
-          </button>
-        ))}
-        <span className="pd-spacer" />
-        <IconButton icon={<X size={16} />} label="关闭面板" size="sm" onClick={() => setRight(false)} />
-      </div>
+      <div className="pd-rpanel-zoom" style={{ zoom: scale }}>
       <ContextBar>
         {activeTab === 'ai' && (
           <>
@@ -96,6 +81,7 @@ export function RightPanel() {
       {activeTab === 'materials' && <MaterialsPanel />}
       {activeTab === 'mindmap' && <MindMapPanel />}
       {activeTab === 'quiz' && <QuizPanel />}
+      </div>
     </aside>
   )
 }

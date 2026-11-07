@@ -45,6 +45,8 @@ export interface Prefs {
   autoReparse: boolean // 打开有新版解析的论文时自动重新解析（有备份，可撤销）
   autoTranslateWorks: boolean // 发现页里找到的论文自动翻译标题和摘要（会调用模型）
   askWeb: boolean // 向 AI 提问时，论文里没有的内容允许联网查资料（维基百科、OpenAlex）
+  /** 阅读区右侧面板（AI 对话、术语、笔记……）里内容的缩放，1 = 原样；在面板上按 Ctrl+鼠标滚轮调整 */
+  panelScale: number
 }
 
 const KEY = 'pd.prefs'
@@ -75,7 +77,8 @@ export const DEFAULTS: Prefs = {
   cropMargins: false,
   autoReparse: true,
   autoTranslateWorks: true,
-  askWeb: true
+  askWeb: true,
+  panelScale: 1
 }
 
 export const THEMES: Array<{ value: ThemeName; label: string }> = [
@@ -88,6 +91,8 @@ export const MEASURES: Record<Measure, string> = { narrow: '680px', medium: '820
 export const PARA_GAPS: Record<ParaGap, string> = { tight: '0.55em', normal: '0.9em', loose: '1.3em' }
 export const SIZE_MIN = 13
 export const SIZE_MAX = 26
+export const PANEL_SCALE_MIN = 0.8
+export const PANEL_SCALE_MAX = 1.6
 
 const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n))
 
@@ -118,6 +123,7 @@ export function sanitizePrefs(raw: (Partial<Prefs> & { readFont?: unknown }) | n
     autoReparse: v.autoReparse !== false,
     autoTranslateWorks: v.autoTranslateWorks !== false,
     askWeb: v.askWeb !== false,
+    panelScale: clamp(Number(v.panelScale) || DEFAULTS.panelScale, PANEL_SCALE_MIN, PANEL_SCALE_MAX),
     smartLayer: v.smartLayer !== false,
     cropMargins: v.cropMargins === true
   }

@@ -104,6 +104,9 @@ interface ReaderState {
   setSearchOpen: (open: boolean) => void
   /** 阅读位置记忆：文字界面最近可见的段落序号、PDF 界面当前页内的垂直偏移（0–1） */
   textAnchor: number | null
+  /** 文字阅读器里按标题实际位置算出的当前小节标题（左边目录据此高亮）；PDF 视图或还没滚动时为 null */
+  activeSectionTitle: string | null
+  setActiveSectionTitle: (t: string | null) => void
   setTextAnchor: (ord: number | null) => void
   pdfOffset: number
   setPdfOffset: (f: number) => void
@@ -151,6 +154,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   leftOpen: true,
   leftNarrow: false,
   textAnchor: null,
+  activeSectionTitle: null,
+  setActiveSectionTitle: (t) => set((s) => (s.activeSectionTitle === t ? s : { activeSectionTitle: t })),
   setTextAnchor: (ord) => set((s) => (s.textAnchor === ord ? s : { textAnchor: ord })),
   pdfOffset: 0,
   setPdfOffset: (f) => set((s) => (Math.abs(s.pdfOffset - f) < 0.01 ? s : { pdfOffset: f })),
@@ -244,7 +249,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   closePaper: () => {
     window.clearTimeout(flashTimer)
-    set({ paperId: null, paper: null, loadState: 'idle', selection: null, jump: null, flash: null })
+    set({ paperId: null, paper: null, loadState: 'idle', selection: null, jump: null, flash: null, activeSectionTitle: null })
   },
 
   patchPaper: (patch) => set((s) => (s.paper ? { paper: { ...s.paper, ...patch } } : s)),
@@ -333,8 +338,8 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
   focusComposer: () => set((s) => ({ composerFocusTick: s.composerFocusTick + 1 })),
 
   currentSectionTitle: () => {
-    const { outline, currentPage, textAnchor } = get()
-    const idx = activeOutlineIndex(outline, useTextStore.getState().items, textAnchor, currentPage)
+    const { outline, currentPage, textAnchor, activeSectionTitle } = get()
+    const idx = activeOutlineIndex(outline, useTextStore.getState().items, textAnchor, currentPage, activeSectionTitle)
     return idx >= 0 ? outline[idx].title : null
   }
 }))

@@ -12,6 +12,7 @@ function OutlineTab() {
   const source = useReaderStore((s) => s.outlineSource)
   const currentPage = useReaderStore((s) => s.currentPage)
   const anchorOrd = useReaderStore((s) => s.textAnchor)
+  const sectionTitle = useReaderStore((s) => s.activeSectionTitle)
   const items = useTextStore((s) => s.items)
   const jumpToSection = useReaderStore((s) => s.jumpToSection)
 
@@ -23,7 +24,7 @@ function OutlineTab() {
       />
     )
   }
-  const currentIdx = activeOutlineIndex(outline, items, anchorOrd, currentPage)
+  const currentIdx = activeOutlineIndex(outline, items, anchorOrd, currentPage, sectionTitle)
   const minLevel = Math.min(...outline.map((o) => o.level))
   return (
     <div>
@@ -163,9 +164,10 @@ function NarrowStrip() {
   const minLevel = outline.length > 0 ? Math.min(...outline.map((o) => o.level)) : 0
   const top = outline.filter((o) => o.level === minLevel)
   const anchorOrd = useReaderStore((s) => s.textAnchor)
+  const sectionTitle = useReaderStore((s) => s.activeSectionTitle)
   const items = useTextStore((s) => s.items)
   // 完整目录里的当前章节，再归到它所在的顶层章节
-  const full = activeOutlineIndex(outline, items, anchorOrd, currentPage)
+  const full = activeOutlineIndex(outline, items, anchorOrd, currentPage, sectionTitle)
   let currentIdx = -1
   top.forEach((it, i) => {
     if (outline.indexOf(it) <= full) currentIdx = i

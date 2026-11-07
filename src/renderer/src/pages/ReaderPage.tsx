@@ -14,6 +14,7 @@ import { loadPdfDocument, type PDFDocumentProxy } from '@/features/reader/pdf/pd
 import { ReaderSidebar } from '@/features/reader/ReaderSidebar'
 import { ReaderToolbar } from '@/features/reader/ReaderToolbar'
 import { RightPanel } from '@/features/reader/RightPanel'
+import { RightRail } from '@/features/reader/RightRail'
 import { SearchPanel } from '@/features/reader/SearchPanel'
 import { SelectionToolbar } from '@/features/reader/SelectionToolbar'
 import { useGlossaryStore } from '@/features/glossary/glossaryStore'
@@ -266,6 +267,7 @@ export function ReaderPage() {
           <SearchPanel />
         </div>
         {rightOpen && !focus && <RightPanel />}
+        {!focus && <RightRail />}
       </div>
       <ShortcutHelp />
       <SelectionToolbar />
