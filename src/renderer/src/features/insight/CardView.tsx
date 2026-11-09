@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp, Copy, MoreHorizontal, NotebookPen, Pin, PinOff, Trash2 } from 'lucide-react'
-import { IconButton, Menu, type MenuItem, toast } from '@/components/ui'
+import { IconButton, Menu, type MenuItem, toast, useContextMenu } from '@/components/ui'
 import { buildEvidenceMap, buildInvalidSet, CiteGroup, evidenceTag, refFromTag, useEvidenceJump } from '@/components/CiteChip'
 import { Markdown } from '@/components/Markdown'
 import { truncate } from '@/lib/format'
@@ -162,8 +162,18 @@ export function CardView({ card, editable = false }: { card: InsightCard; editab
     { key: 'delete', label: '删除卡片', icon: <Trash2 size={14} />, danger: true, onSelect: () => void removeCard(card.id) }
   ]
 
+  const cm = useContextMenu()
+  const onCardContext = (e: React.MouseEvent): void => {
+    const picked = window.getSelection()?.toString().trim() ?? ''
+    cm.open(e, [
+      ...(picked ? [{ key: 'csel', label: '复制所选文字', icon: <Copy size={14} />, onSelect: () => void navigator.clipboard.writeText(picked).then(() => toast.success('已复制所选文字')) }, { key: 'sep0', separator: true } as MenuItem] : []),
+      ...items
+    ])
+  }
+
   return (
-    <article className="pd-card" data-card-id={card.id} data-temp={!card.saved} data-failed={failed}>
+    <article className="pd-card" data-card-id={card.id} data-temp={!card.saved} data-failed={failed} onContextMenu={onCardContext}>
+      {cm.element}
       <div className="pd-card-meta">
         <span className="pd-card-meta-text" title={`${card.model}`}>
           {meta.map((m, i) => (

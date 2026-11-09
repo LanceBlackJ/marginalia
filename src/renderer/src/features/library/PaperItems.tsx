@@ -4,7 +4,7 @@ import { paperName } from '@/lib/paperName'
 import type { DragEvent, KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { BookOpen, Code2, Download, FolderInput, FolderClosed, MoreHorizontal, Network, Quote, RefreshCw, Star, Tag as TagIcon, Trash2 } from 'lucide-react'
-import { IconButton, Menu, ProgressBar, Tag } from '@/components/ui'
+import { IconButton, Menu, ProgressBar, Tag, useContextMenu, type MenuItem } from '@/components/ui'
 import { formatAuthors, formatPercent, formatRelativeTime } from '@/lib/format'
 import { foldTags } from '@/lib/tags'
 import type { PaperSummary } from '@/lib/types'
@@ -201,6 +201,29 @@ function onKey(e: KeyboardEvent, fn: () => void): void {
   }
 }
 
+export function paperMenuItems(paper: PaperSummary, actions: PaperItemActions, navigate: (to: string) => void): MenuItem[] {
+  return [
+    {
+      key: 'open',
+      label: '打开阅读',
+      icon: <BookOpen size={15} />,
+      disabled: paper.status !== 'ready',
+      onSelect: () => (actions.onRead ?? actions.onOpen)(paper)
+    },
+    { key: 'mindmap', label: '思维导图工作区', icon: <Network size={15} />, disabled: paper.status !== 'ready', onSelect: () => navigate(`/mindmap/${paper.id}`) },
+    { key: 'code', label: '代码工作区', icon: <Code2 size={15} />, disabled: paper.status === 'parsing', onSelect: () => navigate(`/code/${paper.id}`) },
+    ...(actions.onMove ? [{ key: 'move', label: '移动到文件夹…', icon: <FolderInput size={15} />, onSelect: () => actions.onMove?.(paper) }] : []),
+    { key: 'tags', label: '标签…', icon: <TagIcon size={15} />, onSelect: () => actions.onEditTags(paper) },
+    ...(actions.onCite ? [{ key: 'cite', label: '生成引用…', icon: <Quote size={15} />, onSelect: () => actions.onCite?.(paper) }] : []),
+    { key: 'export', label: '导出引文与笔记…', icon: <Download size={15} />, onSelect: () => actions.onExport(paper) },
+    ...(actions.onReparse && canReparse(paper)
+      ? [{ key: 'reparse', label: needsReparse(paper) ? '重新解析 · 有新版…' : '重新解析…', icon: <RefreshCw size={15} />, onSelect: () => actions.onReparse?.(paper) }]
+      : []),
+    { key: 'sep', separator: true },
+    { key: 'delete', label: '从文献库删除…', icon: <Trash2 size={15} />, danger: true, onSelect: () => actions.onDelete(paper) }
+  ]
+}
+
 function RowMenu({ paper, actions }: { paper: PaperSummary; actions: PaperItemActions }) {
   const navigate = useNavigate()
   return (
@@ -217,26 +240,7 @@ function RowMenu({ paper, actions }: { paper: PaperSummary; actions: PaperItemAc
           }}
         />
       )}
-      items={[
-        {
-          key: 'open',
-          label: '打开阅读',
-          icon: <BookOpen size={15} />,
-          disabled: paper.status !== 'ready',
-          onSelect: () => (actions.onRead ?? actions.onOpen)(paper)
-        },
-        { key: 'mindmap', label: '思维导图工作区', icon: <Network size={15} />, disabled: paper.status !== 'ready', onSelect: () => navigate(`/mindmap/${paper.id}`) },
-        { key: 'code', label: '代码工作区', icon: <Code2 size={15} />, disabled: paper.status === 'parsing', onSelect: () => navigate(`/code/${paper.id}`) },
-        ...(actions.onMove ? [{ key: 'move', label: '移动到文件夹…', icon: <FolderInput size={15} />, onSelect: () => actions.onMove?.(paper) }] : []),
-        { key: 'tags', label: '标签…', icon: <TagIcon size={15} />, onSelect: () => actions.onEditTags(paper) },
-        ...(actions.onCite ? [{ key: 'cite', label: '生成引用…', icon: <Quote size={15} />, onSelect: () => actions.onCite?.(paper) }] : []),
-        { key: 'export', label: '导出引文与笔记…', icon: <Download size={15} />, onSelect: () => actions.onExport(paper) },
-        ...(actions.onReparse && canReparse(paper)
-          ? [{ key: 'reparse', label: needsReparse(paper) ? '重新解析 · 有新版…' : '重新解析…', icon: <RefreshCw size={15} />, onSelect: () => actions.onReparse?.(paper) }]
-          : []),
-        { key: 'sep', separator: true },
-        { key: 'delete', label: '从文献库删除…', icon: <Trash2 size={15} />, danger: true, onSelect: () => actions.onDelete(paper) }
-      ]}
+      items={paperMenuItems(paper, actions, navigate)}
     />
   )
 }
@@ -272,6 +276,8 @@ export function PaperTableHeader() {
 
 export function PaperRow({ paper, actions }: { paper: PaperSummary; actions: PaperItemActions }) {
   const source = paper.venue ?? paper.source_folder
+  const navigate = useNavigate()
+  const cm = useContextMenu()
   return (
     <div
       className={`pd-paper-row${actions.selected?.has(paper.id) ? ' is-selected' : ''}`}
@@ -279,8 +285,10 @@ export function PaperRow({ paper, actions }: { paper: PaperSummary; actions: Pap
       tabIndex={0}
       onClick={() => actions.onOpen(paper)}
       onKeyDown={(e) => onKey(e, () => actions.onOpen(paper))}
+      onContextMenu={(e) => cm.open(e, paperMenuItems(paper, actions, navigate))}
       {...dragHandlers(paper, actions)}
     >
+      {cm.element}
       <div className="pd-paper-main">
         <div className="pd-paper-titlerow">
           <SelectBox paper={paper} actions={actions} />
@@ -327,6 +335,8 @@ export function PaperRow({ paper, actions }: { paper: PaperSummary; actions: Pap
 }
 
 export function PaperCard({ paper, actions }: { paper: PaperSummary; actions: PaperItemActions }) {
+  const navigate = useNavigate()
+  const cm = useContextMenu()
   const meta = [
     formatAuthors(paper.authors),
     paper.venue,
@@ -342,8 +352,10 @@ export function PaperCard({ paper, actions }: { paper: PaperSummary; actions: Pa
       tabIndex={0}
       onClick={() => actions.onOpen(paper)}
       onKeyDown={(e) => onKey(e, () => actions.onOpen(paper))}
+      onContextMenu={(e) => cm.open(e, paperMenuItems(paper, actions, navigate))}
       {...dragHandlers(paper, actions)}
     >
+      {cm.element}
       <div className="pd-paper-titlerow">
         <SelectBox paper={paper} actions={actions} />
         <div className="pd-paper-card-title" title={paper.title}>

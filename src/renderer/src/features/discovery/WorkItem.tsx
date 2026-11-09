@@ -1,10 +1,13 @@
 import { Check, ExternalLink, GitCompare, Info, Star } from 'lucide-react'
-import { Button, IconButton, Tag } from '@/components/ui'
+import { Button, IconButton, Tag, toast, useContextMenu, type MenuItem } from '@/components/ui'
 import type { Work } from '@/lib/types.discovery'
 import { useWorkActions } from './useWorkActions'
 import { VenueHover } from './VenueHover'
 import { authorsLine, impactText, venueLine } from './workUtils'
 import { useWorkZh } from './workZh'
+import { formatReference, toBibtex, toRis } from './exportWorks'
+
+const copy = (text: string, what: string): void => void navigator.clipboard.writeText(text).then(() => toast.success(`已复制${what}`))
 
 function StatusTag({ work }: { work: Work }) {
   return <Tag title={work.status_evidence || undefined}>{work.status_label}</Tag>
@@ -20,9 +23,28 @@ export function WorkItem({ work, onOpen, showAbstract = true }: { work: Work; on
   const zh = useWorkZh(work, { abstract: showAbstract })
   const impact = impactText(work)
   const top = work.top_venue
+  const cm = useContextMenu()
+  const menu: MenuItem[] = [
+    { key: 'detail', label: '查看详情', onSelect: () => onOpen(work) },
+    work.in_library
+      ? { key: 'lib', label: '在文献库中打开', onSelect: a.openLibrary }
+      : { key: 'add', label: '加入文献库', disabled: !a.canImport || a.importing, onSelect: () => void a.addToLibrary() },
+    ...(!work.in_library && a.canImport ? [{ key: 'meta', label: '仅保存元数据', onSelect: () => void a.addMetadataOnly() }] : []),
+    { key: 'orig', label: '打开原文（可登录下载）', disabled: !a.hasOriginal, onSelect: a.openOriginal },
+    { key: 'sep1', separator: true },
+    { key: 'save', label: a.saved ? '取消收藏' : '收藏', onSelect: () => void a.toggleSave() },
+    { key: 'basket', label: a.inBasket ? '移出比较篮' : '加入比较篮', onSelect: a.toggleBasket },
+    { key: 'sep2', separator: true },
+    { key: 'ctitle', label: '复制标题', onSelect: () => copy(work.title, '标题') },
+    { key: 'cdoi', label: '复制 DOI', disabled: !work.doi, onSelect: () => copy((work.doi ?? '').replace(/^https?:\/\/(dx\.)?doi\.org\//i, ''), ' DOI') },
+    { key: 'cref', label: '复制参考文献（GB/T 7714）', onSelect: () => copy(formatReference(work, 'gbt7714'), '参考文献') },
+    { key: 'cbib', label: '复制 BibTeX', onSelect: () => copy(toBibtex([work]), ' BibTeX') },
+    { key: 'cris', label: '复制 RIS', onSelect: () => copy(toRis([work]), ' RIS') }
+  ]
 
   return (
-    <article className="pd-dc-item">
+    <article className="pd-dc-item" onContextMenu={(e) => cm.open(e, menu)}>
+      {cm.element}
       <h3 className="pd-dc-title">
         <button type="button" onClick={() => onOpen(work)} title="查看详情">
           {work.title}

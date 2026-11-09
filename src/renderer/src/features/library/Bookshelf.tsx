@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FolderInput, Star, Tag as TagIcon } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ChevronDown, ChevronRight, FolderInput, MoreHorizontal, Star, Tag as TagIcon } from 'lucide-react'
+import { useContextMenu } from '@/components/ui'
 import { api } from '@/lib/api'
 import { formatAuthors } from '@/lib/format'
 import { paperName } from '@/lib/paperName'
@@ -7,6 +9,7 @@ import type { PaperSummary } from '@/lib/types'
 import type { FolderItem } from '@/lib/types.library'
 import { useBlobUrl } from '@/features/figures/useBlobUrl'
 import { FolderQuickMenu } from './FolderQuickMenu'
+import { paperMenuItems, type PaperItemActions } from './PaperItems'
 import { buildFolderTree, flattenTree, folderPath } from './filterModel'
 import './bookshelf.css'
 
@@ -39,6 +42,8 @@ export interface BookshelfActions {
   onCreateFolderFor: (p: PaperSummary, name: string) => Promise<void>
   /** 打开“标签”对话框，给这篇论文加/删标签 */
   onEditTags?: (p: PaperSummary) => void
+  /** 论文的完整操作（打开、思维导图、移动、导出、重新解析、删除…）：书上的“更多”按钮和右键菜单用它 */
+  more?: PaperItemActions
 }
 
 function Book({ paper, folders, actions }: { paper: PaperSummary; folders: FolderItem[]; actions: BookshelfActions }) {
@@ -47,8 +52,12 @@ function Book({ paper, folders, actions }: { paper: PaperSummary; folders: Folde
   const cover = useBlobUrl(near && paper.has_pdf && paper.status !== 'parsing' ? () => api.papers.cover(paper.id) : null, [paper.id, near, paper.status])
   const progress = Math.round(Math.max(0, Math.min(1, paper.read_progress)) * 100)
   const name = paperName(paper)
+  const navigate = useNavigate()
+  const cm = useContextMenu()
+  const items = actions.more ? paperMenuItems(paper, actions.more, navigate) : []
   return (
-    <div className="pd-book" ref={ref}>
+    <div className="pd-book" ref={ref} onContextMenu={(e) => cm.open(e, items)}>
+      {cm.element}
       <button type="button" className="pd-book-cover" onClick={() => actions.onOpen(paper)} title={name} aria-label={`打开《${name}》`}>
         {cover.url ? (
           <img src={cover.url} alt="" draggable={false} />
@@ -75,6 +84,11 @@ function Book({ paper, folders, actions }: { paper: PaperSummary; folders: Folde
       {actions.onEditTags && (
         <button type="button" className="pd-book-tagbtn" aria-label="标签" title={(paper.tags ?? []).length ? `标签：${(paper.tags ?? []).map((t) => t.name).join('、')}` : '添加标签'} onClick={() => actions.onEditTags?.(paper)}>
           <TagIcon size={13} />
+        </button>
+      )}
+      {actions.more && (
+        <button type="button" className="pd-book-more" aria-label="更多操作" title="更多操作（也可以在书上右键）：打开、移动、导出、删除…" onClick={(e) => cm.open(e, items)}>
+          <MoreHorizontal size={13} />
         </button>
       )}
       <FolderQuickMenu

@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Sparkles } from 'lucide-react'
-import { Button, Dialog, EmptyState, Input, Menu, Skeleton, type MenuItem } from '@/components/ui'
+import { Button, Dialog, EmptyState, Input, Menu, Skeleton, toast, useContextMenu, type MenuItem } from '@/components/ui'
 import { deriveTarget, fmtBytes, lineRange, pathBase, ROLE_LABEL, targetLabel } from './codeUtils'
 import { useCodeStore } from './codeStore'
 import { highlightLines, languageForPath } from './highlight'
@@ -76,6 +76,7 @@ export function CodeViewer() {
   const explain = useCodeStore((s) => s.explain)
   const scroller = useRef<HTMLDivElement>(null)
   const [varOpen, setVarOpen] = useState(false)
+  const cm = useContextMenu()
   const [varName, setVarName] = useState('')
 
   const lang = file ? languageForPath(file.path) : null
@@ -207,7 +208,32 @@ export function CodeViewer() {
           />
         </div>
       ) : (
-        <div ref={scroller} className="pd-code-scroll" onMouseUp={onMouseUp}>
+        <div
+          ref={scroller}
+          className="pd-code-scroll"
+          onMouseUp={onMouseUp}
+          onContextMenu={(e) => {
+            // 右键：有选中的代码就围绕选区，否则围绕点到的那一行
+            const picked = window.getSelection()?.toString() ?? ''
+            const row = lineOf(e.target as Node)
+            const range = sel ?? (row ? { a: row, b: row } : null)
+            const copy = (text: string, what: string): void => void navigator.clipboard.writeText(text).then(() => toast.success(`已复制${what}`))
+            cm.open(e, [
+              ...(picked ? [{ key: 'copy', label: '复制所选代码', onSelect: () => copy(picked, '所选代码') }] : []),
+              ...(range ? [{ key: 'explain', label: `AI 解释${sel ? '所选代码' : '这一行'} · ${lineRange(range.a, range.b)}`, onSelect: () => void explain({ kind: 'line_range', path: file.path, line_start: range.a, line_end: range.b }, `${pathBase(file.path)} ${lineRange(range.a, range.b)}`) }] : []),
+              ...(symbol && symbol.path === file.path
+                ? [{ key: 'sym', label: `AI 解释${symbol.kind === 'class' ? '类' : '函数'} ${symbol.name}`, onSelect: () => void explain({ kind: symbol.kind === 'class' ? 'class' : 'function', path: file.path, symbol_id: symbol.id, symbol: symbol.qualname }, symbol.qualname) }]
+                : []),
+              { key: 'var', label: '追踪一个变量…', onSelect: () => setVarOpen(true) },
+              { key: 'file', label: '解释整个文件', onSelect: () => void explain({ kind: 'file', path: file.path }, pathBase(file.path)) },
+              { key: 'sep', separator: true },
+              { key: 'cpath', label: '复制文件路径', onSelect: () => copy(file.path, '文件路径') },
+              ...(range ? [{ key: 'cloc', label: '复制位置（路径:行号）', onSelect: () => copy(`${file.path}:${lineRange(range.a, range.b)}`, '位置') }] : []),
+              ...(sel ? [{ key: 'clear', label: '取消选中', onSelect: () => setLineSel(null) }] : [])
+            ])
+          }}
+        >
+          {cm.element}
           {file.truncated && <div className="pd-code-note pd-aux">{file.note ?? '文件较大，只显示了前面的部分。'}</div>}
           <div className="pd-code-lines" style={{ minWidth: 'max-content' }}>
             {chunks.map((c) => {

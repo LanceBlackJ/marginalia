@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo } from 'react'
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow, type Edge, type Node, type NodeProps } from '@xyflow/react'
 import { Sparkles } from 'lucide-react'
-import { Button, EmptyState, Segmented, Select, Spinner } from '@/components/ui'
+import { Button, EmptyState, Segmented, Select, Spinner, toast, useContextMenu } from '@/components/ui'
 import type { Flow, FlowAnnotation, FlowNode, FlowRoot } from '@/lib/types.code'
 import { CERTAINTY_LABEL, FLOW_NODE_H, FLOW_NODE_W, ROLE_LABEL, layoutFlow, lineRange } from './codeUtils'
 import { useCodeStore } from './codeStore'
@@ -95,6 +95,7 @@ export function FlowView() {
   const annotateFlow = useCodeStore((s) => s.annotateFlow)
   const viewFromFlow = useCodeStore((s) => s.viewFromFlow)
   const showSnippet = useCodeStore((s) => s.showSnippet)
+  const cm = useContextMenu()
   const explain = useCodeStore((s) => s.explain)
 
   useEffect(() => {
@@ -141,6 +142,7 @@ export function FlowView() {
 
   return (
     <div className="pd-flow">
+      {cm.element}
       <div className="pd-flow-bar">
         <div className="pd-flow-ctl">
           <span className="pd-aux pd-muted">起点</span>
@@ -192,6 +194,22 @@ export function FlowView() {
             selectFlowNode(id)
             const n = flow.nodes.find((x) => x.id === id)
             if (n) showSnippet({ path: n.path, a: n.line_start, b: n.line_end, title: flow.annotations[String(id)]?.title ?? n.label, symbolId: n.id, from: 'flow', flowId: n.id })
+          }}
+          onNodeContextMenu={(e, node) => {
+            const id = Number(node.id)
+            const n = flow.nodes.find((x) => x.id === id)
+            if (!n) return
+            selectFlowNode(id)
+            const title = flow.annotations[String(id)]?.title ?? n.label
+            cm.open(e as unknown as React.MouseEvent, [
+              { key: 'snip', label: '查看这段代码', onSelect: () => showSnippet({ path: n.path, a: n.line_start, b: n.line_end, title, symbolId: n.id, from: 'flow', flowId: n.id }) },
+              { key: 'open', label: '在代码页打开', onSelect: () => void viewFromFlow(n.id, title) },
+              { key: 'ai', label: 'AI 解释这个函数', onSelect: () => void explain({ kind: 'function', path: n.path, symbol_id: n.id, symbol: n.label }, n.label) },
+              ...(n.id !== flow.root ? [{ key: 'root', label: '以它为起点', onSelect: () => void loadFlow(n.id) }] : []),
+              { key: 'sep', separator: true },
+              { key: 'cname', label: '复制函数名', onSelect: () => void navigator.clipboard.writeText(n.label).then(() => toast.success('已复制函数名')) },
+              { key: 'cloc', label: '复制位置（路径:行号）', onSelect: () => void navigator.clipboard.writeText(`${n.path}:${n.line_start}-${n.line_end}`).then(() => toast.success('已复制位置')) }
+            ])
           }}
           onPaneClick={() => selectFlowNode(null)}
           proOptions={{ hideAttribution: true }}

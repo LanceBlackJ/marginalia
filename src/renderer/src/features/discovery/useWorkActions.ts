@@ -4,7 +4,7 @@ import { create } from 'zustand'
 import { toast } from '@/components/ui'
 import { errorMessage } from '@/lib/api'
 import { discoveryApi } from '@/lib/api.discovery'
-import { openExternal } from '@/lib/native'
+import { openPaperBrowser } from '@/lib/native'
 import { importDois, importUrl } from '@/features/importing/importActions'
 import { useJobsStore } from '@/stores/jobsStore'
 import type { Work } from '@/lib/types.discovery'
@@ -78,7 +78,7 @@ export function useWorkActions(work: Work) {
       useBasket.getState().toggle(work.in_library)
     },
     openOriginal: (): void => {
-      if (url) void openExternal(url)
+      if (url) void openPaperBrowser(url)
     },
     hasOriginal: !!url
   }

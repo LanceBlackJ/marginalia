@@ -555,6 +555,7 @@ export function LibraryPage() {
                   onToggleFavorite: actions.onToggleFavorite,
                   onEditTags: setTagging,
                   onMove: (p, fid) => void movePapers([p.id], fid),
+                  more: actions,
                   onCreateFolderFor: async (p, name) => {
                     const f = await createFolder(name, null)
                     if (f) await movePapers([p.id], f.id)

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
 import { AlertCircle, Bookmark as BookmarkIcon, ChevronDown, ChevronRight, Compass, Languages, StickyNote } from 'lucide-react'
-import { toast } from '@/components/ui'
+import { toast, useContextMenu, type MenuItem } from '@/components/ui'
 import { Button, Dialog, EmptyState, ProgressBar, Skeleton } from '@/components/ui'
 import { Lightbox } from '@/components/ui/Lightbox'
 import { NotePeek } from '@/features/notes/NotePeek'
@@ -10,7 +10,8 @@ import { useNotesStore } from '@/features/notes/notesStore'
 import { NOTE_MARK_PREFIX, noteMarksByPage, noteOrdMap } from '@/features/notes/noteMarks'
 import { useBlobUrl } from '@/features/figures/useBlobUrl'
 import { Tex } from '@/features/formula/Tex'
-import { explainEquation } from '@/features/reader/selectionActions'
+import { askFreeform, askQuick, explainEquation, noteSelection, translateSelection } from '@/features/reader/selectionActions'
+import type { SelectionInfo } from '@/features/reader/pdf/selection'
 import { useMarksStore } from '@/features/reader/marksStore'
 import { useGlossaryStore } from '@/features/glossary/glossaryStore'
 import { useReaderStore } from '@/features/reader/readerStore'
@@ -32,7 +33,6 @@ import { activeSectionAt } from '@/features/reader/outlinePos'
 import { onCtrlWheel } from '@/features/reader/ctrlWheel'
 import { FigureDataBlock } from './FigureDataBlock'
 import { FigLabelMenu } from './FigLabelMenu'
-import { BookmarkMenu, type BookmarkMenuState } from './BookmarkMenu'
 import { bookmarkOnPassage, passageBookmark } from './bookmarkAt'
 import { ParaInsightCard } from '@/features/paragraph/ParaInsightCard'
 import { useParaStore } from '@/features/paragraph/paraStore'
@@ -869,8 +869,7 @@ export function TextReader() {
 
   const notes = useNotesStore((s) => s.notes)
   const bookmarks = useMarksStore((s) => s.bookmarks)
-  const [bmMenu, setBmMenu] = useState<BookmarkMenuState | null>(null)
-  const closeBmMenu = useCallback(() => setBmMenu(null), [])
+  const cm = useContextMenu()
   const marksByPage = useMemo(() => {
     const m = new Map<number, AnnMark[]>()
     for (const a of annotations) if (a.text) m.set(a.page, [...(m.get(a.page) ?? []), { id: a.id, text: a.text, color: a.color }])
@@ -1039,15 +1038,28 @@ export function TextReader() {
     const parts = items.filter((i) => ords.includes(i.ord))
     const at = passageBookmark(parts)
     if (!at) return
-    e.preventDefault()
     const marks = useMarksStore.getState()
-    setBmMenu({
-      x: e.clientX,
-      y: e.clientY,
-      existingId: bookmarkOnPassage(marks.bookmarks, ords)?.id ?? null,
-      onAdd: () => void marks.addBookmark(at.page, at.label, { passage_ord: at.passage_ord, quote: at.quote }),
-      onRemove: (id) => void marks.removeBookmark(id)
-    })
+    const picked = window.getSelection()?.toString().trim() ?? ''
+    const whole = parts.map((p) => p.text).join('\n\n').trim()
+    const text = picked || whole
+    // 文字阅读器里没有 PDF 选区对象：用文字和页码拼一个，足够让 AI / 笔记 / 翻译使用
+    const sel = { text, page: at.page, rects: [], clientRect: { left: e.clientX, top: e.clientY, right: e.clientX, bottom: e.clientY, width: 0, height: 0 } } as unknown as SelectionInfo
+    const existing = bookmarkOnPassage(marks.bookmarks, ords)
+    const what = picked ? '所选文字' : '这一段'
+    const menu: MenuItem[] = [
+      { key: 'copy', label: `复制${what}`, onSelect: () => void navigator.clipboard.writeText(text).then(() => toast.success(`已复制${what}`)) },
+      { key: 'sep1', separator: true },
+      { key: 'explain', label: `AI 解释${what}`, onSelect: () => askQuick(sel, 'explain') },
+      { key: 'summarize', label: `AI 总结${what}`, onSelect: () => askQuick(sel, 'summarize') },
+      { key: 'ask', label: `就${what}提问…`, onSelect: () => askFreeform(sel) },
+      { key: 'translate', label: `翻译${what}`, onSelect: () => translateSelection(sel) },
+      { key: 'sep2', separator: true },
+      { key: 'note', label: `把${what}写进笔记`, onSelect: () => noteSelection(sel) },
+      existing
+        ? { key: 'bm', label: '移除这里的书签', onSelect: () => void marks.removeBookmark(existing.id) }
+        : { key: 'bm', label: '在这里添加书签', onSelect: () => void marks.addBookmark(at.page, at.label, { passage_ord: at.passage_ord, quote: at.quote }) }
+    ]
+    cm.open(e, menu)
   }
 
   const onClick = (e: React.MouseEvent): void => {
@@ -1315,7 +1327,7 @@ export function TextReader() {
       </div>
       <RefLayer />
       <NotePeek />
-      {bmMenu && <BookmarkMenu menu={bmMenu} onClose={closeBmMenu} />}
+      {cm.element}
     </div>
   )
 }

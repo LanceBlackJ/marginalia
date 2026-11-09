@@ -1,27 +1,57 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { ChevronRight, Search, Sparkles } from 'lucide-react'
-import { Button, Input } from '@/components/ui'
+import { Button, Input, toast, useContextMenu } from '@/components/ui'
 import type { CodeFileEntry, CodeSymbol } from '@/lib/types.code'
 import { ancestorDirs, buildFileTree, filterFiles, roleBadge, type TreeNode } from './codeUtils'
 import { useCodeStore } from './codeStore'
 
 const SKIP_LABEL: Record<string, string> = { binary: '二进制', too_large: '过大', unsafe: '已忽略' }
 
+const copyText = (text: string, what: string): void => void navigator.clipboard.writeText(text).then(() => toast.success(`已复制${what}`))
+
 const FileRow = memo(function FileRow({ file, name, depth, active, onOpen }: { file: CodeFileEntry; name: string; depth: number; active: boolean; onOpen: (p: string) => void }) {
   const badge = file.skipped ? SKIP_LABEL[file.skipped] ?? file.skipped : roleBadge(file.role)
+  const explain = useCodeStore((s) => s.explain)
+  const cm = useContextMenu()
   return (
-    <button type="button" className="pd-tree-row" data-active={active || undefined} data-skipped={file.skipped ? 'true' : undefined} style={{ paddingLeft: 10 + depth * 14 + 16 }} title={file.path} onClick={() => onOpen(file.path)}>
+    <>
+    {cm.element}
+    <button
+      type="button"
+      className="pd-tree-row"
+      onContextMenu={(e) =>
+        cm.open(e, [
+          { key: 'open', label: '打开', onSelect: () => onOpen(file.path) },
+          { key: 'explain', label: 'AI 解释这个文件', disabled: !!file.skipped, onSelect: () => void explain({ kind: 'file', path: file.path }, file.path.split('/').pop() ?? file.path) },
+          { key: 'sep', separator: true },
+          { key: 'cname', label: '复制文件名', onSelect: () => copyText(file.path.split('/').pop() ?? file.path, '文件名') },
+          { key: 'cpath', label: '复制路径', onSelect: () => copyText(file.path, '路径') }
+        ])
+      } data-active={active || undefined} data-skipped={file.skipped ? 'true' : undefined} style={{ paddingLeft: 10 + depth * 14 + 16 }} title={file.path} onClick={() => onOpen(file.path)}>
       <span className="pd-tree-name pd-ellipsis">{name}</span>
       {badge && <span className="pd-tree-badge">{badge}</span>}
     </button>
+    </>
   )
 })
 
 function DirRow({ node, depth, expanded, toggle, children }: { node: TreeNode; depth: number; expanded: boolean; toggle: (p: string) => void; children: React.ReactNode }) {
   const explain = useCodeStore((s) => s.explain)
+  const cm = useContextMenu()
   return (
     <>
-      <div className="pd-tree-dirwrap">
+      {cm.element}
+      <div
+        className="pd-tree-dirwrap"
+        onContextMenu={(e) =>
+          cm.open(e, [
+            { key: 'toggle', label: expanded ? '折叠' : '展开', onSelect: () => toggle(node.path) },
+            { key: 'explain', label: 'AI 概述这个目录', onSelect: () => void explain({ kind: 'module', path: node.path }, `目录 ${node.path}`) },
+            { key: 'sep', separator: true },
+            { key: 'cpath', label: '复制路径', onSelect: () => copyText(node.path, '路径') }
+          ])
+        }
+      >
         <button type="button" className="pd-tree-row pd-tree-dir" aria-expanded={expanded} style={{ paddingLeft: 10 + depth * 14 }} title={node.path} onClick={() => toggle(node.path)}>
           <ChevronRight size={13} className="pd-tree-chev" />
           <span className="pd-tree-name pd-ellipsis">{node.name}</span>

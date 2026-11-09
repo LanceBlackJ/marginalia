@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render as rtlRender, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+
+const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> => rtlRender(<MemoryRouter>{ui}</MemoryRouter>)
 
 vi.mock('@/lib/api', () => ({ api: { papers: { cover: vi.fn(() => Promise.reject(new Error('no cover'))) } } }))
 
