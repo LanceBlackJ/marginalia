@@ -80,7 +80,7 @@ function toPayload(d: Draft): Partial<AISettings> {
     timeout_s: num(d.timeout_s, '请求超时', { min: 5, max: 600 }),
     max_retries: num(d.max_retries, '重试次数', { min: 0, max: 6, int: true }),
     temperature: num(d.temperature, '温度', { min: 0, max: 2 }),
-    max_output_tokens: num(d.max_output_tokens, '最大输出', { min: 256, max: 200000, int: true }),
+    max_output_tokens: num(d.max_output_tokens, '最大输出', { min: 256, max: 64000, int: true }),
     auto_analyze: d.auto_analyze,
     price_per_mtok: prices,
     monthly_budget: d.monthly_budget.trim() === '' ? null : num(d.monthly_budget, '月度预算', { min: 0 })
@@ -313,7 +313,7 @@ export function AIModelSection() {
         <Switch checked={draft.auto_analyze} onChange={(v) => set({ auto_analyze: v })} label={draft.auto_analyze ? '已开启' : '已关闭'} />
       </SettingRow>
 
-      <SettingRow title="请求参数" description="超时、重试、温度与单次回答的最大输出长度。">
+      <SettingRow title="请求参数" description="超时、重试、温度与单次回答的最大输出长度。最大输出默认 64000，只按实际生成的字数计费；模型或网关不支持这么大时，会自动降到它允许的上限并记住。">
         <div className="pd-fields pd-fields--2">
           <Field label="请求超时（秒）">{(id) => <Input id={id} type="number" min={5} value={draft.timeout_s} onChange={(v) => set({ timeout_s: v })} />}</Field>
           <Field label="失败重试次数">{(id) => <Input id={id} type="number" min={0} max={6} value={draft.max_retries} onChange={(v) => set({ max_retries: v })} />}</Field>

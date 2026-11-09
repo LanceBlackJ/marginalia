@@ -925,3 +925,60 @@ def test_web_results_unrelated_to_the_query_are_dropped():
     on = {"title": "同伦", "snippet": "在拓扑学中，同伦是两个连续函数之间的关系。"}
     en = {"title": "Homotopy classes of paths", "snippet": "robot planning"}
     assert not websearch._relevant(off, terms) and websearch._relevant(on, terms) and websearch._relevant(en, terms)
+
+
+# ---------------- 自适应输出额度 ----------------
+def test_allowed_output_is_read_from_provider_errors():
+    from paperdesk.ai.providers import allowed_output_from_error as f
+
+    assert f("max_tokens must be less than or equal to 8192, but got 64000", 64000) == (8192, True)
+    assert f("Invalid max_tokens value, the valid range of max_tokens is [1, 16,384]", 64000) == (16384, True)
+    # 上下文总长限制：上限 = 总长 − 提示词（只对这一次有效，不记成模型的固有上限）
+    allowed, inherent = f("This model's maximum context length is 32768 tokens. However, you requested 64820 tokens (820 in the messages, 64000 in the completion).", 64000)
+    assert allowed == 32768 - 820 - 64 and inherent is False
+    assert f("Unsupported parameter: 'max_tokens'. Use 'max_completion_tokens' instead.", 64000) is None  # 不是额度问题
+    assert f("rate limit exceeded", 64000) is None
+    assert f("max_tokens must be <= 100000", 64000) is None  # 不比已发送的小，不是我们要降的
+
+
+async def test_openai_lowers_output_limit_to_what_the_model_allows_and_remembers_it():
+    from paperdesk.ai import providers
+
+    providers.OUTPUT_CAPS.clear()
+    seen = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append(body["max_tokens"])
+        if body["max_tokens"] > 8192:
+            return httpx.Response(400, text="max_tokens must be less than or equal to 8192, but got %d" % body["max_tokens"])
+        return _sse_ok("ok")
+
+    prov = _provider(handler)
+    r1 = await prov.complete("cap-model", [{"role": "user", "content": "x"}], max_tokens=64000)
+    assert r1.text == "ok" and seen == [64000, 8192]  # 第一次被拒绝，降到 8192 重试成功
+    r2 = await _provider(handler).complete("cap-model", [{"role": "user", "content": "x"}], max_tokens=64000)
+    assert r2.text == "ok" and seen == [64000, 8192, 8192]  # 以后直接用学到的上限，不再被拒绝一次
+    # 另一个模型不受影响
+    await _provider(handler).complete("other-model", [{"role": "user", "content": "x"}], max_tokens=4000)
+    assert seen[-1] == 4000
+    providers.OUTPUT_CAPS.clear()
+
+
+async def test_context_length_limit_applies_to_that_request_only():
+    from paperdesk.ai import providers
+
+    providers.OUTPUT_CAPS.clear()
+    seen = []
+
+    def handler(req):
+        body = json.loads(req.content)
+        seen.append(body["max_tokens"])
+        if body["max_tokens"] > 31000:
+            return httpx.Response(400, text="This model's maximum context length is 32768 tokens. However, you requested 66000 tokens (2000 in the messages, 64000 in the completion).")
+        return _sse_ok("ok")
+
+    res = await _provider(handler).complete("ctx-model", [{"role": "user", "content": "x"}], max_tokens=64000)
+    assert res.text == "ok" and seen == [64000, 32768 - 2000 - 64]
+    assert ("https://x.test/v1", "ctx-model") not in providers.OUTPUT_CAPS  # 短提示词下它其实能给更多，不能永久压低
+    providers.OUTPUT_CAPS.clear()

@@ -345,7 +345,7 @@ async def _text_json(app: AppContext, service: AIService, provider, cfg: dict, *
             _log_bad_output(job, "文本模型", res, err, truncated, tokens)
         if truncated:
             # 带“思考”的强模型常把输出预算花在推理上：放宽上限，并改用不做长推理的快速模型重试
-            tokens = min(max(tokens * 2, 6000), 8000 if tokens < 8000 else 32000)  # 重试的额度只增不减（默认上限已是 16000）
+            tokens = min(max(tokens * 2, 6000), 8000 if tokens < 8000 else max(32000, tokens))  # 重试的额度只增不减（默认上限已是 16000）
             fast = cfg.get("fast_model") or ""
             if fast and fast != model:
                 job.log(f"改用快速模型 {fast} 重试")

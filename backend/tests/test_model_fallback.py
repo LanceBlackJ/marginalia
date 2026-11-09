@@ -121,12 +121,16 @@ def test_ask_reports_error_instead_of_saving_an_empty_card(imported):
     assert ev[-1][0] == "error" and "没有给出回答" in ev[-1][1]["message"]
 
 
-def test_default_output_limit_is_16000_and_old_saved_default_follows_it(imported):
+def test_default_output_limit_is_64000_and_old_saved_defaults_follow_it(imported):
     from paperdesk.ai import settings as S
     api, _pid = imported
-    assert S.DEFAULTS["max_output_tokens"] == 16000
+    assert S.DEFAULTS["max_output_tokens"] == 64000
     api.put("/settings/ai", {"max_output_tokens": 4096})  # 以前界面保存下来的旧默认值
-    assert api.get("/settings/ai").json()["max_output_tokens"] == 16000
+    assert api.get("/settings/ai").json()["max_output_tokens"] == 64000
+    api.put("/settings/ai", {"max_output_tokens": 16000})  # 上一版的默认值
+    assert api.get("/settings/ai").json()["max_output_tokens"] == 64000
+    api.put("/settings/ai", {"max_output_tokens": 999999})  # 超过上限的压到 64000
+    assert api.get("/settings/ai").json()["max_output_tokens"] == 64000
     api.put("/settings/ai", {"max_output_tokens": 8000})  # 明确改过的值照旧
     assert api.get("/settings/ai").json()["max_output_tokens"] == 8000
 

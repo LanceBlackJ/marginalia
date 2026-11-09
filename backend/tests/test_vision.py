@@ -420,7 +420,7 @@ def test_unrepairable_truncation_fails_with_a_clear_reason_and_raw_head(journal)
 
 def test_truncated_analysis_retries_with_the_fast_model(journal):
     api, pid, _, fig = journal
-    api.put("/settings/ai", {"mode": "auto", "strong_model": "strong-think", "fast_model": "fast-plain"})
+    api.put("/settings/ai", {"mode": "auto", "strong_model": "strong-think", "fast_model": "fast-plain", "max_output_tokens": 8000})
     api.fake.override_queue = [("规则：", '{"direct": "先写了一半", "points": [{"text": "要点一", "ords": []}, {"text": "要点二')]
     api.fake.finish_overrides = ["stop", "length"]  # 第 1 次请求是读图，第 2 次是解读（被截断）
     a = _run_analysis(api, pid, fig["id"], kind="chart")

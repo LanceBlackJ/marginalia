@@ -139,6 +139,37 @@ def _to_anthropic_content(content):
     return out
 
 
+# 自适应输出额度：模型或网关因为“max_tokens 太大 / 上下文放不下”拒绝请求时，从报错里读出它允许的上限，
+# 降到这个值重试，并按（网关地址, 模型名）记住，之后的请求直接用，不会再被拒绝一次（进程内记忆，重启后第一次被拒绝时重新学到）
+OUTPUT_CAPS: dict[tuple[str, str], int] = {}
+_CTX_RE = re.compile(r"maximum context length is (\d+) tokens.{0,160}?(\d+) in the messages", re.S)
+_LIMIT_WORDS = ("max_tokens", "max_completion_tokens", "output tokens", "context length", "context_length", "maximum context", "too large")
+MIN_OUTPUT = 256
+
+
+def allowed_output_from_error(body: str, sent: int) -> tuple[int, bool] | None:
+    """从“额度太大”的 400 报错里读出允许的输出上限 (允许值, 是否是模型固有的上限)；读不出来、或不比已发送的小，返回 None。
+    两种常见写法：上下文总长限制（上限 = 总长 − 已发送的提示词 token，随这次提示词的长短而变，只对这一次请求有效，不记成模型的上限）；
+    直接写明 max_tokens 的上限（取报错里小于已发送值的最大数字，是模型固有的，记下来）。"""
+    low = body.lower()
+    if not any(w in low for w in _LIMIT_WORDS):
+        return None
+    m = _CTX_RE.search(low)
+    inherent = m is None
+    if m:
+        allowed = int(m.group(1)) - int(m.group(2)) - 64  # 留一点余量（计数方式可能略有出入）
+    else:
+        nums: list[int] = []
+        for raw in re.findall(r"\d[\d,]*", low):
+            n = int(raw.replace(",", ""))
+            if MIN_OUTPUT <= n < sent:
+                nums.append(n)
+        if not nums:
+            return None
+        allowed = max(nums)
+    return (allowed, inherent) if MIN_OUTPUT <= allowed < sent else None
+
+
 THINK_OPEN, THINK_CLOSE = "<think>", "</think>"
 
 
@@ -407,7 +438,8 @@ class OpenAICompatibleProvider(LLMProvider):
         if temperature is not None:
             p["temperature"] = temperature
         if max_tokens:
-            p["max_tokens"] = max_tokens
+            cap = OUTPUT_CAPS.get((self.base_url, model))  # 这个模型以前被拒绝过：直接用学到的上限
+            p["max_tokens"] = min(max_tokens, cap) if cap else max_tokens
         if json_mode:
             p["response_format"] = {"type": "json_object"}
         if stream:
@@ -420,6 +452,16 @@ class OpenAICompatibleProvider(LLMProvider):
         if "max_completion_tokens" in low and "max_tokens" in payload:
             payload["max_completion_tokens"] = payload.pop("max_tokens")
             changed = True
+        key = "max_tokens" if "max_tokens" in payload else "max_completion_tokens" if "max_completion_tokens" in payload else None
+        if key:
+            got = allowed_output_from_error(body, int(payload[key]))
+            if got:  # 输出额度超过了模型/网关允许的：降到它允许的上限；模型固有的上限还要记住
+                allowed, inherent = got
+                payload[key] = allowed
+                if inherent:
+                    OUTPUT_CAPS[(self.base_url, str(payload.get("model")))] = allowed
+                log.info("output limit for %s lowered to %d after provider rejection", payload.get("model"), allowed)
+                changed = True
         if "temperature" in low and "temperature" in payload:
             payload.pop("temperature")
             changed = True

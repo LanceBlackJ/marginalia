@@ -354,7 +354,7 @@ class AIService:
                     # 思考型模型把输出额度全花在内部思考上，正文一个字没写：放宽额度重来一次（用量照实累计）
                     first = acc["usage"]
                     limit = int(cfg["max_output_tokens"] or 4096)
-                    boosted = {**cfg, "max_output_tokens": min(32000, max(16000, 4 * limit))}
+                    boosted = {**cfg, "max_output_tokens": min(64000, max(16000, 4 * limit))}
                     if boosted["max_output_tokens"] <= limit:  # 额度本来就很大了，再试也一样
                         raise LLMError("provider_error", "模型没有给出回答（输出额度可能被内部思考用完了）。请重试，或在设置里换用不带长思考的模型。")
                     yield "stage", {"message": "模型把输出额度都用在了思考上，没有给出回答，正在放宽额度重试……"}
