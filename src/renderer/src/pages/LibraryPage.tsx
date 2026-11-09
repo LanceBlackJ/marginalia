@@ -11,9 +11,9 @@ import { CiteDialog } from '@/features/library/CiteDialog'
 import { ExportDialog, type ExportScope } from '@/features/library/ExportDialog'
 import { FolderRail } from '@/features/library/FolderRail'
 import { FilterChips, FilterPanel } from '@/features/library/FilterPanel'
-import { DeleteFolderDialog, MoveDialog, SaveViewDialog, SuggestionsBar } from '@/features/library/LibraryDialogs'
+import { DeleteFolderDialog, MoveDialog, SaveViewDialog } from '@/features/library/LibraryDialogs'
 import { descendantIds, filtersToQuery, folderPath, hasTextQuery, isEmptyFilters, normalizeFilters, parseFilters, serializeFilters } from '@/features/library/filterModel'
-import { useFacets, useFolders, useSuggestions } from '@/features/library/useLibraryMeta'
+import { useFacets, useFolders } from '@/features/library/useLibraryMeta'
 import { Bookshelf } from '@/features/library/Bookshelf'
 import { PaperCard, PaperRow, PaperTableHeader, RecentItem, type PaperItemActions } from '@/features/library/PaperItems'
 import { usePapers } from '@/features/library/usePapers'
@@ -111,7 +111,6 @@ export function LibraryPage() {
   const [folderToDelete, setFolderToDelete] = useState<FolderItem | null>(null)
   const [savingView, setSavingView] = useState(false)
   const [appliedView, setAppliedView] = useState<{ id: string; key: string } | null>(null)
-  const [suggestions, setSuggestions] = useSuggestions(`${meta.folders.counts.unfiled}:${meta.folders.items.length}:${meta.folders.counts.all}`)
 
   // 标签名字：芯片和导出用
   useEffect(() => {
@@ -339,13 +338,6 @@ export function LibraryPage() {
     }
   }
 
-  // ---------------------------------------------------------------- 建议归类
-  const acceptSuggestion = (paperId: string, folderId: string): void => void movePapers([paperId], folderId)
-  const ignoreSuggestion = (paperId: string, folderId: string): void => {
-    setSuggestions((s) => (s ? { ...s, items: s.items.filter((x) => !(x.paper_id === paperId && x.folder_id === folderId)) } : s))
-    libraryApi.ignoreSuggestion(paperId, folderId).catch((err) => toast.error('无法忽略', errorMessage(err)))
-  }
-
   // ---------------------------------------------------------------- 论文行动作
   const toggleSelect = useCallback((p: PaperSummary): void => {
     setSelected((s) => {
@@ -445,8 +437,6 @@ export function LibraryPage() {
                 </div>
               </section>
             )}
-
-            <SuggestionsBar data={suggestions} onAccept={acceptSuggestion} onIgnore={ignoreSuggestion} />
 
             <div className="pd-lib-toolbar">
               <Button size="sm" icon={<ListFilter size={14} />} aria-expanded={panelOpen} onClick={() => setPanelOpen((v) => !v)}>

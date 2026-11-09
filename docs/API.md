@@ -283,7 +283,7 @@ interface PaperDeskBridge {
 （并缓存到 localStorage）读取后端信息，文件选择退化为文本输入框。
 
 
-## 文库：文件夹、多特征筛选、智能视图、建议归类
+## 文库：文件夹、多特征筛选、智能视图
 
 完整契约见 [API-library.md](API-library.md)。概要：
 
@@ -292,7 +292,6 @@ interface PaperDeskBridge {
 - `GET /api/papers` 新增筛选参数（`folder`、`tags`+`tag_mode`、`note_q`、`annotation_q`、`text_q`、`card_q`、`year_from/to`、`author`、`venue`、`language`、`read`、`parse`、`has_*`、`imported_from/to`，彼此 AND），`sort=relevance`；每篇论文带 `folder_id`、`folder_path`，有文字类条件时带 `matches`（命中片段）。
 - `GET /api/papers/facets`：筛选面板的可选值与计数。
 - `GET/POST/DELETE /api/smart-views`：保存下来的筛选条件。
-- `GET /api/folders-suggestions`、`POST /api/folders-suggestions/ignore`：给未分类论文的归类建议（只建议，从不自动移动）。
 
 ## 重新解析已导入的论文
 

@@ -1,4 +1,4 @@
-# 文库：文件夹、多特征筛选、智能视图与建议归类
+# 文库：文件夹、多特征筛选、智能视图
 
 前端 ↔ 后端契约。基础约定（鉴权、错误格式）见 `docs/API.md`。
 
@@ -20,7 +20,7 @@
 | `DELETE /api/folders/{id}` | `{ok, deleted_folders, moved_papers}` |
 | `POST /api/papers/move` | `{paper_ids, folder_id}`（`folder_id=null` 移回未分类）→ `{ok, moved, skipped_supplements}`。论文不存在 404、文件夹不存在 404、空列表 400 |
 
-数据库：`folders(id, name, parent_id, sort, created_at)`、`papers.folder_id`。删除论文时论文行连同它在 `paper_vectors`、`folder_suggestion_ignored` 里的记录一并清理（外键级联），文件夹本身保留，计数随之更新。
+数据库：`folders(id, name, parent_id, sort, created_at)`、`papers.folder_id`。删除论文时文件夹本身保留，计数随之更新。
 
 ## 列表与多特征筛选：`GET /api/papers`
 
@@ -68,16 +68,6 @@
 | `GET /api/smart-views` | `{items:[{id,name,query,sort}]}` |
 | `POST /api/smart-views` | `{name, query}`；`query` 用的是筛选条件的 JSON 形式（`note_q`、`tags`、`year_from`、`has_notes`…），空条件 400、同名 409、非法枚举 400。只保存条件，不保存论文 |
 | `DELETE /api/smart-views/{id}` | 删除 |
-
-## 建议归类
-
-`GET /api/folders-suggestions` → `{method: "embedding"|"keywords"|"none", items:[{paper_id, paper_title, folder_id, folder_name, folder_path, score, confidence: "high"|"medium"|"low", basis}], reason}`。
-
-- 只对**未分类**且已解析好的论文给建议，**从不自动移动**；接受 = 普通的 `POST /papers/move`。
-- `method=embedding`：有语义索引（`passage_embeddings`）时，论文向量 = 前 60 个段落向量的均值（缓存在 `paper_vectors`，段落嵌入数量变化时重算），与文件夹（含子文件夹）里最相似的论文比较；`basis` 写明最相似的是哪一篇和相似度。
-- `method=keywords`：没有语义索引时，用标题和摘要的关键词重合（词频加逆文档频率的余弦；中文用相邻两字作词）；`basis` 写明共享的关键词，并注明“没有语义索引时的粗略判断”。**跨语言（中文论文对英文文件夹）关键词方法帮不上忙**，需要语义索引。
-- `method=none`：还没有已归类的论文，或没有未分类的论文（`reason` 说明）。
-- `POST /api/folders-suggestions/ignore` `{paper_id, folder_id}`：不再建议这一对；同一篇论文被忽略 3 次后不再出现。
 
 ## 性能（`backend/tests/test_folders_filters.py::test_list_filters_stay_fast_…`）
 

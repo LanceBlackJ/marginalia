@@ -121,17 +121,11 @@ def test_delete_folder_keeps_papers_and_returns_them_to_unfiled(api):
     assert api.get(f"/papers/{p1}").json()["folder_id"] is None
 
 
-def test_deleting_a_paper_cleans_folder_related_rows_and_updates_counts(api):
+def test_deleting_a_paper_updates_folder_counts(api):
     f = api.post("/folders", {"name": "夹"}).json()["id"]
     p1, p2 = mk(api, "一"), mk(api, "二")
     api.post("/papers/move", {"paper_ids": [p1, p2], "folder_id": f})
-    with api.ctx.db.session() as conn:
-        conn.execute("INSERT INTO folder_suggestion_ignored(paper_id, folder_id) VALUES (?,?)", (p1, f))
-        conn.execute("INSERT INTO paper_vectors(paper_id, model, dim, n, vec) VALUES (?,?,?,?,?)", (p1, "m", 1, 1, b"\x00\x00\x00\x00"))
     assert api.c.delete(f"/api/papers/{p1}", headers={"Authorization": "Bearer test-token"}).status_code == 200
-    with api.ctx.db.session() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM folder_suggestion_ignored WHERE paper_id = ?", (p1,)).fetchone()[0] == 0
-        assert conn.execute("SELECT COUNT(*) FROM paper_vectors WHERE paper_id = ?", (p1,)).fetchone()[0] == 0
     assert api.get("/folders").json()["items"][0]["paper_count"] == 1  # 文件夹还在，数量更新
 
 
@@ -291,72 +285,6 @@ def test_smart_views_save_and_delete(api):
     assert api.post("/smart-views", {"name": "坏", "query": {"read": "nope"}}).status_code == 400
     assert api.c.delete(f"/api/smart-views/{v['id']}", headers={"Authorization": "Bearer test-token"}).status_code == 200
     assert api.get("/smart-views").json()["items"] == []
-
-
-# ---------------------------------------------------------------- 建议归类
-def test_suggestions_by_keywords_when_no_semantic_index(api):
-    f = api.post("/folders", {"name": "图神经网络"}).json()["id"]
-    g = api.post("/folders", {"name": "医学影像"}).json()["id"]
-    a = mk(api, "Graph neural networks for node classification", abstract="graph convolution message passing node embeddings")
-    b = mk(api, "Graph attention networks", abstract="graph neural network attention over neighbours node features")
-    m1 = mk(api, "Medical image segmentation", abstract="convolutional segmentation of MRI scans tumour boundaries")
-    api.post("/papers/move", {"paper_ids": [a, b], "folder_id": f})
-    api.post("/papers/move", {"paper_ids": [m1], "folder_id": g})
-    new_graph = mk(api, "Message passing on graph neural networks", abstract="we study graph neural network node embeddings and convolution")
-    unrelated = mk(api, "Quantum error correction codes", abstract="stabiliser codes and logical qubits")
-    s = api.get("/folders-suggestions").json()
-    assert s["method"] == "keywords"
-    by = {i["paper_id"]: i for i in s["items"]}
-    assert by[new_graph]["folder_id"] == f and by[new_graph]["confidence"] in ("high", "medium", "low")
-    assert "共享关键词" in by[new_graph]["basis"] and "按关键词重合判断" in by[new_graph]["basis"]
-    assert unrelated not in by
-    # 忽略后不再建议这一对；接受 = 普通的移动
-    api.post("/folders-suggestions/ignore", {"paper_id": new_graph, "folder_id": f})
-    assert new_graph not in {i["paper_id"] for i in api.get("/folders-suggestions").json()["items"]}
-    assert ids(api, folder="none") >= {new_graph}  # 建议从不自动移动论文
-
-
-def test_keyword_suggestions_work_between_chinese_papers(api):
-    f = api.post("/folders", {"name": "复杂网络"}).json()["id"]
-    a = mk(api, "复杂网络中关键节点的识别方法", abstract="研究复杂网络里关键节点识别与网络瓦解", language="zh")
-    api.post("/papers/move", {"paper_ids": [a], "folder_id": f})
-    new = mk(api, "基于强化学习的复杂网络关键节点识别", abstract="用强化学习识别复杂网络的关键节点", language="zh")
-    other = mk(api, "蛋白质结构预测的深度学习方法", abstract="预测蛋白质折叠结构", language="zh")
-    by = {i["paper_id"]: i for i in api.get("/folders-suggestions").json()["items"]}
-    assert by[new]["folder_id"] == f and other not in by
-
-
-def test_suggestions_need_folders_and_unfiled_papers(api):
-    mk(api, "孤零零的论文")
-    s = api.get("/folders-suggestions").json()
-    assert s["items"] == [] and s["method"] == "none" and s["reason"]
-
-
-def test_suggestions_by_embeddings_when_index_exists(api):
-    from fakellm import FakeLLM
-    from paperdesk.ai.embeddings import pack
-
-    api.configure_ai()
-    f = api.post("/folders", {"name": "注意力机制"}).json()["id"]
-    a = mk(api, "Self attention", abstract="x")
-    b = mk(api, "Cooking recipes", abstract="x")
-    c = mk(api, "Cross attention", abstract="x")
-    api.post("/papers/move", {"paper_ids": [a], "folder_id": f})
-    texts = {a: "attention weights queries keys values softmax attention", c: "attention queries keys values softmax weights attention", b: "pasta tomato oven recipe kitchen cooking"}
-    with api.ctx.db.session() as conn:
-        for pid, text in texts.items():
-            for ord_ in range(3):
-                conn.execute("INSERT INTO passages(paper_id, ord, page, kind, text, x0,y0,x1,y1) VALUES (?,?,?,?,?,0,0,1,1)", (pid, ord_, 1, "paragraph", text))
-                conn.execute("INSERT INTO passage_embeddings(paper_id, ord, model, dim, vec, created_at) VALUES (?,?,?,?,?,?)",
-                             (pid, ord_, "bge-m3", 64, pack(FakeLLM.embed(text)), utcnow()))
-    s = api.get("/folders-suggestions").json()
-    assert s["method"] == "embedding"
-    by = {i["paper_id"]: i for i in s["items"]}
-    assert by[c]["folder_id"] == f and "语义相似度" in by[c]["basis"]
-    assert b not in by
-    # 向量缓存在 paper_vectors，删除论文时一并清掉
-    with api.ctx.db.session() as conn:
-        assert conn.execute("SELECT COUNT(*) FROM paper_vectors").fetchone()[0] >= 2
 
 
 # ---------------------------------------------------------------- 性能

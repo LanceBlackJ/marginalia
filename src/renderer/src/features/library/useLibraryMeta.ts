@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { libraryApi } from '@/lib/api.library'
-import type { FolderList, FolderSuggestions, PaperFacets, SmartView } from '@/lib/types.library'
+import type { FolderList, PaperFacets, SmartView } from '@/lib/types.library'
 import { useJobsStore } from '@/stores/jobsStore'
 
 const EMPTY_FOLDERS: FolderList = { items: [], counts: { all: 0, unfiled: 0, favorite: 0, recent: 0 } }
@@ -47,18 +47,4 @@ export function useFacets(enabled: boolean, dep: unknown) {
     }
   }, [enabled, dep])
   return facets
-}
-
-/** 建议归类：给“未分类”的论文推荐文件夹（只是建议，从不自动移动）。 */
-export function useSuggestions(dep: unknown) {
-  const [data, setData] = useState<FolderSuggestions | null>(null)
-  const seq = useRef(0)
-  useEffect(() => {
-    const mine = ++seq.current
-    libraryApi
-      .suggestions()
-      .then((s) => mine === seq.current && setData(s))
-      .catch(() => mine === seq.current && setData(null))
-  }, [dep])
-  return [data, setData] as const
 }

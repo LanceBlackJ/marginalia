@@ -1,4 +1,4 @@
-/* ================= 文件夹、筛选、批量操作、归类建议（黑白、发丝线） ================= */
+/* ================= 文件夹、筛选、批量操作（黑白、发丝线） ================= */
 .pd-lib-shell {
   display: grid;
   grid-template-columns: 228px minmax(0, 1fr);
@@ -403,67 +403,6 @@
   border-radius: var(--r-sm);
   font-size: var(--fs-small);
   font-weight: 600;
-}
-
-/* ---- 归类建议 ---- */
-.pd-sugg {
-  margin-bottom: var(--sp-lg);
-  border-top: 1px solid var(--text);
-  border-bottom: 1px solid var(--border);
-}
-.pd-sugg-head {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--sp-md);
-  width: 100%;
-  padding: 9px 0;
-  border: 0;
-  background: none;
-  font: inherit;
-  font-size: var(--fs-small);
-  text-align: left;
-  cursor: pointer;
-}
-.pd-sugg-title {
-  font-weight: 600;
-}
-.pd-sugg-note {
-  margin: 0 0 6px;
-  font-size: var(--fs-aux);
-  color: var(--text-2);
-}
-.pd-sugg-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.pd-sugg-item {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--sp-lg);
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
-}
-.pd-sugg-main {
-  min-width: 0;
-}
-.pd-sugg-paper {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-weight: 600;
-}
-.pd-sugg-to,
-.pd-sugg-basis {
-  margin-top: 2px;
-  font-size: var(--fs-aux);
-  color: var(--text-2);
-}
-.pd-sugg-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 6px;
 }
 
 /* ---- 移动对话框 ---- */

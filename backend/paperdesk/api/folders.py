@@ -38,11 +38,6 @@ class ViewBody(BaseModel):
     query: dict
 
 
-class IgnoreBody(BaseModel):
-    paper_id: str
-    folder_id: str
-
-
 @router.get("/folders")
 def list_folders(ctx: AppContext = Depends(get_ctx)):
     return folders.list_folders(ctx)
@@ -74,18 +69,6 @@ def delete_folder(fid: str, ctx: AppContext = Depends(get_ctx)):
 def move_papers(body: MoveBody, ctx: AppContext = Depends(get_ctx)):
     """把一批论文移进某个文件夹（或移回未分类）。"""
     return folders.move_papers(ctx, body.paper_ids, body.folder_id)
-
-
-@router.get("/folders-suggestions")
-def suggestions(limit: int = 30, ctx: AppContext = Depends(get_ctx)):
-    """给未分类论文的归类建议：{method: embedding|keywords|none, items:[{paper_id, folder_id, score, confidence, basis}]}。"""
-    return folders.suggestions(ctx, max(1, min(limit, 100)))
-
-
-@router.post("/folders-suggestions/ignore")
-def ignore(body: IgnoreBody, ctx: AppContext = Depends(get_ctx)):
-    folders.ignore_suggestion(ctx, body.paper_id, body.folder_id)
-    return {"ok": True}
 
 
 @router.get("/smart-views")

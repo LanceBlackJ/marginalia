@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FolderClosed, Inbox } from 'lucide-react'
 import { Button, Dialog, Input } from '@/components/ui'
-import type { FolderItem, FolderSuggestions } from '@/lib/types.library'
+import type { FolderItem } from '@/lib/types.library'
 import { buildFolderTree, flattenTree } from './filterModel'
 
 /** 选一个文件夹来放论文（或选“未分类”移出文件夹）；可以顺手新建一个。 */
@@ -179,62 +179,5 @@ export function DeleteFolderDialog({
         只删除文件夹本身{childCount > 0 ? `和它的 ${childCount} 个子文件夹` : ''}。里面的 {folder?.total_count ?? 0} 篇论文不会被删除，会回到“未分类”；标签、笔记和批注都不受影响。
       </p>
     </Dialog>
-  )
-}
-
-const METHOD: Record<FolderSuggestions['method'], string> = {
-  embedding: '语义相似度',
-  keywords: '关键词重合',
-  none: ''
-}
-const CONF: Record<string, string> = { high: '把握较大', medium: '把握一般', low: '仅供参考' }
-
-/** 建议归类：只是建议，一键接受或忽略；从不自动移动论文。 */
-export function SuggestionsBar({
-  data,
-  onAccept,
-  onIgnore
-}: {
-  data: FolderSuggestions | null
-  onAccept: (paperId: string, folderId: string) => void
-  onIgnore: (paperId: string, folderId: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  if (!data || data.items.length === 0) return null
-  return (
-    <section className="pd-sugg" aria-label="归类建议">
-      <button type="button" className="pd-sugg-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-        <span className="pd-sugg-title">归类建议 · {data.items.length} 篇未分类的论文可能适合放进已有文件夹</span>
-        <span className="pd-weak-text">{open ? '收起' : '查看'}</span>
-      </button>
-      {open && (
-        <>
-          <p className="pd-sugg-note">依据：{METHOD[data.method]}。这只是建议，需要你确认，不会自动移动。</p>
-          <ul className="pd-sugg-list">
-            {data.items.map((s) => (
-              <li key={`${s.paper_id}-${s.folder_id}`} className="pd-sugg-item">
-                <div className="pd-sugg-main">
-                  <div className="pd-sugg-paper" title={s.paper_title}>
-                    {s.paper_title}
-                  </div>
-                  <div className="pd-sugg-to">
-                    建议放进 <strong>{s.folder_path}</strong> · {CONF[s.confidence]}
-                  </div>
-                  <div className="pd-sugg-basis">{s.basis}</div>
-                </div>
-                <div className="pd-sugg-actions">
-                  <Button size="sm" variant="primary" onClick={() => onAccept(s.paper_id, s.folder_id)}>
-                    放进去
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => onIgnore(s.paper_id, s.folder_id)}>
-                    忽略
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-    </section>
   )
 }

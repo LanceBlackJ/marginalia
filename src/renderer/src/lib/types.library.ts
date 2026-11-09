@@ -1,4 +1,4 @@
-/** 文库的文件夹、多特征筛选、智能视图与建议归类（契约见 docs/API.md「文件夹与筛选」）。 */
+/** 文库的文件夹、多特征筛选、智能视图（契约见 docs/API.md「文件夹与筛选」）。 */
 
 export type ReadState = 'unread' | 'reading' | 'done'
 export type ParseState = 'ready' | 'parsing' | 'failed' | 'metadata_only' | 'ocr'
@@ -77,23 +77,6 @@ export interface PaperMatches {
   annotations?: MatchSnippet[]
   fulltext?: MatchSnippet[]
   cards?: MatchSnippet[]
-}
-
-export interface FolderSuggestion {
-  paper_id: string
-  paper_title: string
-  folder_id: string
-  folder_name: string
-  folder_path: string
-  score: number
-  confidence: 'high' | 'medium' | 'low'
-  basis: string
-}
-
-export interface FolderSuggestions {
-  method: 'embedding' | 'keywords' | 'none'
-  items: FolderSuggestion[]
-  reason: string | null
 }
 
 export interface PaperFacets {

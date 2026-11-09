@@ -1,16 +1,13 @@
-"""论文文件夹（纵向归档）、智能视图（保存下来的筛选条件）与“建议归类”。
+"""论文文件夹（纵向归档）与智能视图（保存下来的筛选条件）。
 
 文件夹与标签的分工：一篇论文只能放在一个文件夹里（像资料柜的一格），但可以同时有多个标签（像贴在上面的便利贴）。
 - 删除文件夹不会删除论文：它和所有子文件夹一起被移除，里面的论文回到“未分类”；
-- 补充材料子论文跟随主论文，不单独放进文件夹；
-- 建议归类只给出建议（带相似依据），绝不自动移动论文。
+- 补充材料子论文跟随主论文，不单独放进文件夹。
 """
 from __future__ import annotations
 
-import math
 import re
 import sqlite3
-from collections import Counter
 
 from ..context import AppContext
 from ..db import register_column, register_schema
@@ -37,18 +34,6 @@ CREATE TABLE IF NOT EXISTS smart_views (
   query_json TEXT NOT NULL,
   sort INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS folder_suggestion_ignored (
-  paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
-  folder_id TEXT NOT NULL,
-  PRIMARY KEY (paper_id, folder_id)
-);
-CREATE TABLE IF NOT EXISTS paper_vectors (
-  paper_id TEXT PRIMARY KEY REFERENCES papers(id) ON DELETE CASCADE,
-  model TEXT NOT NULL,
-  dim INTEGER NOT NULL,
-  n INTEGER NOT NULL,
-  vec BLOB NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_notes_paper ON notes(paper_id);
 CREATE INDEX IF NOT EXISTS idx_annotations_paper ON annotations(paper_id);
@@ -201,7 +186,6 @@ def delete_folder(app: AppContext, fid: str) -> dict:
         ids = filters.subtree_ids(conn, fid)
         marks = ",".join("?" * len(ids))
         moved = conn.execute(f"UPDATE papers SET folder_id = NULL WHERE folder_id IN ({marks})", ids).rowcount
-        conn.execute(f"DELETE FROM folder_suggestion_ignored WHERE folder_id IN ({marks})", ids)
         conn.execute(f"DELETE FROM folders WHERE id IN ({marks})", ids)
     return {"ok": True, "deleted_folders": len(ids), "moved_papers": moved}
 
@@ -223,8 +207,6 @@ def move_papers(app: AppContext, paper_ids: list[str], folder_id: str | None) ->
         if movable:
             m2 = ",".join("?" * len(movable))
             conn.execute(f"UPDATE papers SET folder_id = ? WHERE id IN ({m2})", (folder_id, *movable))
-            if folder_id is not None:  # 已经归到这里的建议不再需要
-                conn.execute(f"DELETE FROM folder_suggestion_ignored WHERE paper_id IN ({m2})", movable)
     return {"ok": True, "moved": len(movable), "skipped_supplements": len(ids) - len(movable)}
 
 
@@ -256,157 +238,3 @@ def delete_view(app: AppContext, vid: str) -> None:
     with app.db.session() as conn:
         if conn.execute("DELETE FROM smart_views WHERE id = ?", (vid,)).rowcount == 0:
             raise ApiError("not_found", "智能视图不存在", 404)
-
-
-# ---------------------------------------------------------------- 建议归类
-STOP = set(
-    "the a an of and or for to in on with by from at as is are was were be been this that these those we our it its their which "
-    "using use used based via into than then can may also such more most not but all any each both between over under about new "
-    "paper study approach method methods results result show shows proposed propose present presents "
-    "的 了 和 与 及 在 是 一个 我们 本文 通过 使用 基于 研究 方法 论文 提出".split()
-)
-
-
-def _terms(title: str | None, abstract: str | None) -> Counter:
-    text = ((title or "") + " ") * 3 + (abstract or "")  # 标题的词权重更高
-    low = text.lower()
-    toks = [t for t in re.findall(r"[a-z][a-z0-9\-]{2,}", low) if t not in STOP]
-    for run in re.findall(r"[一-鿿]{2,}", low):  # 中文没有空格分词：用相邻两个字作为词，中文论文之间才能比
-        toks.extend(b for b in (run[i : i + 2] for i in range(len(run) - 1)) if b not in STOP)
-    return Counter(toks)
-
-
-def _cos_counter(a: Counter, b: Counter, idf: dict[str, float]) -> tuple[float, list[str]]:
-    shared = [t for t in a if t in b]
-    if not shared:
-        return 0.0, []
-    num = sum(a[t] * b[t] * idf.get(t, 1.0) ** 2 for t in shared)
-    na = math.sqrt(sum((c * idf.get(t, 1.0)) ** 2 for t, c in a.items()))
-    nb = math.sqrt(sum((c * idf.get(t, 1.0)) ** 2 for t, c in b.items()))
-    score = num / (na * nb) if na and nb else 0.0
-    top = sorted(shared, key=lambda t: -(a[t] * b[t] * idf.get(t, 1.0) ** 2))[:5]
-    return score, top
-
-
-def _paper_vectors(app: AppContext, conn: sqlite3.Connection, ids: list[str], model: str):
-    """每篇论文的向量 = 前 60 个段落向量的均值（归一化），缓存在 paper_vectors；嵌入数量变化时重算。"""
-    import numpy as np
-
-    out: dict[str, "np.ndarray"] = {}
-    for pid in ids:
-        n = conn.execute("SELECT COUNT(*) FROM passage_embeddings WHERE paper_id = ? AND model = ?", (pid, model)).fetchone()[0]
-        if n == 0:
-            continue
-        cached = conn.execute("SELECT dim, n, vec FROM paper_vectors WHERE paper_id = ? AND model = ?", (pid, model)).fetchone()
-        if cached and cached["n"] == n:
-            out[pid] = np.frombuffer(cached["vec"], dtype="<f4")
-            continue
-        rows = conn.execute(
-            "SELECT dim, vec FROM passage_embeddings WHERE paper_id = ? AND model = ? ORDER BY ord LIMIT 60", (pid, model)
-        ).fetchall()
-        dim = rows[0]["dim"]
-        mat = np.frombuffer(b"".join(r["vec"] for r in rows if r["dim"] == dim), dtype="<f4").reshape(-1, dim)
-        v = mat.mean(axis=0)
-        v = (v / (np.linalg.norm(v) or 1.0)).astype("<f4")
-        conn.execute(
-            "INSERT OR REPLACE INTO paper_vectors(paper_id, model, dim, n, vec) VALUES (?,?,?,?,?)", (pid, model, dim, n, v.tobytes())
-        )
-        out[pid] = v
-    return out
-
-
-def suggestions(app: AppContext, limit: int = 30) -> dict:
-    """给“未分类”的论文建议可能适合的文件夹。
-
-    有语义索引时用向量（每篇论文的段落向量均值，与文件夹里最相似的那篇论文比较）；没有就退到标题/摘要的关键词相似度。
-    返回的 method 如实标注用了哪一种；每条建议带依据（最相似的那篇论文、共享的词）和置信度。
-    """
-    from ..ai.settings import load_settings
-
-    cfg = load_settings(app)
-    model = (cfg.get("embedding_model") or "") if cfg.get("semantic_retrieval", True) else ""
-    with app.db.session() as conn:
-        base = "COALESCE(role,'paper') = 'paper'"
-        filed = conn.execute(f"SELECT id, title, abstract, folder_id FROM papers WHERE {base} AND folder_id IS NOT NULL").fetchall()
-        unfiled = conn.execute(
-            f"SELECT id, title, abstract FROM papers WHERE {base} AND folder_id IS NULL AND status = 'ready' "
-            "AND id NOT IN (SELECT paper_id FROM folder_suggestion_ignored GROUP BY paper_id HAVING COUNT(*) >= 3)"
-        ).fetchall()
-        if not filed or not unfiled:
-            return {"method": "none", "items": [], "reason": "需要至少一个已归类的文件夹和一篇未分类的论文才能给出建议。"}
-        folders = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM folders")}
-        paths = folder_paths(conn)
-        ignored = {(r["paper_id"], r["folder_id"]) for r in conn.execute("SELECT paper_id, folder_id FROM folder_suggestion_ignored")}
-        # 一个文件夹的成员 = 它和它所有子文件夹里的论文
-        members: dict[str, list[sqlite3.Row]] = {}
-        parents = {r["id"]: r["parent_id"] for r in conn.execute("SELECT id, parent_id FROM folders")}
-        for p in filed:
-            cur, guard = p["folder_id"], 0
-            while cur is not None and guard < 50:
-                members.setdefault(cur, []).append(p)
-                cur, guard = parents.get(cur), guard + 1
-        vec = _paper_vectors(app, conn, [p["id"] for p in filed] + [p["id"] for p in unfiled], model) if model else {}
-        use_vec = bool(vec) and sum(1 for p in filed if p["id"] in vec) >= 1 and sum(1 for p in unfiled if p["id"] in vec) >= 1
-        method = "embedding" if use_vec else "keywords"
-        out: list[dict] = []
-        if use_vec:
-            import numpy as np
-
-            for p in unfiled:
-                if p["id"] not in vec:
-                    continue
-                best = None
-                for fid, ms in members.items():
-                    if (p["id"], fid) in ignored:
-                        continue
-                    cand = [(float(vec[m["id"]] @ vec[p["id"]]), m) for m in ms if m["id"] in vec]
-                    if not cand:
-                        continue
-                    sims = sorted((c for c in cand), key=lambda c: -c[0])
-                    score = 0.6 * sims[0][0] + 0.4 * (sum(s for s, _ in sims[:3]) / min(3, len(sims)))
-                    if best is None or score > best[0]:
-                        best = (score, fid, sims[0][1], sims[0][0])
-                if best and best[0] >= 0.45:
-                    score, fid, nearest, nsim = best
-                    out.append({
-                        "paper_id": p["id"], "paper_title": p["title"], "folder_id": fid, "folder_name": folders[fid],
-                        "folder_path": paths.get(fid, folders[fid]), "score": round(score, 3),
-                        "confidence": "high" if score >= 0.7 else "medium" if score >= 0.58 else "low",
-                        "basis": f"与该文件夹里的《{nearest['title'][:50]}》最相似（语义相似度 {nsim:.2f}）。",
-                    })
-        else:
-            terms = {p["id"]: _terms(p["title"], p["abstract"]) for p in [*filed, *unfiled]}
-            df: Counter = Counter()
-            for c in terms.values():
-                df.update(set(c))
-            n_docs = max(1, len(terms))
-            idf = {t: math.log(1 + n_docs / (1 + d)) for t, d in df.items()}
-            for p in unfiled:
-                best = None
-                for fid, ms in members.items():
-                    if (p["id"], fid) in ignored:
-                        continue
-                    sims = sorted(((*_cos_counter(terms[p["id"]], terms[m["id"]], idf), m) for m in ms), key=lambda s: -s[0])
-                    if not sims or len(sims[0][1]) < 2:
-                        continue
-                    score = sims[0][0]
-                    if best is None or score > best[0]:
-                        best = (score, fid, sims[0][2], sims[0][1])
-                if best and best[0] >= 0.2:
-                    score, fid, nearest, shared = best
-                    out.append({
-                        "paper_id": p["id"], "paper_title": p["title"], "folder_id": fid, "folder_name": folders[fid],
-                        "folder_path": paths.get(fid, folders[fid]), "score": round(score, 3),
-                        "confidence": "high" if score >= 0.45 else "medium" if score >= 0.3 else "low",
-                        "basis": f"与该文件夹里的《{nearest['title'][:50]}》共享关键词：{'、'.join(shared)}；按关键词重合判断，较粗略。",
-                    })
-        out.sort(key=lambda s: -s["score"])
-    return {"method": method, "items": out[:limit], "reason": None}
-
-
-def ignore_suggestion(app: AppContext, paper_id: str, folder_id: str) -> None:
-    with app.db.session() as conn:
-        if conn.execute("SELECT 1 FROM papers WHERE id = ?", (paper_id,)).fetchone() is None:
-            raise ApiError("not_found", "论文不存在", 404)
-        _row(conn, folder_id)
-        conn.execute("INSERT OR IGNORE INTO folder_suggestion_ignored(paper_id, folder_id) VALUES (?,?)", (paper_id, folder_id))
