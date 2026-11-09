@@ -33,8 +33,13 @@ _CAPTION_HEAD = re.compile(
 )
 
 
+_ROMAN_TABLE = re.compile(r"^\s*(?:TABLE|FIG\.?|FIGURE)\s+[IVX]{1,5}\s*(?:\.|:)?\s*$")  # IEEE：“TABLE I” 单独一行，标题在下一行
+
+
 def is_caption(text: str) -> bool:
     """图表标题：`Figure 1:` / `Table 2.` / `Fig. 1 | …` / `Fig. 3 Overview…`；排除正文里的 “Table 1 shows …”。"""
+    if _ROMAN_TABLE.match(text.strip()) or re.match(r"^\s*(?:TABLE|FIG\.?)\s+[IVX]{1,5}\s*[.:]?\s+[A-Z][A-Z0-9 ,\-:()/&]{6,}$", text.strip()):
+        return True  # 全大写的罗马编号图表标题（IEEE）
     m = _CAPTION_HEAD.match(text.strip())
     if not m:
         return False
@@ -174,7 +179,9 @@ def unscramble_cjk(text: str) -> str:
     return "".join(chr(ord(ch) - 0x6500) if 0x6520 <= ord(ch) <= 0x657E else ch for ch in text)
 
 
-_SPACELESS_RE = re.compile(r"^[A-Za-z,.;:()'’\-]{12,}$")
+def _looks_spaceless(text: str) -> bool:
+    """一整行画成一个没有空格的串：很长、没有空白、字母占绝大多数（带脚注号、括号、连字都算）。"""
+    return len(text) >= 14 and not any(c.isspace() or c in "/@\\_=" for c in text) and sum(c.isalpha() for c in text) >= 0.8 * len(text)  # 网址、邮箱、路径不算
 
 
 def _respace(text: str, raw_spans: dict, key: tuple[float, float], size: float) -> str:
@@ -214,7 +221,7 @@ def extract_spans(page: pymupdf.Page) -> list[Span]:
                 text = unscramble_cjk(sp["text"])
                 if not text.strip():
                     continue
-                if " " not in text and _SPACELESS_RE.match(text):
+                if _looks_spaceless(text):
                     if raw_spans is None:
                         raw_spans = {}
                         for rb in page.get_text("rawdict")["blocks"]:
@@ -426,6 +433,22 @@ def _split_wide_gaps(group: list[Span], size_gap: float = 3.0) -> list[list[Span
     return parts
 
 
+def _split_mixed_far(group: list[Span]) -> list[list[Span]]:
+    """同一基线附近、隔得很远、字号又明显不同的两段（左边 12pt 的章节标题，右边 9pt 的图里图例）不是同一行：
+    基线只差一点点会被聚到一起，必须按空隙拆开。上下标紧挨着正文，不受影响。"""
+    ordered = sorted(group, key=lambda s: s.x0)
+    parts: list[list[Span]] = [[ordered[0]]] if ordered else []
+    for sp in ordered[1:]:
+        prev = parts[-1]
+        gap = sp.x0 - max(c.x1 for c in prev)
+        left_size = max(c.size for c in prev)
+        if gap > 4.0 * max(sp.size, left_size) and min(sp.size, left_size) / max(sp.size, left_size) < 0.85:
+            parts.append([sp])
+        else:
+            prev.append(sp)
+    return parts
+
+
 def build_lines(spans: list[Span], gutter: tuple[float, float] | None, body: float, page_h: float | None = None) -> list[Line]:
     # 首字下沉：单个大号字母，并入其右侧缩进行的开头
     caps = [s for s in spans if len(s.text.strip()) == 1 and s.text.strip().isalpha() and s.size >= 2.2 * body]
@@ -433,7 +456,7 @@ def build_lines(spans: list[Span], gutter: tuple[float, float] | None, body: flo
     lines: list[Line] = []
     for group in _cluster(spans):
         in_band = bool(page_h) and (max(s.y1 for s in group) < 0.085 * page_h or min(s.y0 for s in group) > 0.915 * page_h)
-        groups = _split_wide_gaps(group) if in_band else [group]  # 页眉里左右两个标签不应粘成一行
+        groups = _split_wide_gaps(group) if in_band else _split_mixed_far(group)  # 页眉里左右两个标签不应粘成一行
         for g in groups:
             for cls, part in _split_by_gutter(g, gutter):
                 for s in part:
@@ -503,8 +526,11 @@ def _is_heading_line(ln: Line, col_width: float, body: float, prev: "Line | None
         return False
     if CAPTION_START_RE.match(t):
         return False
-    letters = sum(c.isalpha() for c in t)
-    if letters < 0.6 * len(t.replace(" ", "")) or t[:1].islower():
+    if any(c in MATH_CHARS or c in "∗=≜" for c in t):
+        return False  # 含数学符号的行是公式碎片，不是标题
+    core = re.sub(r"^\s*(?:\d{1,2}(?:\.\d{1,2}){0,3}\.?|[IVX]{1,5}\.|[A-Z]\.)\s+", "", t)  # 编号（“3.3.1 ”）不算进“字母占比”，否则短标题会被当成图内数字
+    letters = sum(c.isalpha() for c in core)
+    if letters < 0.6 * len(re.sub(r"\s", "", core)) or t[:1].islower():
         return False  # 图内数字/坐标刻度，或上一行的续行
     if prev is not None and prev.bold >= 0.85 and ln.bold >= 0.85 and prev.width >= 0.9 * col_width and abs(prev.size - ln.size) < 0.6:
         return False  # 粗体整宽段落（如摘要）的最后一行
@@ -521,6 +547,11 @@ def _is_heading_line(ln: Line, col_width: float, body: float, prev: "Line | None
         return True
     if NUMBERED_HEAD_RE.match(t) and short and not t.endswith(TERMINAL) and len(t) <= 80:
         return True
+    # 带编号、整行都是斜体/粗体、每个实词首字母大写的小节标题，可以更长（占到栏宽的 96%）
+    if NUMBERED_HEAD_RE.match(t) and ln.width <= 0.96 * col_width and not t.endswith(TERMINAL) and len(t) <= 90 and max(ln.italic, ln.bold) >= 0.85:
+        words = [w for w in t.split()[1:] if w[:1].isalpha() and len(w) > 3]
+        if words and sum(w[:1].isupper() for w in words) >= 0.7 * len(words):
+            return True
     return False
 
 
@@ -623,6 +654,7 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
         blocks.append(blk)
         cur = []
 
+    numbered_refs = in_references and sum(1 for l in lines if REF_START_RE.match(l.text)) >= 3
     prev: Line | None = None
     prev_prev: Line | None = None
     for ln in lines:
@@ -647,6 +679,12 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
                 brk = True
             elif CAPTION_START_RE.match(ln.text):
                 brk = True
+            elif in_references and cur and ln.x0 - cur[0].x0 > 0.5 * ln.size and not REF_START_RE.match(ln.text) and dy < 1.6 * lead:
+                brk = False  # 悬挂缩进：参考文献第一行顶格、折下来的行缩进，缩进的行一定是上一条的续行
+            elif numbered_refs:
+                # 编号的参考文献（[1] … / 1. …）：只有以编号开头的行才是新条目，其余都是上一条折下来的续行
+                # （“Proc. IEEE Int.” 换行后 “Conf. Robot. Automat.” 以大写开头、上一行以句号结尾，按普通段落规则会被切开）
+                brk = bool(REF_START_RE.match(ln.text)) or dy > 2.6 * lead
             elif is_math != prev_math:
                 brk = True
             elif is_math and prev_math:
@@ -689,6 +727,61 @@ def _prosey(ln: Line) -> bool:
     return len(words) >= 3
 
 
+def split_side_captions(lines: list[Line], page_no: int, body: float) -> tuple[list[Line], list[Block]]:
+    """文字绕排的图（wrapfigure）：图和图注排在页面一侧，正文排在另一侧，同一基线上的左右两段被合成了一行
+    （“…inter- Figure 2: PaLM 540B uses chain-of…”），图注和正文就这样缠在一起。
+    找到行里“左边有正文、右边隔着大空隙才开始图注”的片段，把这一栏（往下连续的行里 x 对得上的片段）整体抽出来单独成图注块，
+    左边的正文留在原行里。返回 (剩下的行, 抽出的图注块)。"""
+    ordered = sorted(lines, key=lambda l: (l.y0, l.x0))
+    removed: dict[int, list[Span]] = {}  # id(行) → 要抽走的片段
+    caps: list[list[Line]] = []
+    claimed: set[int] = set()
+    for i, ln in enumerate(ordered):
+        if id(ln) in claimed:
+            continue
+        sp = sorted(ln.spans, key=lambda s: s.x0)
+        start = None
+        for k in range(1, len(sp)):
+            if is_caption(" ".join(x.text for x in sp[k:k + 4])) and sp[k].x0 - sp[k - 1].x1 >= 0.7 * ln.size and len(" ".join(s.text for s in sp[:k]).split()) >= 3:
+                start = k
+                break
+        if start is None:
+            continue
+        cx = sp[start].x0
+        col: list[Line] = []
+        last_y1 = ln.y0
+        for l2 in ordered[i:]:
+            if l2 is not ln and (l2.y0 - last_y1 > 0.9 * max(l2.size, 8) or id(l2) in claimed):
+                break
+            take = [s for s in l2.spans if s.x0 >= cx - 3 and (l2 is not ln or s.x0 >= cx - 3)]
+            left = [s for s in l2.spans if s.x0 < cx - 3]
+            if not take or (l2 is not ln and not left):
+                if l2 is not ln:
+                    break
+                continue
+            removed.setdefault(id(l2), []).extend(take)
+            col.append(_line_from(take))
+            last_y1 = l2.y1
+            claimed.add(id(l2))
+        if len(col) >= 1:
+            caps.append(col)
+    if not removed:
+        return lines, []
+    out: list[Line] = []
+    for ln in lines:
+        gone = removed.get(id(ln))
+        if not gone:
+            out.append(ln)
+            continue
+        keep = [s for s in ln.spans if not any(s is g for g in gone)]
+        if keep:
+            out.append(_line_from(keep))
+    blocks = [_make_block(c, page_no, body) for c in caps]
+    for b in blocks:
+        b.kind = "caption"
+    return out, blocks
+
+
 def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
     text_parts: list[str] = []
     for ln in lines:
@@ -696,7 +789,9 @@ def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
         if not text_parts:
             text_parts.append(t)
         elif text_parts[-1].endswith("-") and len(text_parts[-1]) > 1 and text_parts[-1][-2].isalpha() and t[:1].islower():
-            text_parts[-1] = text_parts[-1][:-1] + t
+            last = text_parts[-1].split(" ")[-1]
+            # 行尾的 “chain-of-” 本身已经是带连字符的复合词：连字符是词的一部分，保留；“param-” 这种断词才去掉
+            text_parts[-1] = text_parts[-1] + t if "-" in last[:-1] else text_parts[-1][:-1] + t
         elif is_cjk(text_parts[-1][-1:]) and is_cjk(t[:1]):
             text_parts[-1] += t
         else:

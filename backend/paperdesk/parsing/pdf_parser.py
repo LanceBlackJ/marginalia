@@ -29,7 +29,9 @@ is_caption = layout.is_caption
 #   4 = 图多的页面也能分栏（回退到全文档的栏沟）、通栏大图的版面区向页边扩展（图例和坐标刻度归入图内文字）
 #   5 = 行内的求和（带上下限）还原成公式、行内求和号不再被切成单独一行；行首片段的结尾空格不再丢（“chooseM”“then-step”）
 #  14 = 三线表（图注 + 几条通栏横线，没有竖线和边框）认成表格区域，格子里的长文字不再当正文段落、不再被逐段翻译
-PARSER_VERSION = 14
+# 15 = 参考文献折行续条并回上一条（编号/悬挂缩进）、文末说明不再算参考文献、页眉带宽放宽、无空格长串按字符间隙补空格、文字绕排图的图注抽出、
+#      IEEE 罗马编号表题（TABLE I + 标题）、带编号的长小节标题与“3.3.1 Memory”、跨页摘要接回、小号脚注另起一段、算法框里的粗体词不当小节标题
+PARSER_VERSION = 15
 COVER_RE = re.compile(r"引用本文\s*[:：]|您可能感兴趣的其他文章|在线阅读\s*View online")
 
 
@@ -52,6 +54,12 @@ APPENDIX_RE = re.compile(r"appendix|supplement|附录|methods|online methods", r
 # 附录标题常常只是字母编号（“A. MassiveText”“B. Model Card”）：参考文献之后遇到这样的标题，参考文献就结束了
 APPENDIX_HEAD_RE = re.compile(r"^\s*[A-Z]\.\s+[A-Z][a-z]")
 SENTENCE_END = tuple(".?!:;。？！：；")
+# 参考文献之后的文末说明（致谢、作者贡献、利益声明、出版者声明、作者简介）：它们不是参考文献，遇到就结束参考文献
+BACK_MATTER_RE = re.compile(
+    r"^\s*(acknowledg(?:e)?ments?|author contributions?|competing interests?|conflicts? of interests?|additional information|funding|data availability|"
+    r"code availability|declarations?|ethics (?:approval|declarations?)|publisher.?s note|reprints and permissions|supplementary information|about the authors?|"
+    r"致谢|利益冲突|作者贡献)\b", re.I)
+BIO_RE = re.compile(r"^\s*[A-Z][\w.\- ]{2,40}\s+(?:is|was)\s+(?:currently\s+|now\s+)?(?:a|an|the)\s+[\w .,&\-]{0,80}(?:professor|student|candidate|scientist|researcher|engineer|director|lecturer|fellow)", re.I)
 
 
 def _appendix_head(title: str) -> bool:
@@ -134,6 +142,7 @@ class _Page:
     spans: list
     lines: list[Line] = field(default_factory=list)
     regions: list[Region] = field(default_factory=list)
+    side_caps: list[Block] = field(default_factory=list)  # 文字绕排的图旁边的图注（从正文行里抽出来的）
 
 
 def _to_display(rot: pymupdf.Matrix, bbox: tuple[float, float, float, float]) -> tuple[float, float, float, float]:
@@ -306,7 +315,7 @@ def _remove_furniture(pages: list[_Page]) -> None:
     for pg in pages:
         seen: set[str] = set()
         for ln in pg.lines:
-            if ln.y1 < 0.085 * pg.native_h or ln.y0 > 0.915 * pg.native_h:
+            if ln.y1 < 0.105 * pg.native_h or ln.y0 > 0.915 * pg.native_h:
                 full = _line_key(ln.text)
                 if len(full) >= 3:
                     seen.add(full)
@@ -323,7 +332,7 @@ def _remove_furniture(pages: list[_Page]) -> None:
     for pg in pages:
         keep: list[Line] = []
         for ln in pg.lines:
-            in_band = ln.y1 < 0.085 * pg.native_h or ln.y0 > 0.915 * pg.native_h
+            in_band = ln.y1 < 0.105 * pg.native_h or ln.y0 > 0.915 * pg.native_h
             if in_band:
                 segs = _segments(ln)
                 keys = [_line_key(t) for t, _a, _b in segs]
@@ -428,6 +437,7 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
             # 只有两侧文字之间有明显空隙、且没有文字跨过栏沟的行才会被分成左右栏，单栏的行不受影响
             gutter = doc_gutter
         pg.lines = layout.build_lines(list(pg.spans), gutter, body, pg.native_h)
+        pg.lines, pg.side_caps = layout.split_side_captions(pg.lines, pg.no, body)
         _flag_figure_lines(pg, body)
     _remove_furniture(pages)
 
@@ -451,6 +461,7 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
                 fb = Block(pg.no, x0, y0, x1, y1, text, body, 0.0, len(inner), "F", "figure_text")
                 figure_blocks[(pg.no, ri)] = fb
                 page_blocks.append(fb)
+        page_blocks.extend(pg.side_caps)
         page_blocks.sort(key=lambda b: (b.y0 if b.kind == "figure_text" else 0))  # 稳定排序占位：保持分段顺序
         blocks.extend(_order_with_figures(page_blocks, pg))
         for b in page_blocks:
@@ -698,6 +709,32 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
                 FRONT_NOTE_RE.search(t) or (b.size < 0.88 * body and b.y0 > 0.7 * first.native_h)):
             front_notes.add(id(b))
 
+    # IEEE 的表题：“TABLE I” 一行、全大写的标题在下一行（有时被当成表格里的字，成了另一个块）：并成一条完整的表题
+    merged_titles: set[int] = set()
+    upper = lambda t: sum(c.isupper() for c in t) >= 0.8 * max(1, sum(c.isalpha() for c in t))  # noqa: E731
+    for b in blocks:
+        if b.kind != "caption" or not layout._ROMAN_TABLE.match(b.text.strip()):
+            continue
+        cx = (b.x0 + b.x1) / 2
+        # 标题在表题下面紧挨着的一行，且在同一栏（表题和标题都居中，中线对得上）
+        near = [x for x in blocks if x.page == b.page and x is not b and id(x) not in merged_titles and -2 <= x.y0 - b.y1 <= 24
+                and abs((x.x0 + x.x1) / 2 - cx) < 140 and x.kind in ("paragraph", "figure_text")]
+        for x in sorted(near, key=lambda x: x.y0):
+            if x.nlines <= 2 and len(x.text) <= 140 and upper(x.text):
+                b.text = f"{b.text.strip()} {x.text.strip()}"
+                b.lines = list(b.lines or []) + list(x.lines or [])
+                merged_titles.add(id(x))
+                break
+            first = min(x.lines or [], key=lambda l: l.y0, default=None)  # 标题成了表格文字块的第一行
+            if first is not None and len(first.text) <= 140 and upper(first.text) and x.nlines > 2:
+                b.text = f"{b.text.strip()} {first.text.strip()}"
+                x.lines = [l for l in x.lines if l is not first]
+                if x.text.startswith(first.text):
+                    x.text = x.text[len(first.text):].lstrip()
+                x.nlines = len(x.lines)
+                break
+    if merged_titles:
+        blocks = [x for x in blocks if id(x) not in merged_titles]
     # 摘要被页底切断（Springer 首页：摘要、作者单位占满首页，摘要最后几句排到第 2 页最前面）：接回去
     if abstract_block is not None and not abstract_block.text.rstrip().endswith(layout.TERMINAL):
         nxt = next((x for x in blocks if x.page == abstract_block.page + 1 and id(x) not in front_ids and id(x) not in title_ids and x.kind == "paragraph"), None)
@@ -751,6 +788,7 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
     cur_section: int | None = None
     in_refs = False
     after_abstract = False
+    algo_caps = [(x.page, x.y1, x.x0, x.x1) for x in blocks if x.kind == "caption" and re.match(r"(?i)\s*algorithm\b", x.text)]
     figure_passage_of: dict[int, int] = {}
 
     def new_section(level: int, title: str, page: int) -> int:
@@ -792,14 +830,14 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
             in_refs = False
             continue
         if not use_toc and _is_heading_block(b, body) and b.level and not (
-            in_refs and not (REFERENCES_RE.match(_heading_title(text)) or APPENDIX_RE.search(_heading_title(text)) or _appendix_head(_heading_title(text)))
+            in_refs and not (REFERENCES_RE.match(_heading_title(text)) or APPENDIX_RE.search(_heading_title(text)) or _appendix_head(_heading_title(text)) or BACK_MATTER_RE.match(_heading_title(text)))
         ):  # 参考文献里折行的半条（“Y. Bengio. Maxout networks. In ICML, 2013.”）不是标题，别把后面的条目都截成正文
             title = _heading_title(text)
             cur_section = new_section(b.level, title, pn)
             after_abstract = False
             if REFERENCES_RE.match(title):
                 in_refs = True
-            elif in_refs and (APPENDIX_RE.search(title) or _appendix_head(title)):
+            elif in_refs and (APPENDIX_RE.search(title) or _appendix_head(title) or BACK_MATTER_RE.match(title)):
                 in_refs = False
             continue
         if b.kind in ("formula", "figure_text") or len(text) >= 3 or b.kind == "caption":
@@ -809,7 +847,9 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
         if not use_toc and after_abstract and not b.run_in:
             cur_section = new_section(1, "正文", pn)
             after_abstract = False
-        if b.run_in and not use_toc and not in_refs:  # 参考文献里的行首短句（“Y. Bengio. Maxout networks.”）不是小节标题
+        # 算法框里的粗体词（Notation:、Input:）是伪代码的关键字，不是小节标题：位于“Algorithm N”表题下面一屏之内、同一栏的块
+        in_algo = any(c[0] == pn and -5 < b.y0 - c[1] < 420 and b.x1 > c[2] and b.x0 < c[3] for c in algo_caps)
+        if b.run_in and not use_toc and not in_refs and not in_algo:  # 参考文献里的行首短句（“Y. Bengio. Maxout networks.”）不是小节标题
             cur_section = new_section(b.level or 2, _heading_title(b.run_in), pn)
             after_abstract = False
         if text == "" or (re.fullmatch(r"[\d\W]+", text) and b.kind != "formula"):
@@ -822,6 +862,8 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
         elif b.kind == "caption":
             add_passage("caption", text, b, cur_section)
         else:
+            if in_refs and (BACK_MATTER_RE.match(text) or BIO_RE.match(text)):
+                in_refs = False  # 参考文献到此为止
             add_passage("reference" if in_refs else "paragraph", text, b, cur_section)
 
     # 首部信息章节（放在最前，序号整体后移）
