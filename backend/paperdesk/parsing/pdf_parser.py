@@ -698,6 +698,13 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
                 FRONT_NOTE_RE.search(t) or (b.size < 0.88 * body and b.y0 > 0.7 * first.native_h)):
             front_notes.add(id(b))
 
+    # 摘要被页底切断（Springer 首页：摘要、作者单位占满首页，摘要最后几句排到第 2 页最前面）：接回去
+    if abstract_block is not None and not abstract_block.text.rstrip().endswith(layout.TERMINAL):
+        nxt = next((x for x in blocks if x.page == abstract_block.page + 1 and id(x) not in front_ids and id(x) not in title_ids and x.kind == "paragraph"), None)
+        if nxt is not None and nxt.text[:1].islower() and not _is_heading_block(nxt, body):
+            abstract_block.text = abstract_block.text.rstrip() + " " + nxt.text.lstrip()
+            abstract_block.lines = list(abstract_block.lines or []) + list(nxt.lines or [])
+            blocks = [x for x in blocks if x is not nxt]
     # --- 标题块与章节 ---
     standalone_sizes = sorted({round(b.size * 2) / 2 for b in blocks if id(b) not in front_ids and id(b) not in title_ids
                                and _is_heading_block(b, body) and not _heading_level_numbered(b.text.strip())[0]}, reverse=True)

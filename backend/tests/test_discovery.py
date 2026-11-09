@@ -470,3 +470,46 @@ def test_direction_recommendation_adds_a_verified_learning_roadmap(api, monkeypa
     assert road[1]["items"][0]["citations"] == 12000 and road[1]["items"][0]["reason"] == "提出了核心方法"
     assert any("核对不上" in w for w in d["warnings"])
     assert d["groups"][0]["id"].startswith("road")  # 路线放在最前面
+
+
+# ---------------- Scopus 式高级检索 ----------------
+def test_advanced_search_builds_field_filters_and_branches(world_api):
+    api, world = world_api
+    r = api.post("/discovery/advanced", {"rows": [
+        {"field": "title", "term": "cascading failure", "op": "and"},
+        {"field": "abstract", "term": "reinforcement learning", "op": "and"},
+        {"field": "abstract", "term": "survey", "op": "not"},
+        {"field": "author", "term": "Zhang", "op": "or"},
+    ], "year_from": 2020, "limit": 20})
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["branches"] == 2  # “或”把检索式切成两个分支
+    oa = [x for x in world.requests if x.url.host == "api.openalex.org"]
+    filters = [x.url.params.get("filter", "") for x in oa]
+    first = next(f for f in filters if "title.search" in f)
+    assert "title.search:(cascading failure)" in first and 'abstract.search:(reinforcement learning) NOT "survey"' in first
+    assert "from_publication_date:2020-01-01" in first
+    assert any("raw_author_name.search:Zhang" in f and "title.search" not in f for f in filters)
+    assert d["results"] and d["after_dedupe"] >= 1
+
+
+def test_advanced_exact_title_puts_the_identical_title_first_and_says_so(world_api):
+    api, _world = world_api
+    d = api.post("/discovery/advanced", {"rows": [{"field": "title", "term": "dual attention routing for cascading failure recovery!", "exact": True}]}).json()
+    first = d["results"][0]
+    assert first["title"].startswith("Dual attention routing") and first["reason"] == "标题与检索词完全一致" and d["exact_matches"] >= 1
+
+
+def test_advanced_repeated_field_terms_are_anded_and_empty_queries_are_refused(world_api):
+    api, _world = world_api
+    d = api.post("/discovery/advanced", {"rows": [{"field": "title", "term": "cascading failure"}, {"field": "title", "term": "cascading", "op": "and"}]}).json()
+    assert d["results"]
+    assert api.post("/discovery/advanced", {"rows": []}).status_code == 400
+
+
+def test_advanced_title_with_a_typo_still_finds_the_paper_and_ranks_it_first(world_api):
+    api, world = world_api
+    d = api.post("/discovery/advanced", {"rows": [{"field": "title", "term": "Dual attention routing for cascading failure recoveri"}]}).json()
+    assert d["results"][0]["title"].startswith("Dual attention routing") and "高度相似" in d["results"][0]["reason"]
+    oa = [x for x in world.requests if x.url.host == "api.openalex.org"]
+    assert any(x.url.params.get("search") for x in oa)  # 额外按相关度取了一份，不只依赖“每个词都在标题里”

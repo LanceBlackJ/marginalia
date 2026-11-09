@@ -13,6 +13,7 @@ from ..discovery.codefinder import find_code
 from ..discovery.recommend import (
     FIELDS, random_explore, recommend_direction, recommend_personal, similar_works,
 )
+from ..discovery.advanced import Row, run_advanced
 from ..discovery.search import run_search
 from .deps import get_ctx
 
@@ -47,6 +48,31 @@ def _resolve_seed(ctx: AppContext, seed: SeedBody | None) -> dict | None:
         if row:
             d["title"], d["doi"] = d.get("title") or row["title"], d.get("doi") or row["doi"]
     return d
+
+
+class AdvRowBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    field: Literal["all", "title", "author", "abstract", "tak", "venue", "doi"] = "all"
+    term: str = Field(default="", max_length=300)
+    op: Literal["and", "or", "not"] = "and"
+    exact: bool = False
+
+
+class AdvancedBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    rows: list[AdvRowBody] = Field(default_factory=list, max_length=8)
+    year_from: int | None = Field(default=None, ge=1900, le=2100)
+    year_to: int | None = Field(default=None, ge=1900, le=2100)
+    sort: Literal["relevance", "cited", "date"] = "relevance"
+    limit: int = Field(default=50, ge=1, le=200)
+
+
+@router.post("/advanced")
+async def advanced(body: AdvancedBody, ctx: AppContext = Depends(get_ctx)):
+    """Scopus 式的字段检索：逐行 字段+检索词，行间 且/或/非；标题可精确匹配。只查 OpenAlex 的公开元数据，不用 AI。"""
+    return await run_advanced(
+        ctx, [Row(r.field, r.term, r.op, r.exact) for r in body.rows], year_from=body.year_from, year_to=body.year_to, sort=body.sort, limit=body.limit,
+    )
 
 
 @router.post("/search")

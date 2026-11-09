@@ -103,6 +103,33 @@ export interface SearchResponse {
   seed: { title: string; doi: string | null; year: number | null; openalex_id: string | null } | null
 }
 
+export type AdvancedField = 'all' | 'title' | 'author' | 'abstract' | 'tak' | 'venue' | 'doi'
+
+export interface AdvancedRow {
+  field: AdvancedField
+  term: string
+  op: 'and' | 'or' | 'not'
+  exact: boolean
+}
+
+export interface AdvancedRequest {
+  rows: AdvancedRow[]
+  year_from?: number | null
+  year_to?: number | null
+  sort?: 'relevance' | 'cited' | 'date'
+  limit?: number
+}
+
+export interface AdvancedResponse {
+  rows: AdvancedRow[]
+  branches: number
+  results: Work[]
+  total_candidates: number
+  after_dedupe: number
+  warnings: string[]
+  exact_matches: number
+}
+
 export interface SearchRequest {
   query: string
   mode: DiscoveryMode

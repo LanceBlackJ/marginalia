@@ -856,3 +856,90 @@ p.pd-dc-idle {
   font-size: var(--fs-aux);
   color: var(--text-2);
 }
+
+/* ---------- 高级检索（按字段） ---------- */
+.pd-adv-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-sm);
+  margin-top: var(--sp-md);
+}
+.pd-adv-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+.pd-adv-row .pd-input-wrap {
+  flex: 1;
+  min-width: 0;
+}
+.pd-adv-op0 {
+  width: 92px;
+  flex: none;
+  font-size: var(--fs-small);
+  color: var(--text-muted);
+}
+.pd-adv-x {
+  display: inline-flex;
+  flex: none;
+  padding: 4px;
+  border: 0;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.pd-adv-ctl {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-md);
+  margin-top: var(--sp-md);
+}
+.pd-adv-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  font-size: var(--fs-small);
+}
+.pd-adv-sum {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--sp-lg) 0 var(--sp-sm);
+  font-size: var(--fs-small);
+}
+.pd-adv-refstyle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+  margin-bottom: var(--sp-sm);
+}
+.pd-adv-reftext {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.pd-adv-row .pd-select,
+.pd-adv-sort .pd-select {
+  flex: none;
+  width: auto;
+  min-width: 110px;
+}
+.pd-adv-row .pd-select:first-of-type {
+  min-width: 92px;
+}
+.pd-adv-row .pd-switch {
+  flex: none;
+  white-space: nowrap;
+}
+.pd-adv-ctl .pd-dc-years {
+  white-space: nowrap;
+}

@@ -174,8 +174,26 @@ def unscramble_cjk(text: str) -> str:
     return "".join(chr(ord(ch) - 0x6500) if 0x6520 <= ord(ch) <= 0x657E else ch for ch in text)
 
 
+_SPACELESS_RE = re.compile(r"^[A-Za-z,.;:()'’\-]{12,}$")
+
+
+def _respace(text: str, raw_spans: dict, key: tuple[float, float], size: float) -> str:
+    """有的出版社 PDF（Springer 等）把一整行正文画成一个没有空格字符的串，词间靠位置留出空隙（“duality,astructuraltransformation…”）。
+    按字符位置补空格：相邻字符间隙 ≥ 0.1 个字号就是词界。只对“很长、没有空格、几乎全是字母”的片段做，正常片段不受影响。"""
+    chars = raw_spans.get(key)
+    if not chars or "".join(c["c"] for c in chars) != text:
+        return text
+    out = [chars[0]["c"]]
+    for prev, cur in zip(chars, chars[1:]):
+        if cur["bbox"][0] - prev["bbox"][2] >= 0.1 * size:
+            out.append(" ")
+        out.append(cur["c"])
+    return "".join(out)
+
+
 def extract_spans(page: pymupdf.Page) -> list[Span]:
     data = page.get_text("dict")
+    raw_spans: dict | None = None
     dirs: dict[tuple[int, int], int] = {}
     for b in data["blocks"]:
         if b.get("type") != 0:
@@ -196,6 +214,14 @@ def extract_spans(page: pymupdf.Page) -> list[Span]:
                 text = unscramble_cjk(sp["text"])
                 if not text.strip():
                     continue
+                if " " not in text and _SPACELESS_RE.match(text):
+                    if raw_spans is None:
+                        raw_spans = {}
+                        for rb in page.get_text("rawdict")["blocks"]:
+                            for rl in rb.get("lines", []):
+                                for rs in rl["spans"]:
+                                    raw_spans[(round(rs["origin"][1], 1), round(rs["bbox"][0], 1))] = rs["chars"]
+                    text = _respace(text, raw_spans, (round(sp["origin"][1], 1), round(sp["bbox"][0], 1)), float(sp["size"]))
                 x0, y0, x1, y1 = sp["bbox"]
                 font = sp["font"]
                 if text.strip() == "I" and (x1 - x0) < 0.45 * float(sp["size"]) and MATH_FONT_RE.search(font):
@@ -292,9 +318,13 @@ def _classify(spans: list[Span], gutter: tuple[float, float] | None) -> None:
             s.cls = "F"
 
 
+_ICON_FONT = re.compile(r"marvosym|wingding|dingbats|webdings", re.I)
+
+
 def _line_from(spans: list[Span]) -> Line:
     spans = sorted(spans, key=lambda s: s.x0)
-    main = max(spans, key=lambda s: (s.size, len(s.text)))
+    real = [s for s in spans if not _ICON_FONT.search(s.font)] or spans  # 信封、电话这类图标字形（字号常比正文大）不决定这一行的字号
+    main = max(real, key=lambda s: (s.size, len(s.text)))
     parts: list[str] = []
     chars = 0
     bold = ital = mathc = 0
@@ -625,6 +655,8 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
                 brk = True
             elif abs(ln.size - prev.size) / max(prev.size, 1) > 0.18:
                 brk = True
+            elif ln.size < 0.9 * prev.size and not is_math:
+                brk = True  # 字号明显变小的一行是另一块内容（摘要后面紧跟的小号字声明、脚注），同一段的续行字号不会变
             elif in_references and REF_START_RE.match(ln.text):
                 brk = True
             elif ln.x0 - min(l.x0 for l in cur) > 0.8 * ln.size and (prev.text.endswith(TERMINAL) or prev.x1 < max(l.x1 for l in cur) - 3 * prev.size):

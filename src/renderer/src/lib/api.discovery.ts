@@ -1,6 +1,6 @@
 import { apiRequest } from './api'
 import type {
-  CodeResponse, ComparePreflight, CompareMode, Comparison, ComparisonSummary, ConceptState, DirectionResponse, DiscoverySettings,
+  AdvancedRequest, AdvancedResponse, CodeResponse, ComparePreflight, CompareMode, Comparison, ComparisonSummary, ConceptState, DirectionResponse, DiscoverySettings,
   FieldInfo, GlobalNote, InferredInterest, ItemKind, KbCandidate, KbItem, KbRelation, KbTopic, MarkdownExport, PersonalResponse, Profile,
   ProfileConcept, ProfileMeta, ProfileSuggestion, RandomResponse, SearchRequest, SearchResponse, SourceInfo, TopicSuggestion, LibraryVenue, VenueIntro, VenueList, VenuePageData, VenueSearchHit, Work
 } from './types.discovery'
@@ -21,6 +21,8 @@ const patch = <T>(path: string, body: unknown) => apiRequest<T>('PATCH', path, {
 const del = <T>(path: string) => apiRequest<T>('DELETE', path)
 
 export const discoveryApi = {
+  /** Scopus 式的字段检索（标题/作者/摘要/期刊/DOI，且/或/非，标题可精确匹配）。 */
+  advanced: (body: AdvancedRequest, signal?: AbortSignal) => post<AdvancedResponse>('/api/discovery/advanced', body, signal),
   search: (body: SearchRequest, signal?: AbortSignal) => post<SearchResponse>('/api/discovery/search', body, signal),
   direction: (topic: string, ai = true, opts: RecommendOpts = {}, signal?: AbortSignal) =>
     post<DirectionResponse>('/api/discovery/recommend/direction', { topic, ai, ...opts }, signal),

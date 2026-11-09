@@ -11,6 +11,7 @@ import { WorkItem } from './WorkItem'
 import { useDiscovery } from './discoveryStore'
 import { useLibraryMatchRefresh } from './useWorkActions'
 import { DcLoading } from './shared'
+import { AdvancedSearch } from './AdvancedSearch'
 import { Pager, usePaging } from './Pager'
 import { MODE_HINTS, MODE_OPTIONS } from './workUtils'
 import './discovery.css'
@@ -22,6 +23,7 @@ export function DiscoverPage() {
   const [params, setParams] = useSearchParams()
   const [selected, setSelected] = useState<Work | null>(null)
   const [advOpen, setAdvOpen] = useState(false)
+  const [fieldMode, setFieldMode] = useState(false) // Scopus 式字段检索
   const { items: libraryItems } = useLibraryPapers()
 
   // 深链：/discover?q=…&mode=…&seed=<paper_id>（阅读器或文献库里的“相关工作”入口使用）。
@@ -64,9 +66,35 @@ export function DiscoverPage() {
     ...libraryItems.map((p) => ({ value: p.id, label: `${p.title.slice(0, 70)}${p.year ? ` · ${p.year}` : ''}` }))
   ]
 
+  if (fieldMode) {
+    return (
+      <div>
+        <div className="pd-dc-options">
+          <Segmented
+            variant="text"
+            aria-label="检索方式"
+            value="field"
+            options={[{ value: 'smart', label: '智能检索' }, { value: 'field', label: '高级检索（按字段）' }]}
+            onChange={(v) => setFieldMode(v === 'field')}
+          />
+        </div>
+        <AdvancedSearch />
+      </div>
+    )
+  }
+
   return (
     <>
       <div>
+        <div className="pd-dc-options">
+          <Segmented
+            variant="text"
+            aria-label="检索方式"
+            value="smart"
+            options={[{ value: 'smart', label: '智能检索' }, { value: 'field', label: '高级检索（按字段）' }]}
+            onChange={(v) => setFieldMode(v === 'field')}
+          />
+        </div>
         <div className="pd-dc-search">
           <Input
             value={s.query}
