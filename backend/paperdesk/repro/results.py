@@ -436,12 +436,6 @@ def _reasons(app: AppContext, run: dict, items: list[dict]) -> list[dict]:
         sha = (env.get("commit") or env.get("commit_sha") or "").strip()
         if repo and repo["commit_sha"] and sha and not repo["commit_sha"].startswith(sha[:7]) and not sha.startswith(repo["commit_sha"][:7]):
             out.append({"kind": "fact", "text": f"你记录的 commit（{sha[:10]}）与评估时的仓库 commit（{repo['commit_sha'][:10]}）不同。"})
-        from ..code import consistency
-
-        rep = consistency.get_report(app, run["repo_id"])
-        diffs = [i["parameter"] for i in (rep["report"] or {}).get("items", []) if i["relation"] == "differs"] if rep["status"] == "ready" else []
-        if diffs and off:
-            out.append({"kind": "fact", "text": f"论文与代码有 {len(diffs)} 个参数取值不同（{'、'.join(diffs[:5])}），详见“一致性”；你运行时用的是哪一个，请核对。"})
     return out
 
 

@@ -1,7 +1,7 @@
 """A：静态可行性评估。只读代码仓库的静态分析结果与论文文字，**不执行任何东西**。
 
 每条结论都带证据（`path:行` 或 论文页码+原文片段）；找不到的写“没找到”，拿不准的写“不确定”，不给乐观结论。
-论文里的数据集线索可以由 AI 抽取，但原文引文必须真实出现在对应段落里，否则丢弃（和一致性检查同一套防编造机制）。
+论文里的数据集线索可以由 AI 抽取，但原文引文必须真实出现在对应段落里，否则丢弃（引文必须真实存在才保留）。
 """
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from ..ai import usage as usage_log
 from ..ai.providers import LLMError
 from ..ai.router import TaskType, choose_model
 from ..ai.service import AIService
-from ..code import consistency, service
+from ..code import params as code_params_mod, service
 from ..code.links import find_code_links
 from ..code.scan import parse_dependencies
 from ..context import AppContext
@@ -290,8 +290,8 @@ def _resources(app: AppContext, repo_id: str, paper_id: str, flags: dict) -> lis
     items: list[dict] = []
     wanted = {"batch_size": "批大小", "epochs": "训练轮数", "iterations": "迭代数", "num_graphs": "训练样本/图数量", "replay_size": "经验回放容量"}
     seen: set[str] = set()
-    for p in consistency.code_params(app, repo_id):
-        c = consistency.canon(p["name"])
+    for p in code_params_mod.code_params(app, repo_id):
+        c = code_params_mod.canon(p["name"])
         if c in wanted and (c, p["value"]) not in seen and len(seen) < 8:
             seen.add((c, p["value"]))
             items.append(_item("param:" + c, "found", f"{wanted[c]}（代码取值）", f"{p['name']} = {p['value']}（{p['origin']}）。", [_ev_code(p["path"], p["line"], p.get("context") or "")]))
@@ -313,32 +313,6 @@ def _resources(app: AppContext, repo_id: str, paper_id: str, flags: dict) -> lis
     return items
 
 
-# ---------------------------------------------------------------- 参数一致性
-def _params(app: AppContext, repo_id: str) -> list[dict]:
-    rep = consistency.get_report(app, repo_id)
-    if rep["status"] != "ready" or not rep["report"]:
-        return [_item("consistency", "uncertain", "论文参数与代码参数", "还没有运行“一致性检查”，所以不知道论文写的参数和代码取值是否一致。请先在“一致性”页运行检查。")]
-    s = rep["report"]["summary"]
-    cons_ev: list[dict] = []
-    for it in rep["report"]["items"]:  # 证据：一致性报告里实际核对过的“论文原句 + 代码位置”
-        if it["code"] and it.get("paper"):
-            cons_ev.append(_ev_paper(it["paper"].get("page"), it["paper"].get("ord"), it["paper"].get("quote") or ""))
-            cons_ev.append(_ev_code(it["code"][0]["path"], it["code"][0]["line"], f"{it['code'][0]['name']} = {it['code'][0]['value']}"))
-        if len(cons_ev) >= 6:
-            break
-    items = [_item("consistency", "found", "论文参数与代码参数", f"一致 {s.get('match', 0)} 项，不同 {s.get('differs', 0)} 项，代码里没找到 {s.get('not_found', 0)} 项，待核查 {s.get('to_check', 0)} 项（只列出各自来源，不判断谁对）。",
-                       cons_ev)]
-    for it in rep["report"]["items"]:
-        if it["relation"] == "differs":
-            code = it["code"][0] if it["code"] else None
-            ev = [_ev_paper(it["paper"]["page"], it["paper"]["ord"], it["paper"]["quote"])]
-            if code:
-                ev.append(_ev_code(code["path"], code["line"], f"{code['name']} = {code['value']}"))
-            items.append(_item("differs:" + it["parameter"], "risk", f"参数 {it['parameter']} 论文与代码不同", it["note"], ev, "；".join(it.get("caveats", [])[:2])))
-    return items
-
-
-# ---------------------------------------------------------------- 风险
 def _risks(app: AppContext, r: _Repo, repo: dict, paper_year: int | None, flags: dict, entry: dict, data: dict) -> list[dict]:
     items: list[dict] = []
     n_scanned = len([f for f in r.files if not f["skipped"]])
@@ -471,7 +445,6 @@ async def run(app: AppContext, repo_id: str, ctx=None) -> dict:
     ai_facts = await _ai_dataset_facts(app, paper["id"], ctx)
     data_items, data = _data(app, r, paper["id"], repo, ai_facts)
     res_items = _resources(app, repo_id, paper["id"], flags)
-    param_items = _params(app, repo_id)
     risk_items = _risks(app, r, repo, paper["year"], flags, entry, data)
     report = {
         "generated_at": utcnow(), "ai_used": bool(ai_facts),
@@ -481,7 +454,6 @@ async def run(app: AppContext, repo_id: str, ctx=None) -> dict:
             {"key": "entry", "title": "入口与命令", "items": entry_items},
             {"key": "data", "title": "数据", "items": data_items},
             {"key": "resources", "title": "资源与规模", "items": res_items},
-            {"key": "params", "title": "参数", "items": param_items},
             {"key": "risks", "title": "风险与缺口", "items": risk_items},
         ],
         "effort": _effort(flags, entry, data, repo),

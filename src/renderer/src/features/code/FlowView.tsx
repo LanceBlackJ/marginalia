@@ -93,7 +93,8 @@ export function FlowView() {
   const loadFlow = useCodeStore((s) => s.loadFlow)
   const selectFlowNode = useCodeStore((s) => s.selectFlowNode)
   const annotateFlow = useCodeStore((s) => s.annotateFlow)
-  const goToSymbolId = useCodeStore((s) => s.goToSymbolId)
+  const viewFromFlow = useCodeStore((s) => s.viewFromFlow)
+  const showSnippet = useCodeStore((s) => s.showSnippet)
   const explain = useCodeStore((s) => s.explain)
 
   useEffect(() => {
@@ -186,7 +187,12 @@ export function FlowView() {
           maxZoom={1.6}
           nodesDraggable={false}
           nodesConnectable={false}
-          onNodeClick={(_e, node) => selectFlowNode(Number(node.id))}
+          onNodeClick={(_e, node) => {
+            const id = Number(node.id)
+            selectFlowNode(id)
+            const n = flow.nodes.find((x) => x.id === id)
+            if (n) showSnippet({ path: n.path, a: n.line_start, b: n.line_end, title: flow.annotations[String(id)]?.title ?? n.label, symbolId: n.id, from: 'flow', flowId: n.id })
+          }}
           onPaneClick={() => selectFlowNode(null)}
           proOptions={{ hideAttribution: true }}
         >
@@ -213,8 +219,8 @@ export function FlowView() {
               {!ann?.summary && selected.doc && <p className="pd-flow-summary pd-muted">{selected.doc}</p>}
             </div>
             <div className="pd-flow-detail-actions">
-              <Button size="sm" onClick={() => void goToSymbolId(selected.id)}>
-                查看代码
+              <Button size="sm" onClick={() => void viewFromFlow(selected.id, ann?.title ?? selected.label)}>
+                在代码页打开
               </Button>
               <Button size="sm" icon={<Sparkles size={14} />} onClick={() => void explain({ kind: 'function', path: selected.path, symbol_id: selected.id, symbol: selected.label }, selected.label)}>
                 AI 解释

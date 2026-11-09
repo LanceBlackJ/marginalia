@@ -170,21 +170,66 @@ def bold_runs(b: Block) -> list[str]:
     return runs
 
 
+_CAND_PUNCT = re.compile(r"[\s,.;:()\[\]|/×·=+\-−<>…{}]")
+MAX_MATH_CANDIDATES = 80
+
+
+_CAND_TAIL = re.compile(r"^[\s\d,.;:()\[\]{}|/×·=+\-−<>…≜]*$")
+
+
+def _extend_tail(spans: list, cluster: list) -> list:
+    """簇到“0, 1, . . . , N − 1}”前面的数字就停了（数字不算数学片段）：候选交给视觉模型时要把紧跟着的数字、标点、右括号也圈进来，
+    否则小图里只有半截公式。遇到英文单词（正文）就停。"""
+    try:
+        j = spans.index(cluster[-1]) + 1
+    except ValueError:
+        return cluster
+    out = list(cluster)
+    while j < len(spans) and (spans[j].math or _CAND_TAIL.match(spans[j].text)):
+        out.append(spans[j])
+        j += 1
+    return out
+
+
+def _math_candidate(b: Block, cluster: list, spans: list | None = None) -> dict | None:
+    """规则还原不了、但看起来是真公式（不只是逗号、×、/ 这类标点碎片）的簇：留下位置，交给视觉模型兜底。
+    tex 为空；前端只替换有 tex 的条目，所以没识别之前正文仍显示原文字。"""
+    if len(_CAND_PUNCT.sub("", layout._line_from(inline_math.expand_members(cluster)).text.strip())) < 2:
+        return None  # 先按原来的簇判断是不是真公式：标点碎片（“, 1] →”）不能因为后面接上了数字就变成候选
+    if spans:
+        cluster = _extend_tail(spans, cluster)
+    members = inline_math.expand_members(cluster)
+    src = layout._line_from(members).text.strip()
+    if len(_CAND_PUNCT.sub("", src)) < 2:
+        return None
+    x0, y0 = min(s.x0 for s in members), min(s.y0 for s in members)
+    x1, y1 = max(s.x1 for s in members), max(s.y1 for s in members)
+    return {"src": src, "tex": None, "page": b.page, "bbox": [round(x0, 1), round(y0, 1), round(x1, 1), round(y1, 1)]}
+
+
 def math_runs(b: Block) -> list[dict]:
-    """块里的行内公式：[{src, tex}]，按出现顺序。每一簇都要由字体、字号、基线位置完整还原，认不全的不要。"""
+    """块里的行内公式：[{src, tex}]，按出现顺序。每一簇都要由字体、字号、基线位置完整还原，认不全的不要；
+    认不全但像真公式的另记一条 tex 为空的候选（含页码和位置），之后由视觉模型补上。"""
     out: list[dict] = []
     for ln in b.lines or []:
-        spans = sorted(ln.spans, key=lambda x: x.x0)
+        spans = inline_math.attach_accents(sorted(ln.spans, key=lambda x: x.x0), ln.size)
         for cluster in inline_math.line_clusters(spans, ln.size, ln.baseline):
             tex = inline_math.build_tex(cluster, ln.size, ln.baseline)
             if tex is None:
+                cand = _math_candidate(b, cluster, spans)
+                if cand:
+                    out.append(cand)
                 continue
-            src = layout._line_from(cluster).text.strip()
-            if tex.count("(") - tex.count(")") == 1:
-                # 右括号在后面那段正文里（“c(v_k) denotes”）：把它并进来
+            src = layout._line_from(inline_math.expand_members(cluster)).text.strip()
+            deficit = tex.count("(") - tex.count(")")
+            if deficit > 0:
+                # 右括号在后面那段正文里（“c(v_k) denotes”“y_r(s(t)).”里连着的 “))”）：缺几个就从后面紧跟的 “)” 里并几个进来
                 i = spans.index(cluster[-1])
-                if i + 1 < len(spans) and spans[i + 1].text.startswith(")"):
-                    tex, src = tex + ")", src + ")"
+                if i + 1 < len(spans):
+                    nxt = spans[i + 1].text
+                    closers = len(nxt) - len(nxt.lstrip(")"))
+                    if closers >= deficit:
+                        tex, src = tex + ")" * deficit, src + ")" * deficit
             if len(src) <= 2:
                 # 单个字母的公式如果和前后的文字粘在一起（“i”后面紧跟“th”），正文里按词边界找不到它，
                 # 前端可能错配到后面别处的同一个字母：这种不收，保持原文字
@@ -198,6 +243,10 @@ def math_runs(b: Block) -> list[dict]:
                     continue
             if src and tex.count("(") == tex.count(")"):
                 out.append({"src": src, "tex": tex})
+            else:
+                cand = _math_candidate(b, cluster, spans)
+                if cand:
+                    out.append(cand)
     return out
 
 
@@ -413,7 +462,37 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
     return _assemble(doc, pages, blocks, body, meta_raw, toc, page_sizes, ocr_done, needs_ocr)
 
 
+def _chartlike(text: str) -> bool:
+    """图里的刻度/图例/轴名：一行里数字占一半以上，或者全是很短的词（“8 62 540 … Model scale (# parameters in billions)”）。"""
+    toks = text.split()
+    if len(toks) <= 6 and not text.rstrip().endswith((".", "。", ":", ";")):
+        return True  # 轴名、图例、类别名这类很短的行（正文里的行都长得多，且以句号结尾）
+    if len(toks) < 4:
+        return False
+    nums = sum(1 for t in toks if re.fullmatch(r"[\d.,%±+\-−≤≥<>]+", t))
+    return nums / len(toks) >= 0.5
+
+
+def _flag_chart_above_caption(pg: _Page) -> None:
+    """矢量图的坐标轴文字常在图区域之外（图区域只圈到了其中一幅子图）：从图注往上，连续的“刻度行”也算图内文字，
+    不然会被当成正文段落（“60 40 60 20 40 Human 20 50 …”）。遇到第一行不像刻度的正文就停。"""
+    ordered = sorted(pg.lines, key=lambda l: l.y0)
+    for i, cap in enumerate(ordered):
+        if not re.match(r"^\s*(?:fig(?:ure)?\.?|图)\s*\d", cap.text, re.I):
+            continue
+        prev_y = cap.y0
+        for ln in reversed(ordered[:i]):
+            if ln.in_figure:
+                prev_y = min(prev_y, ln.y0)
+                continue
+            if prev_y - ln.y1 > 30 or not _chartlike(ln.text):
+                break
+            ln.in_figure = True
+            prev_y = ln.y0
+
+
 def _flag_figure_lines(pg: _Page, body: float) -> None:
+    _flag_chart_above_caption(pg)
     if not pg.regions:
         return
     total = sum(len(l.text) for l in pg.lines) or 1

@@ -4,7 +4,7 @@ import { Button, IconButton, Skeleton, Tag } from '@/components/ui'
 import { SelectTranslate } from '@/components/SelectTranslate'
 import { errorMessage } from '@/lib/api'
 import { discoveryApi } from '@/lib/api.discovery'
-import { openExternal } from '@/lib/native'
+import { openExternal, openPaperBrowser } from '@/lib/native'
 import type { CodeResponse, Work } from '@/lib/types.discovery'
 import { WorkItem } from './WorkItem'
 import { useWorkActions } from './useWorkActions'
@@ -117,7 +117,7 @@ export function WorkDrawer({ work, onClose, onOpenOther }: { work: Work | null; 
           <div className="pd-dc-drawer-actions">
             <DrawerPrimary work={work} />
             {url && (
-              <Button size="sm" variant="secondary" icon={<ExternalLink size={14} />} onClick={() => void openExternal(url)}>
+              <Button size="sm" variant="secondary" icon={<ExternalLink size={14} />} onClick={() => void openPaperBrowser(url)} title="在内置浏览器里打开：需要登录就直接登录，点到 PDF 会自动导入">
                 打开原文
               </Button>
             )}

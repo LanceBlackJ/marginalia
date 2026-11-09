@@ -12,7 +12,7 @@ from ..context import AppContext
 from ..jobs import JobManager
 from ..library import repo
 from ..util import ApiError
-from ..vision import explain, figure_qa, figures, formula, formula_batch, table_batch
+from ..vision import explain, figure_qa, figures, formula, formula_batch, inline_math_ai, table_batch
 from .deps import get_ctx
 
 router = APIRouter(tags=["vision"])
@@ -21,6 +21,7 @@ router = APIRouter(tags=["vision"])
 def register_jobs(manager: JobManager) -> None:
     figures.register(manager)
     formula_batch.register(manager)
+    inline_math_ai.register(manager)
     table_batch.register(manager)
 
 
@@ -90,6 +91,7 @@ class ExplainBody(BaseModel):
     equation_id: int
     question: str = ""
     chain_id: str | None = None
+    conversation_id: str | None = None
     save: bool | None = None
     refresh_latex: bool = False
 
@@ -120,7 +122,7 @@ async def explain_equation(body: ExplainBody, ctx: AppContext = Depends(get_ctx)
     _ensure_paper(ctx, body.paper_id)
     return sse_response(explain.explain_equation_events(
         ctx, body.paper_id, body.equation_id, question=body.question, chain_id=body.chain_id,
-        save=True if body.save is None else body.save, refresh_latex=body.refresh_latex,
+        save=True if body.save is None else body.save, refresh_latex=body.refresh_latex, conversation_id=body.conversation_id,
     ))
 
 

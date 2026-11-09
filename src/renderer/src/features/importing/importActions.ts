@@ -41,6 +41,16 @@ export async function importLocalFiles(): Promise<void> {
   }
 }
 
+/** 论文下载浏览器里截下来的 PDF：直接导入（来源标题里写明是从哪个网址下载的）。 */
+export async function importDownloadedPdf(path: string, filename: string): Promise<void> {
+  try {
+    const { job_id } = await api.imports.files([path])
+    startJob(job_id, `已从内置浏览器下载《${filename}》，正在导入，可在任务中心查看进度。`)
+  } catch (err) {
+    toast.error('导入下载的论文失败', errorMessage(err))
+  }
+}
+
 export async function importFolder(): Promise<void> {
   try {
     const path = await pickFolder()

@@ -1,5 +1,5 @@
 import dagre from '@dagrejs/dagre'
-import type { Certainty, CodeFileEntry, CodeSymbol, ConsistencyItem, ExplainTarget, FileRole, FlowEdge, FlowNode, PaperCodeLink } from '@/lib/types.code'
+import type { Certainty, CodeFileEntry, CodeSymbol, ExplainTarget, FileRole, FlowEdge, FlowNode, PaperCodeLink } from '@/lib/types.code'
 
 /* ---------------- 文件树 ---------------- */
 export interface TreeNode {
@@ -91,8 +91,6 @@ export const CERTAINTY_LABEL: Record<Certainty, string> = {
 export function isUncertain(c: Certainty): boolean {
   return c === 'name' || c === 'ambiguous'
 }
-
-export const RELATION_LABEL: Record<ConsistencyItem['relation'], string> = { match: '一致', differs: '不一致', not_found: '代码中未找到', to_check: '待核查' }
 
 export const ORIGIN_LABEL: Record<string, string> = {
   argparse: '命令行参数默认值',
@@ -290,10 +288,3 @@ export function groupLinksByModule(links: PaperCodeLink[], showRejected = false)
 export const CONFIDENCE_LABEL: Record<PaperCodeLink['confidence'], string> = { likely: '很可能对应', possible: '可能相关' }
 export const METHOD_LABEL: Record<PaperCodeLink['method'], string> = { llm: 'AI 判断', lexical: '词法匹配', manual: '手动关联' }
 export const LINK_STATUS_LABEL: Record<PaperCodeLink['status'], string> = { suggested: '待确认', confirmed: '已确认', rejected: '已拒绝' }
-
-/* ---------------- 一致性 ---------------- */
-export function summarizeConsistency(items: ConsistencyItem[]): { match: number; differs: number; not_found: number; to_check: number } {
-  const s = { match: 0, differs: 0, not_found: 0, to_check: 0 }
-  for (const i of items) s[i.relation] += 1
-  return s
-}

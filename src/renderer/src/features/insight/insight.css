@@ -897,6 +897,40 @@
   outline: 2px dashed var(--text);
   outline-offset: -4px;
 }
+.pd-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 10px 0;
+}
+.pd-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-secondary, var(--text));
+}
+.pd-queue-tag {
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+}
+.pd-queue-item .pd-ellipsis {
+  flex: 1;
+  min-width: 0;
+}
+.pd-queue-item button:not(.pd-link) {
+  display: inline-flex;
+  flex: none;
+  padding: 2px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
 .pd-attach-row {
   display: flex;
   flex-wrap: wrap;

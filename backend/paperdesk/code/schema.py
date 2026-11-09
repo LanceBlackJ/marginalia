@@ -110,13 +110,5 @@ CREATE TABLE IF NOT EXISTS paper_code_links (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pcl_repo ON paper_code_links(repo_id, status);
-
-CREATE TABLE IF NOT EXISTS code_consistency (
-  repo_id TEXT PRIMARY KEY REFERENCES code_repos(id) ON DELETE CASCADE,
-  status TEXT NOT NULL,
-  report_json TEXT,
-  error TEXT,
-  updated_at TEXT NOT NULL
-);
 """,
 )

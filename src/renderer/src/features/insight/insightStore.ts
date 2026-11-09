@@ -50,8 +50,15 @@ export interface AskInput {
   figureId?: number
 }
 
+/** 上一条还没生成完时又发出的提问：排队，等前一条结束后自动发出。 */
+export interface QueuedAsk {
+  id: string
+  input: AskInput
+}
+
 interface InsightState {
   paperId: string | null
+  queue: QueuedAsk[]
   cards: InsightCard[]
   chains: Chain[]
   /** 这篇论文的对话（互相独立）；最近用的在前 */
@@ -68,6 +75,9 @@ interface InsightState {
   reset: () => void
   ask: (input: AskInput) => Promise<void>
   stop: () => void
+  removeQueued: (id: string) => void
+  /** 立刻发出队列里的第一条（上一条被停止或失败后，队列不会自动继续，由用户决定） */
+  sendQueuedNow: () => void
   dismissPending: () => void
   setActiveChain: (id: string | null) => void
   newConversation: () => Promise<void>
@@ -150,6 +160,7 @@ export const useInsightStore = create<InsightState>((set, get) => {
 
   return {
     paperId: null,
+    queue: [],
     cards: [],
     chains: [],
     conversations: [],
@@ -161,7 +172,7 @@ export const useInsightStore = create<InsightState>((set, get) => {
 
     load: async (paperId) => {
       controller?.abort()
-      set({ paperId, cards: [], chains: [], conversations: [], activeConversation: null, activeChain: null, pending: null, loading: true, error: null })
+      set({ paperId, queue: [], cards: [], chains: [], conversations: [], activeConversation: null, activeChain: null, pending: null, loading: true, error: null })
       try {
         const [cards, chains, convs] = await Promise.all([api.cards.list(paperId), api.chains.list(paperId), api.conversations.list(paperId)])
         if (get().paperId !== paperId) return
@@ -173,12 +184,18 @@ export const useInsightStore = create<InsightState>((set, get) => {
 
     reset: () => {
       controller?.abort()
-      set({ paperId: null, cards: [], chains: [], conversations: [], activeConversation: null, activeChain: null, pending: null, loading: false, error: null })
+      set({ paperId: null, queue: [], cards: [], chains: [], conversations: [], activeConversation: null, activeChain: null, pending: null, loading: false, error: null })
     },
 
     ask: async (input) => {
       const { paperId, activeChain, activeConversation, pending } = get()
-      if (!paperId || pending?.status === 'streaming') return
+      if (!paperId) return
+      if (pending?.status === 'streaming') {
+        // 修改重答要对着当前最后一张卡片，排队后它可能已不是最后一张：不排队
+        if (input.editCardId) return
+        set((s) => ({ queue: [...s.queue, { id: `queued-${++seq}`, input }] }))
+        return
+      }
       const tempId = `pending-${++seq}`
       const ctrl = new AbortController()
       controller = ctrl
@@ -218,7 +235,7 @@ export const useInsightStore = create<InsightState>((set, get) => {
       const stream = (cb: (event: string, data: unknown) => void, signal: AbortSignal): Promise<void> =>
         input.equationId != null
           ? visionApi.explainEquation(
-              { paper_id: paperId, equation_id: input.equationId, question: input.question, chain_id: body.chain_id, save: input.save ?? null },
+              { paper_id: paperId, equation_id: input.equationId, question: input.question, chain_id: body.chain_id, conversation_id: activeConversation, save: input.save ?? null },
               cb,
               signal
             )
@@ -266,12 +283,17 @@ export const useInsightStore = create<InsightState>((set, get) => {
               case 'done': {
                 finished = true
                 const card = d.card as InsightCard
-                set((s) => ({
-                  cards: s.cards.some((c) => c.id === card.id) ? s.cards.map((c) => (c.id === card.id ? card : c)) : [...s.cards, card],
-                  pending: s.pending?.tempId === tempId ? null : s.pending
-                }))
+                set((s) => {
+                  const cards = s.cards.some((c) => c.id === card.id) ? s.cards.map((c) => (c.id === card.id ? card : c)) : [...s.cards, card]
+                  // 答完的卡片必须还看得见：它属于别的对话、或当前停在“临时卡片”而它是已保存的，换成能显示它的视图，别让刚生成完的回答凭空消失
+                  const conv = card.conversation_id && s.activeConversation !== card.conversation_id ? card.conversation_id : s.activeConversation
+                  const chain = s.activeChain === TEMP_CHAIN && card.saved ? null : s.activeChain !== null && s.activeChain !== TEMP_CHAIN && card.chain_id && card.chain_id !== s.activeChain ? null : s.activeChain
+                  return { cards, activeConversation: conv, activeChain: chain, pending: s.pending?.tempId === tempId ? null : s.pending }
+                })
                 void refreshChains(paperId)
                 void refreshConversations(paperId)
+                // 这一条正常答完：队列里等着的下一条自动发出
+                queueMicrotask(() => get().sendQueuedNow())
                 break
               }
               case 'error': {
@@ -309,6 +331,14 @@ export const useInsightStore = create<InsightState>((set, get) => {
     },
 
     stop: () => controller?.abort(),
+    removeQueued: (id) => set((s) => ({ queue: s.queue.filter((q) => q.id !== id) })),
+    sendQueuedNow: () => {
+      const { queue, pending, paperId } = get()
+      if (!paperId || queue.length === 0 || pending?.status === 'streaming') return
+      const [next, ...rest] = queue
+      set({ queue: rest })
+      void get().ask(next.input)
+    },
     dismissPending: () => set({ pending: null }),
     setActiveChain: (activeChain) => set({ activeChain }),
 
@@ -321,7 +351,7 @@ export const useInsightStore = create<InsightState>((set, get) => {
       try {
         const conv = await api.conversations.create(paperId)
         if (get().paperId !== paperId) return
-        set((s) => ({ conversations: [conv, ...s.conversations], activeConversation: conv.id, activeChain: null, pending: null }))
+        set((s) => ({ conversations: [conv, ...s.conversations], activeConversation: conv.id, activeChain: null, pending: null, queue: [] }))
       } catch (err) {
         toast.error('新建对话失败', errorMessage(err))
       }
@@ -329,7 +359,7 @@ export const useInsightStore = create<InsightState>((set, get) => {
 
     switchConversation: (id) => {
       if (get().pending?.status === 'streaming') return
-      set({ activeConversation: id, activeChain: null, pending: null })
+      set({ activeConversation: id, activeChain: null, pending: null, queue: [] })
     },
 
     renameConversation: async (id, title) => {

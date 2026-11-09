@@ -10,7 +10,7 @@ vi.mock('@/lib/api.references', () => ({
   referencesApi: { list: vi.fn(), citations: vi.fn(), contexts: mocks.contexts, resolve: mocks.resolve, summarize: mocks.summarize, importMetadata: vi.fn() }
 }))
 vi.mock('@/lib/translateText', async () => ({ ...(await vi.importActual<object>('@/lib/translateText')), streamTranslate: mocks.stream }))
-vi.mock('@/lib/native', () => ({ openExternal: mocks.open }))
+vi.mock('@/lib/native', () => ({ openExternal: mocks.open, openPaperBrowser: mocks.open }))
 vi.mock('@/features/reader/readerStore', () => ({ useReaderStore: Object.assign(() => null, { getState: () => ({ jumpToOrd: mocks.jump }) }) }))
 vi.mock('@/components/Markdown', () => ({ Markdown: ({ text }: { text: string }) => <div data-testid="md">{text}</div> }))
 
@@ -69,7 +69,7 @@ describe('reference layer', () => {
     expect(screen.getByRole('menu')).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '读摘要' })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '让 AI 概括它做了什么' })).toBeTruthy()
-    expect((screen.getByRole('menuitem', { name: /在浏览器打开/ }) as HTMLButtonElement).disabled).toBe(true) // 没有链接
+    expect((screen.getByRole('menuitem', { name: /打开 DOI .{1} 链接/ }) as HTMLButtonElement).disabled).toBe(true) // 没有链接
     expect((screen.getByRole('menuitem', { name: /加入文库/ }) as HTMLButtonElement).disabled).toBe(true) // 没有 DOI
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()

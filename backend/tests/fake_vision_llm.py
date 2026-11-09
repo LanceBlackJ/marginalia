@@ -91,6 +91,13 @@ class VisionFakeLLM(FakeLLM):
             if marker in system:
                 self.override_queue.pop(i)
                 return text
+        if "行内的一小段公式" in system:  # 行内公式兜底：按“图 k（提取出的文字：…）”逐项作答；提示里含 BAD 的故意答错
+            self.inline_calls = getattr(self, "inline_calls", 0) + 1
+            items = []
+            for m in re.finditer(r"图 (\d+)（提取出的文字：([^）]*)）", user):
+                hint = m.group(2)
+                items.append({"n": int(m.group(1)), "latex": "q_{9}" if "BAD" in hint else re.sub(r"\s+", "", hint)})
+            return json.dumps({"items": items}, ensure_ascii=False)
         if "公式校对员" in system:
             return self.arbiter_reply
         if "数学公式转写器" in system:

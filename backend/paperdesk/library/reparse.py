@@ -64,7 +64,6 @@ JSON_TARGETS = (
     ("repro_assessments", "paper_id = ?", ("report_json",)),
     ("repro_steps", "plan_id IN (SELECT id FROM repro_plans WHERE paper_id = ?)", ("evidence_json",)),
     ("paper_code_links", "paper_id = ?", ("module_json", "basis_json")),
-    ("code_consistency", "repo_id IN (SELECT id FROM code_repos WHERE paper_id = ?)", ("report_json",)),
 )
 
 

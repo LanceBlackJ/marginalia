@@ -10,6 +10,7 @@ PDF 里的行内公式是一串零散的文字片段（span）：斜体的变量
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 
 GREEK = {
@@ -26,6 +27,13 @@ OPERATORS = {
     "⊂": "\\subset ", "⊆": "\\subseteq ", "∅": "\\emptyset ", "|": "|", "/": "/", "(": "(", ")": ")", "[": "[", "]": "]",
     ",": ",", ".": ".", ":": ":", ";": ";", "<": "<", ">": ">", "…": "\\ldots ", "∗": "*", "*": "*", "′": "'", "'": "'",
 }
+OPERATORS.update({
+    "∥": "\\Vert ", "‖": "\\Vert ", "∂": "\\partial ", "∇": "\\nabla ", "≪": "\\ll ", "≫": "\\gg ", "∝": "\\propto ", "≡": "\\equiv ",
+    "∼": "\\sim ", "⊥": "\\perp ", "⊤": "\\top ", "∀": "\\forall ", "∃": "\\exists ", "∘": "\\circ ", "⋅": "\\cdot ", "∧": "\\wedge ",
+    "∨": "\\vee ", "⊙": "\\odot ", "⊗": "\\otimes ", "⊕": "\\oplus ", "←": "\\leftarrow ", "⇒": "\\Rightarrow ", "↦": "\\mapsto ",
+    "⟨": "\\langle ", "⟩": "\\rangle ", "⌈": "\\lceil ", "⌉": "\\rceil ", "⌊": "\\lfloor ", "⌋": "\\rfloor ",
+    "⊇": "\\supseteq ", "⊃": "\\supset ", "∖": "\\setminus ", "≜": "\\triangleq ", "⋯": "\\cdots ", "∣": "|",
+})
 ELLIPSIS_3 = ""  # 自定义编码里的 ⋯
 # Springer Nature 类排版用的自定义编码数学字体（TeX_CM_Maths_*）：字符 → LaTeX
 CM_SYMBOLS = {"¼": "=", "ð": "(", "Þ": ")", "2": "\\in ", "þ": "+", "\x1a": "-", "f": "\\{", "g": "\\}", "n": "\\setminus ",
@@ -48,8 +56,53 @@ def _is_italic(s) -> bool:
     return bool(s.italic) or bool(_ITALIC_FONT.search(s.font))
 
 
+# 变量头上的重音：PDF 里它是单独的一个小片段（点、双点、帽、波浪、横线），提取时和变量的先后顺序不定（“s˙(t)”“¨s(t)”）
+ACCENTS = {"˙": "\\dot", "¨": "\\ddot", "ˆ": "\\hat", "˜": "\\tilde",
+           "¯": "\\bar", "ˉ": "\\bar", "‾": "\\bar"}
+
+
+def attach_accents(spans: list, body: float) -> list:
+    """把单独成片段的重音并进它下面的变量：返回新的片段列表（x 顺序不变），变量带上 accent，members 记着原来的两个片段。
+    找不到下面的变量（要求单个字母或希腊字母的数学片段、水平上对得上）的重音原样留着，所在的簇之后会因为“不认识的字符”被放弃。"""
+    out = list(spans)
+    for a in spans:
+        t = a.text.strip()
+        if t not in ACCENTS or len(a.text.strip()) != 1 or a.size > 1.05 * body:
+            continue
+        cx = (a.x0 + a.x1) / 2
+        best, best_d = None, None
+        for b in out:
+            if b is a or b.accent or b.text.strip() in ACCENTS:
+                continue
+            bt = b.text.strip()
+            if len(bt) != 1 or not (bt.isascii() and bt.isalpha() or bt in GREEK) or not _mathish(b, body):
+                continue
+            d = abs(cx - (b.x0 + b.x1) / 2)
+            if d <= max(b.x1 - b.x0, 0.5 * body) * 0.9 and (best_d is None or d < best_d):
+                best, best_d = b, d
+        if best is None:
+            continue
+        merged = dataclasses.replace(best, accent=ACCENTS[t], members=[a, best],
+                                     x0=min(a.x0, best.x0), x1=max(a.x1, best.x1), y0=min(a.y0, best.y0))
+        out[out.index(best)] = merged
+        out.remove(a)
+    return out
+
+
+def expand_members(cluster: list) -> list:
+    """还原成原始片段（并进变量的重音片段重新出现），用来取这一簇在正文里的原文。"""
+    return [m for s in cluster for m in (s.members or [s])]
+
+
 def decode(s) -> str | None:
     """一个片段的 LaTeX；有不认识的字符返回 None。"""
+    tex = _decode_plain(s)
+    if tex is None or not s.accent:
+        return tex
+    return f"{s.accent}{{{tex.strip()}}}"
+
+
+def _decode_plain(s) -> str | None:
     t = s.text
     if not t.strip():
         return " " if t else ""

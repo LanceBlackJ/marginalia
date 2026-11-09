@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { toast } from '@/components/ui'
 import { errorMessage } from '@/lib/api'
 import { referencesApi } from '@/lib/api.references'
-import { openExternal } from '@/lib/native'
+import { openPaperBrowser } from '@/lib/native'
 import type { RefItem, RefResolution } from '@/lib/types.references'
 import { bibtex, plainCitation } from './refModel'
 import { useRefStore } from './refStore'
@@ -96,7 +96,7 @@ export function RefMenu() {
         void summarize(index)
       }
     },
-    { key: 'open', label: '在浏览器打开 DOI / 链接', disabled: !link, title: link ? link : '这条参考文献没有可用的链接', run: () => void openExternal(link) },
+    { key: 'open', label: '打开 DOI / 链接并下载（可登录）', disabled: !link, title: link ? link : '这条参考文献没有可用的链接', run: () => void openPaperBrowser(link) },
     lib
       ? { key: 'lib', label: '在文库中打开', run: () => navigate(`/paper/${lib.paper_id}`) }
       : { key: 'lib', label: '仅把元数据加入文库', disabled: !doi, title: doi ? undefined : '没有 DOI，无法加入文库', run: () => void addToLibrary(doi) },

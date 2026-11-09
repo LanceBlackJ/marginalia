@@ -111,7 +111,6 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   code_import: '导入代码',
   code_reanalyze: '重新分析代码',
   code_associate: '论文与代码关联',
-  code_consistency: '参数一致性检查',
   repro_assess: '复现可行性评估'
 }
 

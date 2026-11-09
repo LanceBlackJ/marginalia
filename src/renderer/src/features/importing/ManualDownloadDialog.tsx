@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Check, ExternalLink, Paperclip } from 'lucide-react'
 import { Button, Dialog, Skeleton, toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
-import { openExternal, pickPdfFiles } from '@/lib/native'
+import { openExternal, openPaperBrowser, pickPdfFiles } from '@/lib/native'
 import { formatAuthors } from '@/lib/format'
 import { useJobsStore } from '@/stores/jobsStore'
 import type { PaperDetail } from '@/lib/types'
@@ -62,8 +62,8 @@ function Row({ item }: { item: ManualDownloadItem }) {
       </p>
       <div className="pd-row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
         {link && (
-          <Button size="sm" variant="primary" icon={<ExternalLink size={14} />} onClick={() => void openExternal(link)}>
-            打开下载页面
+          <Button size="sm" variant="primary" icon={<ExternalLink size={14} />} onClick={() => void openPaperBrowser(link)} title="在内置浏览器里打开：需要登录就直接登录，点到 PDF 会自动导入">
+            打开下载页面（可登录）
           </Button>
         )}
         <Button size="sm" icon={attached ? <Check size={14} /> : <Paperclip size={14} />} loading={busy} disabled={attached} onClick={() => void attach()}>

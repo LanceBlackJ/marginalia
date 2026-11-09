@@ -93,6 +93,7 @@ export interface ExplainEquationRequest {
   equation_id: number
   question?: string
   chain_id?: string | null
+  conversation_id?: string | null
   save?: boolean | null
   refresh_latex?: boolean
 }

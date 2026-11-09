@@ -9,7 +9,14 @@ const BARE_ENV_RE = new RegExp(`(^|\\n)[ \\t]*(\\\\begin\\{(${ENV_NAMES})\\}[\\s
 
 /** 是否为“看起来像 LaTeX”的内容（用于放宽带空格的 $ a_i $ 写法）。 */
 function looksLikeMath(s: string): boolean {
-  return /[\\^_{}=<>+\-*/]|\d/.test(s) || /^[A-Za-z]\w{0,2}$/.test(s.trim())
+  const t = s.trim()
+  return (
+    /[\\^_{}=<>+\-*/]|\d/.test(s) ||
+    /^[A-Za-z]\w{0,2}$/.test(t) ||
+    // y(t)、f(x, y)、x'、x, y 这类没有运算符的短式子也是公式（只有字母的多个单词不是）
+    /^[A-Za-z][\w']*(?:\([\w\s,.'\\]*\))?'*$/.test(t) ||
+    /^[A-Za-z]\w?(?:\s*,\s*[A-Za-z]\w?)+$/.test(t)
+  )
 }
 
 /** 找到 from 之后能与 s[from-1] 处的 `$` 配对的闭合 `$`，找不到返回 -1。 */

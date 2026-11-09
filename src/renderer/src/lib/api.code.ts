@@ -8,7 +8,6 @@ import type {
   CodeRepo,
   CodeSource,
   CodeSymbol,
-  ConsistencyState,
   ExplainMeta,
   ExplainTarget,
   FetchResult,
@@ -120,8 +119,6 @@ export const codeApi = {
   addLink: (repoId: string, moduleName: string, symbolId: number, passageOrds?: number[]) =>
     post<PaperCodeLink>(`/api/code/repos/${repoId}/links`, { module_name: moduleName, symbol_id: symbolId, passage_ords: passageOrds }),
   symbolPaper: (symbolId: number) => get<SymbolPaper>(`/api/code/symbols/${symbolId}/paper`),
-  runConsistency: (repoId: string) => post<{ job_id: string }>(`/api/code/repos/${repoId}/consistency`),
-  consistency: (repoId: string) => get<ConsistencyState>(`/api/code/repos/${repoId}/consistency`),
 
   job: (jobId: string) => get<Job>(`/api/jobs/${jobId}`),
   approveJob: (jobId: string) => post<Job>(`/api/jobs/${jobId}/approve`),

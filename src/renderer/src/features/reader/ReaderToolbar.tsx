@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useBack } from '@/lib/useBack'
 import {
   ArrowLeft,
+  Undo2,
   BookmarkPlus,
   ChevronDown,
   Code2,
@@ -30,7 +31,7 @@ import { api } from '@/lib/api'
 import { codeApi } from '@/lib/api.code'
 import { toast } from '@/components/ui'
 import { errorMessage } from '@/lib/api'
-import { openExternal } from '@/lib/native'
+import { openPaperBrowser } from '@/lib/native'
 import { formatAuthors } from '@/lib/format'
 import { useNotesStore } from '@/features/notes/notesStore'
 import { CiteDialog } from '@/features/library/CiteDialog'
@@ -209,6 +210,8 @@ export function ReaderToolbar() {
   const paper = useReaderStore((s) => s.paper)
   const back = useBack(paper ? `/paper/${paper.id}` : '/library')
   const patchPaper = useReaderStore((s) => s.patchPaper)
+  const canGoBack = useReaderStore((s) => s.backStack.length > 0)
+  const goBack = useReaderStore((s) => s.goBack)
   const leftOpen = useReaderStore((s) => s.leftOpen)
   const rightOpen = useReaderStore((s) => s.rightOpen)
   const searchOpen = useReaderStore((s) => s.searchOpen)
@@ -356,7 +359,7 @@ export function ReaderToolbar() {
       ? [{ key: 'reparse', label: '重新解析这篇论文…', hint: needsReparse(paper) ? '有新版解析' : undefined, icon: <RefreshCw size={15} />, onSelect: () => setReparseOpen(true) }]
       : []),
     ...(canUndo ? [{ key: 'undo-reparse', label: '撤销上次重新解析', icon: <RefreshCw size={15} />, onSelect: () => void undoReparse(paper.id, reloadPaper) }] : []),
-    ...(paper.doi ? [{ key: 'doi', label: '在浏览器中打开 DOI', icon: <ExternalLink size={15} />, onSelect: () => void openExternal(`https://doi.org/${paper.doi}`) }] : []),
+    ...(paper.doi ? [{ key: 'doi', label: '打开 DOI 页面并下载（可登录）', icon: <ExternalLink size={15} />, onSelect: () => void openPaperBrowser(`https://doi.org/${paper.doi}`) }] : []),
     { key: 'sep3', separator: true },
     { key: 'help', label: '快捷键', hint: '?', icon: <Keyboard size={15} />, onSelect: () => setHelpOpen(true) }
   ]
@@ -365,6 +368,7 @@ export function ReaderToolbar() {
     <header className="pd-reader-bar">
       <div className="pd-reader-bar-left">
         <IconButton icon={<ArrowLeft size={18} />} label="返回" onClick={back} />
+        {canGoBack && <IconButton icon={<Undo2 size={16} />} label="回到刚才的位置 · Alt+←" onClick={goBack} />}
         <div className="pd-reader-title pd-ellipsis" title={paper.title}>
           {paper.title}
         </div>

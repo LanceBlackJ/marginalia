@@ -5,7 +5,7 @@ import { Button, Skeleton } from '@/components/ui'
 import { Markdown } from '@/components/Markdown'
 import { shouldOfferTranslate } from '@/components/selectTranslateModel'
 import { useReaderStore } from '@/features/reader/readerStore'
-import { openExternal } from '@/lib/native'
+import { openPaperBrowser } from '@/lib/native'
 import { addToLibrary, copyText, linkFor } from './RefMenu'
 import { bibtex, matchLabel, plainCitation } from './refModel'
 import { useRefStore } from './refStore'
@@ -204,7 +204,7 @@ export function RefDrawer() {
                 <p className="pd-refdrawer-dim">
                   {sum.done.message}{' '}
                   {sum.done.link && (
-                    <button type="button" className="pd-tp-link" onClick={() => void openExternal(sum.done!.link!)}>
+                    <button type="button" className="pd-tp-link" onClick={() => void openPaperBrowser(sum.done!.link!)}>
                       去查看原文
                     </button>
                   )}
@@ -238,8 +238,8 @@ export function RefDrawer() {
         </section>
       </div>
       <footer className="pd-refdrawer-foot">
-        <Button size="sm" disabled={!link} onClick={() => void openExternal(link)}>
-          打开链接
+        <Button size="sm" disabled={!link} onClick={() => void openPaperBrowser(link)}>
+          打开链接（可登录下载）
         </Button>
         {res?.in_library ? (
           <Button size="sm" onClick={() => navigate(`/paper/${res.in_library!.paper_id}`)}>

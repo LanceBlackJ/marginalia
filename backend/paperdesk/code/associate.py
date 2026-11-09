@@ -25,6 +25,7 @@ from . import service
 METHOD_SECTION = re.compile(r"method|model|framework|approach|algorithm|encod|decod|train|architecture|implementation|network|learning|optimi|inference|"
                             r"方法|模型|算法|训练|编码|解码|框架|网络|实现", re.I)
 NOT_METHOD = re.compile(r"related|background|experiment|empirical|result|evaluat|conclusion|discussion|limitation|ethic|acknowledg|appendix|reference|ablation|baseline|dataset|future work|引言|相关工作|实验|结果|结论|讨论|附录|参考文献", re.I)
+SKIP_SECTION = re.compile(r"introduction|abstract|overview|首部信息|正文|引言|摘要", re.I)
 GENERIC_TITLES = re.compile(r"^(?:\d+\.?\s*)?(methods?|model|results?|discussion|introduction|abstract|references?|conclusions?|online methods|首部信息)\s*$", re.I)
 GENERIC_TITLE_WORDS = set("language languages model models large small learning neural network networks deep adaptation method methods approach analysis study towards using based".split())
 STOP = set(
@@ -114,7 +115,7 @@ def deterministic_modules(app: AppContext, paper_id: str) -> list[dict]:
             continue
         if in_other or is_other:
             continue
-        if not (is_method or (in_method and s["level"] <= 3)):
+        if SKIP_SECTION.search(title) and s["id"] in has_child | {s["id"]}:
             continue
         ps = by_sec.get(s["id"], [])
         if not ps:
@@ -124,7 +125,7 @@ def deterministic_modules(app: AppContext, paper_id: str) -> list[dict]:
             "name": title[:60], "description": text[:360], "passage_ords": [p["ord"] for p in ps[:6]], "pages": sorted({p["page"] for p in ps[:6]}),
             "section": s["title"], "keywords": keyword_terms(f"{title} {text}", 10), "source": "section",
         })
-    return out[:24]
+    return out[:60]
 
 
 async def ai_modules(app: AppContext, paper_id: str, cfg: dict, provider, base: list[dict]) -> list[dict] | None:
@@ -133,11 +134,11 @@ async def ai_modules(app: AppContext, paper_id: str, cfg: dict, provider, base: 
         rows = conn.execute(
             "SELECT p.ord, p.page, s.title AS sec, p.text FROM passages p LEFT JOIN sections s ON s.id = p.section_id "
             "WHERE p.paper_id = ? AND p.kind = 'paragraph' ORDER BY p.ord", (paper_id,)).fetchall()
-    chosen = [r for r in rows if r["sec"] and METHOD_SECTION.search(r["sec"])] or rows[:60]
+    chosen = [r for r in rows if r["sec"] and not NOT_METHOD.search(r["sec"]) and not SKIP_SECTION.search(r["sec"])] or rows[:60]
     body, used, valid = [], 0, set()
     for r in chosen:
-        t = r["text"][:900]
-        if used + len(t) > 14000:
+        t = r["text"][:700]
+        if used + len(t) > 22000:
             break
         body.append(f"[P{r['ord']}] ({r['sec'] or ''}) {t}")
         used += len(t)
@@ -174,7 +175,7 @@ async def ai_modules(app: AppContext, paper_id: str, cfg: dict, provider, base: 
             "pages": sorted({pages[o] for o in ords}), "section": None,
             "keywords": [str(k).strip().lower() for k in it.get("keywords", []) if str(k).strip()][:10], "source": "ai",
         })
-    return mods[:20] or None
+    return mods[:30] or None
 
 
 # ---------------- 代码侧：BM25 ----------------
@@ -299,6 +300,192 @@ def module_query(m: dict, idx: "SymbolIndex | None" = None, body: str = "") -> l
     return q
 
 
+# ---------------- 代码优先：每个函数/类 → 论文里的对应段落 ----------------
+THIRD_PARTY_DIR = re.compile(r"(?:^|/)(?:third_?party|3rdparty|external|extern|vendor|deps|thirdparty|libs?)/", re.I)
+MIN_SYMBOL_LINES = 4
+MAX_AI_SYMBOLS = 240
+
+
+class PaperIndex:
+    """论文正文的 BM25 索引（段落为单位）：给定一个函数/类，找论文里最像在讲它的段落。"""
+
+    def __init__(self, app: AppContext, paper_id: str):
+        with app.db.session() as conn:
+            rows = conn.execute(
+                "SELECT p.ord, p.page, p.text, p.kind, p.section_id, s.title AS sec FROM passages p LEFT JOIN sections s ON s.id = p.section_id "
+                "WHERE p.paper_id = ? AND p.kind IN ('paragraph', 'caption', 'formula') ORDER BY p.ord", (paper_id,)).fetchall()
+        rows = [r for r in rows if not (r["sec"] and re.search(r"related work|reference|acknowledg|相关工作|参考文献|致谢", r["sec"], re.I))]
+        self.rows = {r["ord"]: dict(r) for r in rows}
+        self.docs: dict[int, Counter] = {}
+        for r in rows:
+            self.docs[r["ord"]] = Counter(tokens(r["text"]) + tokens(r["sec"] or "") * 2)
+        self.n = max(1, len(self.docs))
+        self.avg = sum(sum(c.values()) for c in self.docs.values()) / self.n or 1.0
+        self.df: Counter = Counter()
+        for c in self.docs.values():
+            self.df.update(c.keys())
+
+    def score(self, query: Counter, top: int = 4) -> list[tuple[int, float, list[str]]]:
+        k1, b = 1.5, 0.75
+        res = []
+        for ord_, tf in self.docs.items():
+            dl = sum(tf.values()) or 1
+            sc, hit = 0.0, []
+            for term, qw in query.items():
+                f = tf.get(term, 0)
+                if not f:
+                    continue
+                idf = math.log(1 + (self.n - self.df[term] + 0.5) / (self.df[term] + 0.5))
+                sc += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * dl / self.avg)) * min(qw, 3)
+                hit.append(surface(term))
+            if len(hit) >= 2 or (hit and sc >= 4.0):
+                res.append((ord_, sc, hit))
+        res.sort(key=lambda x: -x[1])
+        return res[:top]
+
+
+def eligible_symbols(idx: "SymbolIndex") -> list[dict]:
+    """要拿去和论文对照的函数/类：作者自己的、非测试、不是拷来的第三方库（整个目录、或一个文件里几百个符号的单头文件库）、不是几行的小函数。"""
+    per_file = Counter(s["path"] for s in idx.syms.values())
+    out = []
+    for s in idx.syms.values():
+        p = s["path"]
+        if s["kind"] not in ("function", "method", "class"):
+            continue
+        if p in idx.test_files or any(p.startswith(d + "/") for d in idx.vendored) or THIRD_PARTY_DIR.search("/" + p) or per_file[p] > 250:
+            continue
+        if s["line_end"] - s["line_start"] + 1 < MIN_SYMBOL_LINES:
+            continue
+        out.append(s)
+    out.sort(key=lambda s: (s["path"], s["line_start"]))
+    return out
+
+
+# 代码里到处都有、和论文内容无关的词（语言关键字、通用动词）：不拿来当匹配依据
+CODE_NOISE = set("if else elif continue break return for while void int const auto true false null none nullptr max min set get size first last "
+                 "follow time control index idx count tmp temp val value data ptr list vector string name type result res init update add remove "
+                 "check make create compute calc free total each next prev current frame".split())
+CODE_NOISE = CODE_NOISE | {stem(w) for w in CODE_NOISE}  # 索引里的词是词干（continue → continu）
+
+
+def symbol_query(idx: "SymbolIndex", pidx: PaperIndex, s: dict) -> Counter:
+    q: Counter = Counter()
+    for t in tokens(s["qualname"]):
+        q[t] += 3
+    for t in tokens(s["name"]):
+        q[t] += 2
+    for t in tokens(s["doc"] or ""):
+        q[t] += 2
+    for t, c in idx.docs.get(s["id"], Counter()).most_common(60):
+        q[t] += 1
+    # 论文里几乎每段都有的词（method、approach）没有区分力
+    return Counter({t: w for t, w in q.items() if t in pidx.df and t not in CODE_NOISE and pidx.df[t] <= max(0.2 * pidx.n, 6)})
+
+
+CODEFIRST_SYSTEM = ("你是论文与代码对应关系的审阅者。下面有若干个代码符号，每个附有几段候选的论文段落（编号 P序号）。"
+                    "对每个符号判断：它是否实现了/对应某一段候选论文内容。输出 JSON："
+                    "{\"links\": [{\"symbol_id\": 整数, \"passage_ord\": 候选里的段落编号整数或 null, \"confidence\": \"likely\"|\"possible\"|\"no\", "
+                    "\"basis\": \"一句话依据，必须点出代码里的具体标识符或步骤，以及论文段落里对应的说法\"}]}。"
+                    "只有代码里有明确证据时才写 likely；只是名字或词语相似写 possible；与论文无关（工具函数、日志、解析等）写 no 且 passage_ord 为 null。"
+                    "passage_ord 只能用候选里给出的编号，不要编造；每个符号只输出一项。")
+
+
+async def judge_batch(app: AppContext, repo: dict, batch: list[tuple[dict, list[tuple[int, float, list[str]]]]], pidx: PaperIndex, cfg, provider) -> dict[int, dict] | None:
+    blocks = []
+    for s, cands in batch:
+        cp = "\n".join(f"  [P{o}]（{pidx.rows[o]['sec'] or ''}）{pidx.rows[o]['text'][:420]}" for o, _sc, _hit in cands)
+        blocks.append(f"symbol_id={s['id']} {s['qualname']} ({s['path']}:{s['line_start']}-{s['line_end']})\n签名：{s['signature']}\n文档：{s['doc'] or '无'}\n{_code_snip(app, repo['id'], s, 14)}\n候选论文段落：\n{cp}")
+    user = "\n\n=====\n".join(blocks)
+    messages = [{"role": "system", "content": CODEFIRST_SYSTEM}, {"role": "user", "content": user}]
+    choice = choose_model(TaskType.METHOD, {**cfg, "mode": "fast"})  # 要逐个函数判断、批次很多：用快速模型，强模型太慢
+    usage_log.record_request(app, task_type="code_associate", model=choice.model, paper_id=repo["paper_id"], passage_ords=sorted({o for _s, c in batch for o, _a, _b in c}), chars_sent=len(user),
+                             includes={"question": False, "selection": False, "notes": False, "supplements": False, "code": True},
+                             summary=f"发送了 {len(batch)} 个函数的签名与开头代码，以及各自的候选论文段落（约 {len(user):,} 字符），用于判断它们和论文哪一段对应")
+    try:
+        res = await provider.complete(choice.model, messages, temperature=0.1, max_tokens=2500, json_mode=True)
+    except LLMError:
+        return None
+    AIService(app)._log_usage("code_associate", choice.model, res.usage, messages, res.text, repo["paper_id"])
+    m = re.search(r"\{.*\}", res.text, re.S)
+    try:
+        items = json.loads(m.group(0)).get("links", []) if m else None
+    except ValueError:
+        return None
+    if items is None:
+        return None
+    return {v["symbol_id"]: v for v in items if isinstance(v, dict) and isinstance(v.get("symbol_id"), int)}
+
+
+def _section_module(pidx: PaperIndex, cache: dict, ord_: int) -> dict:
+    """论文段落所在的章节 → 模块（同一章节的所有关联归到同一个模块名下）。"""
+    r = pidx.rows[ord_]
+    key = r["section_id"]
+    if key not in cache:
+        sec = [x for x in pidx.rows.values() if x["section_id"] == key and x["kind"] == "paragraph"][:6]
+        title = re.sub(r"^\s*\d+(\.\d+)*\.?\s*", "", r["sec"] or "").strip(" .") or f"第 {r['page']} 页"
+        cache[key] = {"name": title[:60], "description": " ".join(x["text"] for x in sec[:3])[:360], "passage_ords": [x["ord"] for x in sec],
+                      "pages": sorted({x["page"] for x in sec}) or [r["page"]], "section": r["sec"], "keywords": [], "source": "code"}
+    return cache[key]
+
+
+async def code_first(app: AppContext, repo: dict, idx: "SymbolIndex", provider, cfg, ctx: JobContext | None = None) -> dict:
+    """读遍仓库里作者自己的函数/类，每个都去论文里找对应的段落。返回 {read, matched, links: [(module, symbol, conf, method, basis, hit, passage_ord)]}。"""
+    pidx = PaperIndex(app, repo["paper_id"])
+    syms = eligible_symbols(idx)
+    cands: dict[int, list] = {}
+    for s in syms:
+        q = symbol_query(idx, pidx, s)
+        if q:
+            got = pidx.score(q, 4)
+            if got:
+                cands[s["id"]] = got
+    by_id = {s["id"]: s for s in syms}
+    links: list[tuple] = []
+    sec_cache: dict = {}
+    verdicts: dict[int, dict] = {}
+    ai_ok = False
+    if provider is not None:
+        # 候选得分高的先送审（上限内），其余只给词法结果
+        order = sorted(cands, key=lambda sid: -cands[sid][0][1])[:MAX_AI_SYMBOLS]
+        batches = [[(by_id[sid], cands[sid]) for sid in order[i:i + 6]] for i in range(0, len(order), 6)]
+        sem = asyncio.Semaphore(3)
+        done = 0
+
+        async def run(b):
+            async with sem:
+                return await judge_batch(app, repo, b, pidx, cfg, provider)
+
+        for coro in asyncio.as_completed([run(b) for b in batches]):
+            got = await coro
+            done += 1
+            if got is not None:
+                ai_ok = True
+                verdicts.update(got)
+            if ctx:
+                ctx.check_cancelled()
+                ctx.progress(0.55 + 0.4 * done / max(1, len(batches)), f"已对照 {min(len(order), done * 6)}/{len(order)} 个函数和论文")
+    matched: set[int] = set()
+    for sid, cl in cands.items():
+        s = by_id[sid]
+        v = verdicts.get(sid)
+        if v is not None:
+            o = v.get("passage_ord")
+            conf = v.get("confidence")
+            if conf in ("likely", "possible") and isinstance(o, int) and o in {c[0] for c in cl}:
+                hit = next(c[2] for c in cl if c[0] == o)
+                basis = str(v.get("basis", ""))[:240]
+                if conf == "likely" and not any(t.lower() in basis.lower() for t in {s["name"], *split_identifier(s["name"])} if len(t) > 2):
+                    conf = "possible"  # 依据里没有点出这个函数自己的标识符：不允许认定
+                links.append((_section_module(pidx, sec_cache, o), s, conf, "llm", basis, hit, o))
+                matched.add(sid)
+            continue  # 模型看过并判了 no / 不匹配：不再用词法结果硬凑
+        o, _sc, hit = cl[0]
+        if len(hit) >= 3:  # 没有模型时，只留词重合较多的
+            links.append((_section_module(pidx, sec_cache, o), s, "possible", "lexical", f"名称/注释/调用名与论文这一节的词重合：{', '.join(hit[:6])}（仅词法匹配，需人工确认）", hit, o))
+            matched.add(sid)
+    return {"read": len(syms), "matched": len(matched), "links": links, "ai": ai_ok}
+
+
 def _code_snip(app: AppContext, repo_id: str, s: dict, n: int = 10) -> str:
     lines = service.file_lines(app, repo_id, s["path"]) or []
     return "\n".join(f"{i}| {lines[i - 1]}" for i in range(s["line_start"], min(s["line_end"], s["line_start"] + n - 1) + 1) if i - 1 < len(lines))
@@ -355,14 +542,16 @@ async def associate(app: AppContext, repo_id: str, ctx: JobContext | None = None
     if provider is not None:
         mods = await ai_modules(app, paper_id, cfg, provider, modules)
         if mods:
-            modules, used_ai = mods, True
+            seen = {re.sub(r"\W+", "", m["name"].lower()) for m in mods}
+            modules, used_ai = mods + [m for m in modules if re.sub(r"\W+", "", m["name"].lower()) not in seen], True  # 模型整理的模块 + 按章节切出的模块
     if not modules:
         raise ApiError("bad_request", "没有在论文里找到可对应的方法章节。")
     idx = SymbolIndex(app, repo_id)
     if not idx.syms:
         raise ApiError("bad_request", "仓库里没有可关联的函数/类。")
     created = 0
-    sem = asyncio.Semaphore(3)  # 各模块的重排互相独立，并行调用以缩短等待
+    sem = asyncio.Semaphore(3)
+    n_modules = len(modules)  # 各模块的重排互相独立，并行调用以缩短等待
 
     async def judge(mod: dict):
         ranked = idx.score(module_query(mod, idx, _module_text(app, paper_id, mod)), 10)
@@ -383,6 +572,12 @@ async def associate(app: AppContext, repo_id: str, ctx: JobContext | None = None
             ctx.check_cancelled()
             ctx.progress(0.1 + 0.85 * done / len(modules), f"已关联 {done}/{len(modules)} 个论文模块")
     order = {m["name"]: i for i, m in enumerate(modules)}
+    try:
+        cf = await code_first(app, repo, idx, provider, cfg, ctx)
+    except ApiError:
+        raise
+    except Exception:  # noqa: BLE001  代码优先只是补充：出错不影响按模块找到的关联
+        cf = {"read": 0, "matched": 0, "links": [], "ai": False}
     judged.sort(key=lambda t: order.get(t[0]["name"], 0))
     with app.db.session() as conn:  # 重新生成时清掉旧的“待确认”，保留用户确认/拒绝过的
         conn.execute("DELETE FROM paper_code_links WHERE repo_id = ? AND status = 'suggested'", (repo_id,))
@@ -422,7 +617,20 @@ async def associate(app: AppContext, repo_id: str, ctx: JobContext | None = None
                      conf, method, dumps({"text": basis, "matched_terms": hit[:10], "also_in": also.get(s["id"], [])}), utcnow()),
                 )
                 created += 1
-    return {"modules": len(modules), "links": created, "ai_used": used_ai}
+    with app.db.session() as conn:
+        have = {(loads(r["module_json"], {}).get("name"), r["symbol_id"]) for r in conn.execute("SELECT module_json, symbol_id FROM paper_code_links WHERE repo_id = ?", (repo_id,)).fetchall()}
+        for mod, s, conf, method, basis, hit, _o in cf["links"]:
+            if (mod["name"], s["id"]) in have:
+                continue
+            have.add((mod["name"], s["id"]))
+            conn.execute(
+                "INSERT INTO paper_code_links(id, paper_id, repo_id, module_json, symbol_id, path, line_start, line_end, confidence, method, basis_json, status, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?, 'suggested', ?)",
+                (new_id(), paper_id, repo_id, dumps({k: mod[k] for k in ("name", "description", "passage_ords", "pages", "section")}), s["id"], s["path"], s["line_start"], s["line_end"],
+                 conf, method, dumps({"text": basis, "matched_terms": hit[:10], "also_in": []}), utcnow()),
+            )
+            created += 1
+    return {"modules": n_modules, "links": created, "ai_used": used_ai or cf["ai"], "symbols_read": cf["read"], "symbols_matched": cf["matched"]}
 
 
 async def handle(ctx: JobContext) -> dict:  # pragma: no cover - 由同步包装调用

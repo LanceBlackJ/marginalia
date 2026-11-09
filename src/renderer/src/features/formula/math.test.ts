@@ -57,3 +57,11 @@ describe('hasMath', () => {
     expect(hasMath('plain')).toBe(false)
   })
 })
+
+describe('没有运算符的短公式', () => {
+  it('$y(t)$、$f(x, y)$、$x, y$ 都当成公式；金额和普通英文句子不受影响', () => {
+    for (const t of ['一条轨迹 $y(t)$ 和 $\\psi(t)$', '$f(x, y)$', '$x, y$', "$x'$"]) expect(normalizeMath(t)).toBe(t)
+    expect(normalizeMath('花了 $5 和 $10')).toBe('花了 \\$5 和 \\$10')
+    expect(normalizeMath('price in $ and then $ more words')).toBe('price in \\$ and then \\$ more words')
+  })
+})

@@ -1,6 +1,6 @@
 # 代码理解接口（F2）
 
-实现：`backend/paperdesk/code/`（静态分析、获取、AI 解释、论文↔代码关联、一致性）与 `backend/paperdesk/api/code.py`。
+实现：`backend/paperdesk/code/`（静态分析、获取、AI 解释、论文↔代码关联）与 `backend/paperdesk/api/code.py`。
 前端：`src/renderer/src/features/code/`、`src/renderer/src/pages/CodePage.tsx`（路由 `#/code/:paperId`）。
 通用约定（Bearer 令牌、错误体 `{error:{code,message}}`、SSE 事件格式、后台任务）见 [API.md](API.md)。
 
@@ -52,17 +52,14 @@
 | PATCH | `/code/links/{id}` `{status}` | 用户确认/拒绝 |
 | POST | `/code/repos/{id}/links` `{module_name, symbol_id, passage_ords?}` | 手动建立关联 |
 | GET | `/code/symbols/{sid}/paper` | 反向：函数 → 论文相关段落与已建关联 |
-| POST / GET | `/code/repos/{id}/consistency` | 任务 / 报告：论文里的超参数与代码里的取值对照，结论 `match/differs/not_found/to_check`，附两边出处 |
-
-一致性的论文侧抽取：规则抽取总是可用；有 AI 时补充抽取，且每条必须满足：①引文逐字出自段落；②取值数字出现在引文里；③引文及其所在句、上一句里出现与参数相符的词（如回放池容量必须出现 replay/memory/buffer）；④区间值（如 `30–50 nodes`）只能对应节点数范围，会被拆成 `nodes_min/nodes_max`，不能当作“图的数量”等单值参数。没通过核对的 AI 抽取项标 `to_check`（待核查），不给“一致/不一致”结论；`paper` 里带 `context`（引文所在上下文）、`check`（`ok/weak`）、`check_note`。
 
 `GET /code/repos/{id}/flow` 返回 `truncated` 与 `truncated_by`（`depth`=超过展开深度，`nodes`=超过节点数上限 `max_nodes`），界面据此说明被截断的原因与怎么看到更多。
 
-关联与一致性只给“候选 + 证据”，不替用户断言“已复现”或“一致”；用户确认前一律标“待确认”。
+关联只给“候选 + 证据”，不替用户断言“已复现”；用户确认前一律标“待确认”。
 
 ## 后台任务类型
 
-`code_fetch`、`code_import`、`code_reanalyze`、`code_associate`、`code_consistency`（均走通用任务系统，可取消、重启后恢复）。
+`code_fetch`、`code_import`、`code_reanalyze`、`code_associate`（均走通用任务系统，可取消、重启后恢复）。
 
 ## 已知限制
 

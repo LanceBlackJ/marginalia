@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Tag } from '@/components/ui'
-import { openExternal } from '@/lib/native'
+import { openPaperBrowser } from '@/lib/native'
 import type { CompareResult } from '@/lib/types.discovery'
 import { openEvidenceInReader } from '@/features/shared/evidenceNav'
 import { CompareMarkdown, EvidenceChip } from './CompareMarkdown'
@@ -172,7 +172,7 @@ export function CompareResultView({ result }: { result: CompareResult }) {
                       href={`https://doi.org/${r.doi}`}
                       onClick={(e) => {
                         e.preventDefault()
-                        void openExternal(`https://doi.org/${r.doi}`)
+                        void openPaperBrowser(`https://doi.org/${r.doi}`)
                       }}
                     >
                       {r.title}

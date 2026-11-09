@@ -1119,10 +1119,45 @@
   gap: var(--sp-lg);
   flex: none;
   min-height: 72px;
-  max-height: 150px;
+  max-height: 46%;
   padding: var(--sp-md) var(--sp-lg);
   overflow: auto;
   border-top: 1px solid var(--border);
+}
+.pd-snip-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.pd-snip-code {
+  max-height: 56vh;
+  padding: 6px 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.pd-snip-more {
+  padding: 4px 12px 0;
+}
+.pd-flow-code {
+  margin-top: var(--sp-sm);
+  padding: 6px 0;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  background: var(--bg);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.pd-flow-code:hover {
+  border-color: var(--border-strong);
+}
+.pd-flow-code-more {
+  padding: 4px 12px 0;
 }
 .pd-flow-detail-main {
   flex: 1;
@@ -1235,8 +1270,7 @@
 }
 
 /* ---------- 论文 ↔ 代码 ---------- */
-.pd-map,
-.pd-cons-inner {
+.pd-map {
   max-width: 1080px;
   margin: 0 auto;
   padding: var(--sp-xl) var(--gutter) var(--sp-4xl);
@@ -1506,86 +1540,6 @@
 }
 .pd-ov-entries li[data-vendored] .pd-ov-mono {
   color: var(--text-2);
-}
-
-/* ---------- 一致性 ---------- */
-.pd-cons-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--fs-small);
-}
-.pd-cons-table th {
-  padding: 0 var(--sp-md) var(--sp-sm) 0;
-  border-bottom: 1px solid var(--border-strong);
-  color: var(--text-2);
-  font-size: var(--fs-aux);
-  font-weight: 500;
-  text-align: left;
-}
-.pd-cons-table td {
-  padding: var(--sp-md) var(--sp-md) var(--sp-md) 0;
-  border-bottom: 1px solid var(--border);
-  vertical-align: top;
-}
-.pd-cons-table th:nth-child(1) {
-  width: 15%;
-}
-.pd-cons-table th:nth-child(2) {
-  width: 25%;
-}
-.pd-cons-table th:nth-child(4) {
-  width: 24%;
-}
-.pd-cons-param {
-  font-weight: 600;
-}
-.pd-cons-val {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-}
-.pd-cons-quote {
-  margin: var(--sp-xs) 0 0;
-  padding-left: var(--sp-sm);
-  border-left: 1px solid var(--border-strong);
-  color: var(--text-2);
-}
-.pd-cons-code {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.pd-cons-code li + li {
-  margin-top: var(--sp-sm);
-}
-.pd-cons-code li > span {
-  display: block;
-}
-.pd-cons-badge {
-  display: inline-block;
-  padding: 0 7px;
-  border: 1px solid transparent;
-  border-radius: var(--r-sm);
-  font-weight: 600;
-}
-.pd-cons-badge[data-rel='differs'] {
-  border-color: var(--text);
-}
-.pd-cons-badge[data-rel='to_check'] {
-  color: var(--text-2);
-  border-style: dashed;
-  font-weight: 500;
-}
-.pd-cons-badge[data-rel='not_found'] {
-  color: var(--text-2);
-  font-weight: 500;
-}
-.pd-cons-caveats {
-  margin: var(--sp-xs) 0 0;
-  padding-left: 16px;
-  color: var(--text-2);
-}
-.pd-cons-row[data-rel='match'] .pd-cons-param {
-  font-weight: 500;
 }
 
 /* ===== 版式重做：页面头 / 视图标签 / 面板开关 / 视图骨架 / 步骤分区 ===== */

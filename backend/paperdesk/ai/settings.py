@@ -17,6 +17,8 @@ DEFAULTS: dict[str, Any] = {
     "strong_model": "MiniMax-M2.7-bf16",
     # 视觉模型：公式转写、框架图/图表/表格抽取。Qwen3-VL-32B 在网关上实测能把公式截图准确转写成 LaTeX（约 3 秒）。
     "vision_model": "Qwen3-VL-32B-Instruct",
+    # 第二视觉模型：行内公式识别时和主视觉模型并行转写、互相对照（一致才放心采用，不一致让模型对着原图裁决）。默认留空（只用一个）；可填 Qwen2-VL-72B-Instruct。
+    "vision_model_2": "",
     # 嵌入模型：语义向量检索（多语言，中文问题可直接检索英文论文）。留空或关闭 semantic_retrieval 则只用关键词检索。
     "embedding_model": "bge-m3",
     "semantic_retrieval": True,
@@ -35,6 +37,12 @@ GATEWAY_PRICES: dict[str, dict[str, float]] = {
     "DeepSeek-V4-Flash-0731-W8A8": {"input": 2.0, "output": 8.0},  # 快速模型
     "MiniMax-M2.7-bf16": {"input": 2.097, "output": 8.388},  # 强模型
     "Qwen3-VL-32B-Instruct": {"input": 0.5, "output": 1.997},  # 视觉模型
+    # 2026-11-07 用户给的网关价目表里的其它视觉/多模态模型（第二视觉模型、备选）
+    "Qwen2-VL-72B-Instruct": {"input": 1.997, "output": 7.988},
+    "Qwen3-VL-8B-Instruct": {"input": 0.25, "output": 0.998},
+    "Qwen3.5-122B-A10B": {"input": 0.8, "output": 6.4},
+    "Qwen3.5-35B-A3B": {"input": 0.998, "output": 3.994},
+    "Qwen3.5-9B": {"input": 0.5, "output": 1.997},
     "bge-m3": {"input": 0.25, "output": 0.998},  # 嵌入模型（只按输入计量）
 }
 PROVIDER_KINDS = ("openai_compatible", "anthropic")
@@ -81,7 +89,7 @@ def save_settings(app: AppContext, incoming: dict) -> dict:
     if not cur["base_url"].startswith(("http://", "https://")):
         raise ApiError("bad_request", "API 地址必须以 http:// 或 https:// 开头")
     cur["semantic_retrieval"] = bool(cur.get("semantic_retrieval", True))
-    for k in ("fast_model", "strong_model", "vision_model", "embedding_model"):
+    for k in ("fast_model", "strong_model", "vision_model", "vision_model_2", "embedding_model"):
         cur[k] = str(cur[k] or "").strip()
     try:
         cur["timeout_s"] = max(5, min(600, int(cur["timeout_s"])))

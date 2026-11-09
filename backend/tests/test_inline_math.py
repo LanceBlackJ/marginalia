@@ -61,3 +61,64 @@ def test_scripts_without_a_base_or_after_an_operator_are_rejected():
 def test_plain_english_word_inside_a_cluster_is_rejected():
     spans = [sp("x", 10, "Whitney-BookItalic", italic=True), sp("hello", 20), sp("y", 40, "Whitney-BookItalic", italic=True)]
     assert im.build_tex(spans, BODY, BASE) is None
+
+
+def test_dot_and_ddot_accents_are_attached_to_their_variable_whatever_the_extraction_order():
+    it = "Whitney-BookItalic"
+    # “s˙(t) = b(s)”：点在变量之后
+    after = [sp("s", 10, it, italic=True), sp("˙", 11, "CMR10"), sp("(", 16), sp("t", 19, it, italic=True), sp(") = ", 24), sp("b", 33, it, italic=True), sp("(", 38), sp("s", 41, it, italic=True), sp(")", 46)]
+    spans = im.attach_accents(after, BODY)
+    assert [s.text for s in spans if not s.accent][:1] == ["("] and spans[0].accent == "\\dot" and len(spans) == 8
+    assert tex_of(spans) == "\\dot{s}(t) = b(s"  # 末尾的右括号由 math_runs 从后面的正文里并回来
+    # 取原文：重音片段要回来，和正文里提取出的文字一致
+    cl = im.line_clusters(spans, BODY, BASE)[0]
+    assert sorted(s.text for s in im.expand_members(cl))[:0] == [] and {"s", "˙"} <= {s.text for s in im.expand_members(cl)}  # 排序由 _line_from 按 x 完成
+    # “¨s(t)”：双点在变量之前
+    before = [sp("¨", 8, "CMR10"), sp("s", 10, it, italic=True), sp("(", 16), sp("t", 19, it, italic=True), sp(")", 24)]
+    assert tex_of(im.attach_accents(before, BODY)) == "\\ddot{s}(t"
+    # 离变量太远的重音不乱并
+    far = [sp("s", 10, it, italic=True), sp("˙", 40, "CMR10")]
+    assert [s.text for s in im.attach_accents(far, BODY)] == ["s", "˙"]
+
+
+def test_two_closing_parentheses_that_ended_up_in_the_following_body_text_are_taken_back():
+    from paperdesk.parsing import layout
+    from paperdesk.parsing.pdf_parser import math_runs
+
+    it = "Whitney-BookItalic"
+    spans = [sp("trajectories ", 0), sp("y", 60, it, italic=True), sp("r", 64, it, size=5.6, base=BASE + 2.3, italic=True),
+             sp("(", 68), sp("s", 71, it, italic=True), sp("(", 76), sp("t", 79, it, italic=True), sp("))", 84), sp(".", 90)]
+    ln = layout._line_from(spans)
+    b = layout.Block(page=1, x0=0, y0=0, x1=100, y1=10, text=ln.text, size=BODY, bold=0, nlines=1, lines=[ln])
+    runs = math_runs(b)
+    assert runs and runs[0]["tex"] == "y_{r}(s(t))" and runs[0]["src"].startswith("yr(") and runs[0]["src"].endswith("))"), runs
+
+
+def test_norm_bars_in_a_symbol_font_are_recognised():
+    it = "Whitney-BookItalic"
+    spans = [sp("\u2225", 10, "CMSY10"), sp("p", 14, "CMMIB10", italic=True), sp("(", 20), sp("t", 23, "CMMI10", italic=True), sp(")", 28), sp("\u2225", 32, "CMSY10")]
+    cl = im.line_clusters(spans, BODY, BASE)
+    assert len(cl) == 1
+    tex = im.build_tex(cl[0], BODY, BASE)
+    assert tex is not None and tex.replace(" ", "") == chr(92) + "Vertp(t)" + chr(92) + "Vert", tex
+
+
+def test_prose_line_that_is_mostly_inline_math_stays_in_its_paragraph():
+    """“points are defined as B ≜ {b(s_i) | …, N −” 数学符号占大半，但它是一句话里的行内公式：不能被切成独立公式块，
+    否则换行后剩下的 “1}, for simplicity…” 会成为下一段的开头。"""
+    from paperdesk.parsing import layout
+
+    def line(base, parts):
+        spans, x = [], 40.0
+        for text, font, is_math in parts:
+            w = 5.0 * len(text)
+            spans.append(Span(x, base - 8, x + w, base + 2, base, text, 8.0, False, is_math, font, is_math))
+            x += w + 1
+        return layout._line_from(spans)
+
+    first = line(100, [("the discretisation ", "Whitney-Book", False), ("points are defined as ", "Whitney-Book", False),
+                       ("B", "CMMI10", True), ("≜", "CMSY10", True), ("{b(s", "CMMI10", True), ("i", "CMMI7", True),
+                       (")|s", "CMMI10", True), ("i", "CMMI7", True), ("=ih,i=0,1,N−", "CMR10", True)])
+    second = line(111, [("1},", "CMR10", True), (" for simplicity, we denote ", "Whitney-Book", False), ("b", "CMMI10", True), ("i", "CMMI7", True)])
+    blocks = layout.segment_paragraphs([first, second], 1, 8.0)
+    assert [b.kind for b in blocks] == ["paragraph"] and len(blocks) == 1, [(b.kind, b.text) for b in blocks]

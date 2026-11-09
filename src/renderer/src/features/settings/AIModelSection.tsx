@@ -15,6 +15,7 @@ interface Draft {
   fast_model: string
   strong_model: string
   vision_model: string
+  vision_model_2: string
   mode: ModelMode
   timeout_s: string
   max_retries: string
@@ -39,6 +40,7 @@ function toDraft(s: AISettings): Draft {
     fast_model: s.fast_model,
     strong_model: s.strong_model,
     vision_model: s.vision_model,
+    vision_model_2: s.vision_model_2 ?? '',
     mode: s.mode,
     timeout_s: String(s.timeout_s),
     max_retries: String(s.max_retries),
@@ -61,7 +63,7 @@ function num(text: string, label: string, opts: { min?: number; max?: number; in
 
 function toPayload(d: Draft): Partial<AISettings> {
   const prices: AISettings['price_per_mtok'] = {}
-  const models = [d.fast_model, d.strong_model, d.vision_model].map((m) => m.trim()).filter(Boolean)
+  const models = [d.fast_model, d.strong_model, d.vision_model, d.vision_model_2].map((m) => m.trim()).filter(Boolean)
   for (const model of models) {
     const p = d.prices[model]
     if (!p || (p.input.trim() === '' && p.output.trim() === '')) continue
@@ -73,6 +75,7 @@ function toPayload(d: Draft): Partial<AISettings> {
     fast_model: d.fast_model.trim(),
     strong_model: d.strong_model.trim(),
     vision_model: d.vision_model.trim(),
+    vision_model_2: d.vision_model_2.trim(),
     mode: d.mode,
     timeout_s: num(d.timeout_s, '请求超时', { min: 5, max: 600 }),
     max_retries: num(d.max_retries, '重试次数', { min: 0, max: 6, int: true }),
@@ -151,7 +154,7 @@ export function AIModelSection() {
 
   const set = (patch: Partial<Draft>): void => setDraft({ ...draft, ...patch })
   const dirty = JSON.stringify(draft) !== JSON.stringify(toDraft(settings))
-  const modelNames = Array.from(new Set([draft.fast_model, draft.strong_model, draft.vision_model].map((m) => m.trim()).filter(Boolean)))
+  const modelNames = Array.from(new Set([draft.fast_model, draft.strong_model, draft.vision_model, draft.vision_model_2].map((m) => m.trim()).filter(Boolean)))
 
   const save = async (): Promise<void> => {
     setSaveError(null)
@@ -284,6 +287,7 @@ export function AIModelSection() {
           <Field label="快速模型">{(id) => <Input id={id} value={draft.fast_model} onChange={(v) => set({ fast_model: v })} placeholder="模型名称" />}</Field>
           <Field label="强模型">{(id) => <Input id={id} value={draft.strong_model} onChange={(v) => set({ strong_model: v })} placeholder="模型名称" />}</Field>
           <Field label="视觉模型">{(id) => <Input id={id} value={draft.vision_model} onChange={(v) => set({ vision_model: v })} placeholder="可留空" />}</Field>
+          <Field label="第二视觉模型">{(id) => <Input id={id} value={draft.vision_model_2} onChange={(v) => set({ vision_model_2: v })} placeholder="可留空：行内公式用两个模型互相对照" />}</Field>
         </div>
       </SettingRow>
 

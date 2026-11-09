@@ -13,6 +13,13 @@ export interface AppInfo {
   platform: string
 }
 
+/** 论文下载浏览器里截下来的一份 PDF（已存到临时目录，等待导入） */
+export interface PaperDownload {
+  path: string
+  filename: string
+  url: string
+}
+
 export interface PaperDeskBridge {
   getBackendInfo(): Promise<BackendInfo>
   getBackendStatus(): Promise<BackendStatus>
@@ -31,6 +38,9 @@ export interface PaperDeskBridge {
   clearS2Key(): Promise<void>
   hasS2Key(): Promise<boolean>
   openExternal(url: string): Promise<void>
+  /** 打开内置的论文下载浏览器（可登录账号）；页面里点到的 PDF 会被截下来，通过 onPaperDownloaded 通知导入 */
+  openPaperBrowser(url: string): Promise<void>
+  onPaperDownloaded(cb: (d: PaperDownload) => void): () => void
   getAppInfo(): Promise<AppInfo>
 }
 
@@ -49,5 +59,7 @@ export const IPC = {
   clearS2Key: 'paperdesk:s2key:clear',
   hasS2Key: 'paperdesk:s2key:has',
   openExternal: 'paperdesk:shell:open-external',
+  openPaperBrowser: 'paperdesk:paper-browser:open',
+  paperDownloaded: 'paperdesk:paper-browser:downloaded',
   appInfo: 'paperdesk:app:info'
 } as const

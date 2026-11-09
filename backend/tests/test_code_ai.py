@@ -231,98 +231,6 @@ def _add_paper_params(api):
             conn.execute("INSERT INTO passages(paper_id, ord, page, kind, text, x0,y0,x1,y1) VALUES (?,?,?,?,?,0,0,1,1)", (api.pid, ord_, page, "paragraph", text))
 
 
-def test_consistency_lists_sources_and_never_picks_a_winner(cenv):
-    api = cenv
-    _add_paper_params(api)
-    job = api.wait_job(api.post(f"/code/repos/{api.rid}/consistency").json()["job_id"])  # 未配置 AI：只用正则
-    assert job["status"] == "completed" and job["result"]["ai_used"] is False
-    rep = api.get(f"/code/repos/{api.rid}/consistency").json()
-    assert rep["status"] == "ready"
-    items = {i["parameter"]: i for i in rep["report"]["items"]}
-    assert items["learning_rate"]["relation"] == "match" and items["batch_size"]["relation"] == "match"
-    assert items["nodes_min"]["relation"] == "match" and items["nodes_max"]["relation"] == "match"
-    assert items["learning_rate"]["paper"]["page"] == 3 and "0.0001" in items["learning_rate"]["paper"]["quote"]
-    lr_code = items["learning_rate"]["code"]
-    assert {c["origin"] for c in lr_code} >= {"argparse", "kwarg"} and all(c["path"] and c["line"] > 0 for c in lr_code)
-    # 不同：列出各自来源与可能的原因，不下结论
-    n = items["n_step"]
-    assert n["relation"] == "differs" and n["paper"]["value"] == "3" and any(c["value"] == "5" and c["path"] == "train.py" for c in n["code"])
-    assert "不一定是冲突" in n["note"] and len(n["caveats"]) >= 3 and not any("错" in c for c in n["caveats"])
-    assert items["num_graphs"]["relation"] == "not_found" and items["num_graphs"]["code"] == []
-    assert rep["report"]["items"][0]["relation"] == "differs"  # “不同”排在最前
-    assert rep["report"]["summary"]["differs"] >= 1 and "不判断哪一方正确" in rep["report"]["note"]
-
-
-def test_consistency_ai_claims_need_real_quotes(cenv):
-    api = cenv
-    api.configure_ai()
-    _add_paper_params(api)
-    job = api.wait_job(api.post(f"/code/repos/{api.rid}/consistency").json()["job_id"])
-    assert job["status"] == "completed" and job["result"]["ai_used"] is True
-    items = {i["parameter"]: i for i in api.get(f"/code/repos/{api.rid}/consistency").json()["report"]["items"]}
-    assert "embedding_dim" in items and items["embedding_dim"]["paper"]["method"] in ("ai", "regex")
-    assert "momentum" not in items  # 模型伪造的引文不在原段落里 → 丢弃
-
-
-def test_consistency_ai_claims_are_checked_against_context(cenv):
-    """回归（真实网关上的两个问题）：节点数区间不能被当成“图的数量”；引文里没有参数名的数，要靠上下文核对，核对不过只能“待核查”。"""
-    api = cenv
-    api.configure_ai()
-    _add_paper_params(api)
-    extra = [
-        (9201, 4, "During training, samples are stored into the experience replay buffer, a queue that keeps the most recent M tuples. In our calculations, we chose M = 50,000. The rest is unchanged."),
-        (9202, 4, "In the ablation experiment we used a very small value. For this experiment, we set M = 7 for the ablation runs."),
-    ]
-    with api.ctx.db.session() as conn:
-        for ord_, page, text in extra:
-            conn.execute("INSERT INTO passages(paper_id, ord, page, kind, text, x0,y0,x1,y1) VALUES (?,?,?,?,?,0,0,1,1)", (api.pid, ord_, page, "paragraph", text))
-    job = api.wait_job(api.post(f"/code/repos/{api.rid}/consistency").json()["job_id"])
-    assert job["status"] == "completed" and job["result"]["ai_used"] is True
-    rep = api.get(f"/code/repos/{api.rid}/consistency").json()["report"]
-    rows = rep["items"]
-    # 区间 30-50 被拆成 nodes_min/nodes_max（与规则抽取合并），不再出现“num_graphs = 30-50”这种错配
-    assert not any(i["parameter"] == "num_graphs" and i["paper"]["value"] == "30-50" for i in rows)
-    assert not any(i["parameter"] == "num_training_graphs" for i in rows)
-    by = {(i["parameter"], i["paper"]["value"]): i for i in rows}
-    ok = by[("replay_size", "50000")]  # 上一句有 experience replay buffer → 通过核对，并带上下文
-    assert ok["paper"]["check"] == "ok" and "replay buffer" in ok["paper"]["context"] and ok["relation"] != "to_check"
-    weak = by[("replay_size", "7")]  # 上下文里没有 replay/memory/buffer → 待核查，不给一致/不一致结论
-    assert weak["relation"] == "to_check" and weak["paper"]["check"] == "weak" and "没能通过核对" in weak["note"]
-    assert rep["summary"]["to_check"] >= 1
-
-
-def test_check_ai_claim_unit():
-    from paperdesk.code.consistency import check_ai_claim, context_window
-
-    w = "30–50 nodes were used. FINDER was trained over 200,000 graphs of 30–50 nodes"
-    assert check_ai_claim("num_training_graphs", "30-50", "graphs of 30–50 nodes", w) == [("nodes_min", "30", "ok", None), ("nodes_max", "50", "ok", None)]
-    r = check_ai_claim("batch_size", "32-64", "batch size of 32-64", "batch size of 32-64 was tried")
-    assert r[0][2] == "weak" and "区间" in r[0][3]
-    r = check_ai_claim("learning_rate", "0.001", "a learning rate of 0.01", "a learning rate of 0.01")
-    assert r[0][2] == "weak" and "没有出现这个数值" in r[0][3]
-    r = check_ai_claim("replay_size", "7", "we set M = 7", "In the ablation we set M = 7")
-    assert r[0][2] == "weak"
-    assert check_ai_claim("replay_size", "50000", "we chose M = 50,000", "the replay buffer keeps M tuples. we chose M = 50,000.")[0][2] == "ok"
-    assert check_ai_claim("some_new_param", "3", "uses 3 heads", "uses 3 heads")[0][2] == "ok"  # 不认识的参数名：只核对数值是否出现在引文里
-    text = "First sentence. The replay buffer keeps M tuples. In our calculations, we chose M = 50,000. Next one."
-    win = context_window(text, "we chose M = 50,000")
-    assert "replay buffer" in win and "Next one" not in win and win.startswith("The replay buffer")
-    assert context_window(text, "not in the text") == "not in the text"
-
-
-def test_compare_does_not_conclude_on_unchecked_claims():
-    from paperdesk.code.consistency import compare
-
-    claims = [
-        {"name": "replay_size", "value": "7", "ord": 1, "page": 4, "quote": "we set M = 7", "context": "x", "method": "ai", "check": "weak", "check_note": "无上下文"},
-        {"name": "replay_size", "value": "50000", "ord": 2, "page": 4, "quote": "M = 50,000", "context": "replay buffer", "method": "ai", "check": "ok", "check_note": None},
-    ]
-    params = [{"path": "a.py", "line": 3, "name": "MEMORY_SIZE", "value": "500000", "origin": "constant", "context": ""}]
-    items = compare(claims, params, {"commit_date": None}, 2020)
-    rel = {i["paper"]["value"]: i["relation"] for i in items}
-    assert rel == {"7": "to_check", "50000": "differs"}
-
-
 def test_flow_reports_why_it_was_truncated(cenv):
     api = cenv
     flow = api.get(f"/code/repos/{api.rid}/flow", params={"max_depth": 1}).json()
@@ -337,7 +245,6 @@ def test_code_ai_endpoints_require_ready_repo(cenv):
 
     rid2 = service.create_repo(api.ctx, api.pid, origin="folder")
     assert api.post(f"/code/repos/{rid2}/associate").status_code == 409
-    assert api.post(f"/code/repos/{rid2}/consistency").status_code == 409
     assert api.get(f"/code/repos/{rid2}/flow").status_code == 404
 
 

@@ -143,3 +143,17 @@ def test_local_matching_uses_function_bodies_and_whole_section_text():
     ranked = idx.score(module_query({"name": "Low-rank update", "keywords": [], "description": ""}, idx, text), 3)
     assert ranked and ranked[0][0] == 1
     assert {"lora", "scale"} & set(ranked[0][2]) or {"lora", "scaling"} & set(ranked[0][2])
+
+
+def test_vendored_single_header_and_tiny_symbols_are_not_paired_with_the_paper():
+    from paperdesk.code.associate import eligible_symbols
+
+    class Idx:
+        vendored: set = set()
+        test_files: set = set()
+        syms = {i: {"id": i, "path": "src/json.hpp", "kind": "function", "name": f"f{i}", "qualname": f"f{i}", "line_start": 1, "line_end": 20} for i in range(300)}
+
+    Idx.syms[1000] = {"id": 1000, "path": "src/planner.cpp", "kind": "function", "name": "plan", "qualname": "plan", "line_start": 1, "line_end": 30}
+    Idx.syms[1001] = {"id": 1001, "path": "src/planner.cpp", "kind": "method", "name": "get", "qualname": "A.get", "line_start": 40, "line_end": 41}  # 两行的小函数
+    Idx.syms[1002] = {"id": 1002, "path": "third_party/x/y.cpp", "kind": "function", "name": "z", "qualname": "z", "line_start": 1, "line_end": 30}
+    assert [s["id"] for s in eligible_symbols(Idx)] == [1000]

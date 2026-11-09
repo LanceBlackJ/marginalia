@@ -213,9 +213,10 @@ def start_auto(app: AppContext, paper_id: str) -> dict:
     cfg = ai_settings.public_settings(app)
     started: dict[str, str | None] = {}
     if _vision_ready(cfg):
-        from ..vision import formula_batch, table_batch
+        from ..vision import formula_batch, inline_math_ai, table_batch
 
-        for name, fn in (("formulas", lambda: formula_batch.enqueue(app, paper_id)), ("tables", lambda: table_batch.start(app, paper_id))):
+        for name, fn in (("formulas", lambda: formula_batch.enqueue(app, paper_id)), ("tables", lambda: table_batch.start(app, paper_id)),
+                         ("inline_math", lambda: inline_math_ai.enqueue(app, paper_id))):
             try:
                 started[name] = fn()
             except ApiError:

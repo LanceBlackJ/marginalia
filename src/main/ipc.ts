@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } f
 import { IPC, type AppInfo, type BackendInfo, type BackendStatus } from '../shared/bridge'
 import type { BackendManager } from './backend'
 import type { SecretStore } from './secrets'
+import { isHttpUrl, openPaperBrowser } from './paperBrowser'
 
 export const API_KEY_NAME = 'ai_api_key'
 export const OPENALEX_KEY_NAME = 'openalex_api_key'
@@ -181,6 +182,14 @@ export function registerIpc(ctx: IpcContext): void {
       }
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:' && parsed.protocol !== 'mailto:') throw new Error('仅允许打开 http、https 和 mailto 链接')
       await shell.openExternal(parsed.toString())
+    })
+  )
+
+  ipcMain.handle(
+    IPC.openPaperBrowser,
+    guard((_e, url: unknown) => {
+      const u = typeof url === 'string' && isHttpUrl(url) ? url : ''
+      openPaperBrowser(u, ctx.getWindow)
     })
   )
 

@@ -404,6 +404,8 @@ export interface AISettings {
   fast_model: string
   strong_model: string
   vision_model: string
+  /** 第二视觉模型：行内公式识别时和主视觉模型并行转写、互相对照；留空则只用一个 */
+  vision_model_2: string
   mode: ModelMode
   timeout_s: number
   max_retries: number

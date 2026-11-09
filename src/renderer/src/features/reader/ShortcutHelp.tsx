@@ -5,6 +5,7 @@ export const SHORTCUTS: Array<{ keys: string; what: string }> = [
   { keys: 'J / K', what: '向下 / 向上翻一屏的 80%' },
   { keys: '[ / ]', what: '上一节 / 下一节' },
   { keys: '/ 或 Ctrl+F', what: '在论文中搜索' },
+  { keys: 'Alt + ←', what: '回到跳转之前的位置（点了目录、引用、书签之后）' },
   { keys: 'T', what: '切换 文字 → 对照 → 译文' },
   { keys: 'S', what: '切换 文字 / 并排 / PDF' },
   { keys: 'F', what: '专注模式，Esc 退出，鼠标移到顶部边缘可呼出顶栏' },

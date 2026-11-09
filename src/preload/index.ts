@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type BackendStatus, type PaperDeskBridge } from '../shared/bridge'
+import { IPC, type BackendStatus, type PaperDeskBridge, type PaperDownload } from '../shared/bridge'
 
 const bridge: PaperDeskBridge = {
   getBackendInfo: () => ipcRenderer.invoke(IPC.backendInfo),
@@ -22,6 +22,14 @@ const bridge: PaperDeskBridge = {
   clearS2Key: () => ipcRenderer.invoke(IPC.clearS2Key),
   hasS2Key: () => ipcRenderer.invoke(IPC.hasS2Key),
   openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
+  openPaperBrowser: (url) => ipcRenderer.invoke(IPC.openPaperBrowser, url),
+  onPaperDownloaded(cb) {
+    const handler = (_e: unknown, d: PaperDownload): void => cb(d)
+    ipcRenderer.on(IPC.paperDownloaded, handler)
+    return () => {
+      ipcRenderer.removeListener(IPC.paperDownloaded, handler)
+    }
+  },
   getAppInfo: () => ipcRenderer.invoke(IPC.appInfo)
 }
 

@@ -80,6 +80,9 @@ class Span:
     font: str
     math: bool
     cls: str = "F"  # L / R / F
+    # 行内公式还原：这个片段（一个变量）头上的重音（\dot 等），以及并进来的原始片段（重音片段 + 变量本身，还原正文里的原文用）
+    accent: str = ""
+    members: list = field(default_factory=list)
 
 
 @dataclass
@@ -605,7 +608,7 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
         else:
             dy = ln.baseline - prev.baseline
             lead = _leading_for(leading_tab, ln.size)
-            is_math, prev_math = ln.math >= 0.45, prev.math >= 0.45
+            is_math, prev_math = ln.math >= 0.45 and not _prosey(ln), prev.math >= 0.45 and not _prosey(prev)
             if ln.cls != prev.cls:
                 brk = True
             elif abs(dy) < 0.3 * lead and ln.x0 > prev.x1 + 1:
@@ -644,6 +647,16 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
     return blocks
 
 
+_PROSE_WORD = re.compile(r"[A-Za-z]{3,}")
+
+
+def _prosey(ln: Line) -> bool:
+    """这一行虽然数学符号占大半，但开头或中间夹着连续的英文正文（“points are defined as B ≜ {…”）：是一句话里的行内公式，
+    不是独立公式。不这样判断，整行会被切成“公式块”，换行后剩下的 “1}, for simplicity…” 就成了下一段的开头。"""
+    words = _PROSE_WORD.findall(" ".join(s.text for s in ln.spans if not s.math))
+    return len(words) >= 3
+
+
 def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
     text_parts: list[str] = []
     for ln in lines:
@@ -665,7 +678,7 @@ def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
         page_no, min(l.x0 for l in lines), min(l.y0 for l in lines), max(l.x1 for l in lines), max(l.y1 for l in lines),
         text, size, bold, len(lines), lines[0].cls, lines=lines,
     )
-    if math >= 0.45:
+    if math >= 0.45 and not (len(lines) == 1 and _prosey(lines[0])):
         blk.kind = "formula"
         m = EQ_NUMBER_RE.search(text)
         if m:

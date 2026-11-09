@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
-import { Sparkles } from 'lucide-react'
+import { ArrowLeft, Sparkles } from 'lucide-react'
 import { Button, Dialog, EmptyState, Input, Menu, Skeleton, type MenuItem } from '@/components/ui'
 import { deriveTarget, fmtBytes, lineRange, pathBase, ROLE_LABEL, targetLabel } from './codeUtils'
 import { useCodeStore } from './codeStore'
@@ -66,6 +66,8 @@ export function CodeViewer() {
   const loading = useCodeStore((s) => s.fileLoading)
   const error = useCodeStore((s) => s.fileError)
   const openPath = useCodeStore((s) => s.openPath)
+  const flowReturn = useCodeStore((s) => s.flowReturn)
+  const backFromCode = useCodeStore((s) => s.backFromCode)
   const repoId = useCodeStore((s) => s.repoId)
   const highlight = useCodeStore((s) => s.highlight)
   const lineSel = useCodeStore((s) => s.lineSel)
@@ -163,11 +165,16 @@ export function CodeViewer() {
   return (
     <div className="pd-code-viewer">
       <div className="pd-code-head">
+        {flowReturn && (
+          <Button size="sm" icon={<ArrowLeft size={14} />} onClick={backFromCode} title={`回到${flowReturn.tab === 'flow' ? '运行流程' : '论文 ↔ 代码'}：${flowReturn.label}`}>
+            {flowReturn.tab === 'flow' ? '返回运行流程' : '返回论文 ↔ 代码'}
+          </Button>
+        )}
         <div className="pd-code-path pd-ellipsis" title={file.path}>
           {file.path.split('/').pop()}
         </div>
         <div className="pd-code-meta pd-aux pd-muted">
-          {file.language ?? '纯文本'} · {file.lines} 行 · {fmtBytes(file.size)} · {ROLE_LABEL[file.role]}
+          {file.preview ? `${binaryKind(file.path)} · ${fmtBytes(file.size)}` : `${file.language ?? '纯文本'} · ${file.lines} 行 · ${fmtBytes(file.size)} · ${ROLE_LABEL[file.role]}`}
         </div>
         <div className="pd-spacer" />
         {sel && (

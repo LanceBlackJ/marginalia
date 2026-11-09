@@ -39,6 +39,9 @@ export function Composer() {
   const pending = useInsightStore((s) => s.pending)
   const ask = useInsightStore((s) => s.ask)
   const stop = useInsightStore((s) => s.stop)
+  const queue = useInsightStore((s) => s.queue)
+  const removeQueued = useInsightStore((s) => s.removeQueued)
+  const sendQueuedNow = useInsightStore((s) => s.sendQueuedNow)
   const askWeb = usePrefs((s) => s.askWeb)
   const setPrefs = usePrefs((s) => s.set)
 
@@ -87,7 +90,7 @@ export function Composer() {
   const [files, setFiles] = useState<Attach[]>([])
   const [dragging, setDragging] = useState(false)
   const pickRef = useRef<HTMLInputElement>(null)
-  const canSend = (text.trim().length > 0 || files.length > 0) && !streaming
+  const canSend = text.trim().length > 0 || files.length > 0 // 上一条还在生成时也能发：会排在队列里，等它答完自动发出
 
   const addFiles = async (list: File[]): Promise<void> => {
     if (list.length === 0) return
@@ -237,6 +240,24 @@ export function Composer() {
           }
         }}
       >
+        {queue.length > 0 && (
+          <div className="pd-queue" aria-label="排队中的提问">
+            {queue.map((q, i) => (
+              <div key={q.id} className="pd-queue-item">
+                <span className="pd-queue-tag">{streaming ? `排队 ${i + 1}` : '待发送'}</span>
+                <span className="pd-ellipsis" title={q.input.question}>{truncate(q.input.question, 60)}</span>
+                {!streaming && i === 0 && (
+                  <button type="button" className="pd-link" onClick={sendQueuedNow}>
+                    现在发送
+                  </button>
+                )}
+                <button type="button" aria-label="取消这条排队的提问" onClick={() => removeQueued(q.id)}>
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {files.length > 0 && (
           <div className="pd-attach-row">
             {files.map((f) => (
@@ -298,10 +319,17 @@ export function Composer() {
             }}
           />
           <span className="pd-spacer" />
-          {streaming ? (
+          {streaming && (
             <Tooltip content="停止生成">
               <button type="button" className="pd-send pd-send--stop" onClick={stop} aria-label="停止生成">
                 <Square size={12} />
+              </button>
+            </Tooltip>
+          )}
+          {streaming && !canSend ? null : streaming ? (
+            <Tooltip content="排队 · 上一条答完后自动发送 · Enter">
+              <button type="button" className="pd-send" onClick={send} aria-label="排队发送">
+                <ArrowUp size={14} />
               </button>
             </Tooltip>
           ) : (

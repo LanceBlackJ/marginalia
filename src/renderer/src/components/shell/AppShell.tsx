@@ -4,7 +4,7 @@ import { PageBoundary } from '@/components/PageBoundary'
 import { AlertCircle } from 'lucide-react'
 import { Button, EmptyState, ProgressBar, Spinner, ToastHost } from '@/components/ui'
 import { ImportDialogs } from '@/features/importing/ImportDialogs'
-import { summarizeImportJob } from '@/features/importing/importActions'
+import { importDownloadedPdf, summarizeImportJob } from '@/features/importing/importActions'
 import { useMediaQuery } from '@/lib/hooks'
 import { isActiveJob } from '@/lib/format'
 import { useBackendStore } from '@/stores/backendStore'
@@ -112,6 +112,11 @@ export function AppShell() {
     return unsub
   }, [])
   useJobsPolling(status === 'ready')
+  // 内置“论文下载浏览器”里点到的 PDF：截下来后自动导入
+  useEffect(() => {
+    if (!window.paperdesk?.onPaperDownloaded) return
+    return window.paperdesk.onPaperDownloaded((d) => void importDownloadedPdf(d.path, d.filename))
+  }, [])
 
   // 窄窗口（<1200）默认收成图标条；也可以手动展开，展开的导航作为浮层盖在内容上，换页或点空白处收回
   const [narrowOpen, setNarrowOpen] = useState(false)

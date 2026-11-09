@@ -6,12 +6,12 @@ import { Button, Dialog, EmptyState, IconButton, Menu, Select, Spinner, toast } 
 import { api, errorMessage } from '@/lib/api'
 import { AiPanel } from '@/features/code/AiPanel'
 import { CodeViewer } from '@/features/code/CodeViewer'
-import { ConsistencyView } from '@/features/code/ConsistencyView'
 import { FetchWizardBody, FetchWizardDialog } from '@/features/code/FetchWizard'
 import { FileTree, Outline } from '@/features/code/FileTree'
 import { FlowView } from '@/features/code/FlowView'
 import { MappingView } from '@/features/code/MappingView'
 import { OverviewView } from '@/features/code/OverviewView'
+import { CodeSnippetDialog } from '@/features/code/CodeSnippetDialog'
 import { ReproView } from '@/features/code/repro/ReproView'
 import { shortSha } from '@/features/code/codeUtils'
 import { useCodeStore, type CodeTab } from '@/features/code/codeStore'
@@ -21,7 +21,6 @@ const TABS: Array<{ value: CodeTab; label: string }> = [
   { value: 'code', label: '代码' },
   { value: 'flow', label: '运行流程' },
   { value: 'mapping', label: '论文 ↔ 代码' },
-  { value: 'consistency', label: '一致性' },
   { value: 'repro', label: '复现' },
   { value: 'overview', label: '概览' }
 ]
@@ -288,11 +287,6 @@ export function CodePage() {
             <MappingView />
           </div>
         )}
-        {tab === 'consistency' && (
-          <div className="pd-code-center">
-            <ConsistencyView />
-          </div>
-        )}
         {tab === 'repro' && (
           <div className="pd-code-center">
             <ReproView />
@@ -311,6 +305,7 @@ export function CodePage() {
     <div className="pd-code">
       {header}
       {body}
+      <CodeSnippetDialog />
       <FetchWizardDialog open={wizard} onClose={() => setWizard(false)} paperId={paperId} sources={sources} onStarted={started} />
       <Dialog
         open={confirmDel}

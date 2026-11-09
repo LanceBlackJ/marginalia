@@ -61,7 +61,7 @@ def test_sandbox_docker_installed_but_stopped_cannot_run(cenv, monkeypatch):
 def test_assessment_is_static_and_all_code_evidence_is_real(cenv, no_exec):
     api = cenv
     rep = _assess(api)["report"]
-    assert [s["key"] for s in rep["sections"]] == ["environment", "entry", "data", "resources", "params", "risks"]
+    assert [s["key"] for s in rep["sections"]] == ["environment", "entry", "data", "resources", "risks"]
     assert rep["effort"]["level"] in ("低", "中", "高") and rep["effort"]["basis"] and "不是时间估计" in rep["effort"]["note"]
     it = _items(rep)
     assert it["entry:train"]["status"] == "found" and it["entry:train"]["evidence"][0]["path"].endswith("train.py")
@@ -325,8 +325,7 @@ def test_assessment_has_no_found_or_risk_item_without_evidence(cenv, no_exec):
     bad = [it["key"] for sec in report["sections"] for it in sec["items"] if it["status"] in ("found", "risk") and not it["evidence"]]
     assert not bad, f"这些项状态是已找到/风险却没有证据：{bad}"
     items = _items(report)
-    # 之前没有证据的三项：语言与框架有源码文件证据；一致性要么带证据、要么如实标“不确定”
+    # 语言与框架有源码文件证据
     assert items["languages"]["status"] in ("found", "missing") and (items["languages"]["status"] != "found" or items["languages"]["evidence"])
     if "framework_versions" in items:
         assert items["framework_versions"]["evidence"]
-    assert items["consistency"]["status"] != "found" or items["consistency"]["evidence"]

@@ -32,18 +32,17 @@ function PaperSide({ name, description, pages, section, ords }: { name: string; 
 
 function LinkRow({ link }: { link: PaperCodeLink }) {
   const setLinkStatus = useCodeStore((s) => s.setLinkStatus)
-  const goToLines = useCodeStore((s) => s.goToLines)
-  const goToSymbolId = useCodeStore((s) => s.goToSymbolId)
+  const showSnippet = useCodeStore((s) => s.showSnippet)
   const [more, setMore] = useState(false)
   const also = link.basis.also_in ?? []
   const open = (): void => {
-    if (link.symbol_id !== null) void goToSymbolId(link.symbol_id)
-    else void goToLines(link.path, link.line_start, link.line_end)
+    // 只显示关联到的那一段（AI 给出具体行时就是那几行，否则是整个函数），小窗里再选择是否去代码页
+    showSnippet({ path: link.path, a: link.line_start, b: link.line_end, title: link.symbol?.qualname ?? link.module.name, symbolId: link.symbol_id, from: 'mapping' })
   }
   return (
     <div className="pd-map-link" data-status={link.status}>
       <div className="pd-map-link-top">
-        <button type="button" className="pd-map-sym pd-ellipsis" onClick={open} title="在代码中查看">
+        <button type="button" className="pd-map-sym pd-ellipsis" onClick={open} title="查看对应的代码">
           {link.symbol?.qualname ?? '未关联到符号'}
         </button>
         <span className="pd-map-loc pd-aux pd-muted pd-ellipsis">
@@ -73,7 +72,7 @@ function LinkRow({ link }: { link: PaperCodeLink }) {
                 return (
                   <li key={loc}>
                     {p ? (
-                      <button type="button" className="pd-link" onClick={() => void goToLines(p.path, p.a, p.b)}>
+                      <button type="button" className="pd-link" onClick={() => showSnippet({ path: p.path, a: p.a, b: p.b, title: loc, symbolId: null, from: 'mapping' })}>
                         {loc}
                       </button>
                     ) : (

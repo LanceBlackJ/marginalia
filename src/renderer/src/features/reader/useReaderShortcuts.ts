@@ -33,8 +33,17 @@ export function useReaderShortcuts(enabled: boolean): void {
   useEffect(() => {
     if (!enabled) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return
       if (isTypingTarget(e.target)) return
+      // Alt+← ：回到跳转之前的位置（点了目录、引用、证据、书签之后）
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.key === 'ArrowLeft') {
+        const s = useReaderStore.getState()
+        if (s.backStack.length > 0) {
+          e.preventDefault()
+          s.goBack()
+        }
+        return
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return
       const st = useReaderStore.getState()
       const k = e.key
       if (k === 'Escape') {

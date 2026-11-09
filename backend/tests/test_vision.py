@@ -1222,3 +1222,100 @@ def test_figure_explain_error_leaves_no_card(journal):
     ev = api.sse("/ai/explain-figure", {"paper_id": pid, "figure_id": 999999})
     assert ev[-1][0] == "error"
     assert api.get(f"/papers/{pid}/cards").json()["items"] == []
+
+
+def test_equation_card_belongs_to_a_conversation_so_it_does_not_vanish_when_done(journal):
+    api, pid, eq, _ = journal
+    conv = api.post(f"/papers/{pid}/conversations", {}).json()
+    card = api.sse("/ai/explain-equation", {"paper_id": pid, "equation_id": eq["id"], "conversation_id": conv["id"]})[-1][1]["card"]
+    assert card["conversation_id"] == conv["id"]
+    again = api.sse("/ai/explain-equation", {"paper_id": pid, "equation_id": eq["id"]})[-1][1]["card"]
+    assert again["conversation_id"]  # 没指定对话也归到最近的一个，不是空的
+
+
+# ---------------- 行内公式的视觉模型兜底 ----------------
+def test_inline_math_plausibility_gate_rejects_made_up_answers():
+    from paperdesk.vision.inline_math_ai import plausible
+
+    ok, _ = plausible("ti = √hbi", "t_i = \sqrt{\frac{h}{b_i}}")
+    assert ok
+    assert plausible("φk(·", "\phi_k(\cdot")[0] is True
+    assert plausible("ti = √hbi", "q_{9}")[0] is False  # 完全不相干
+    assert plausible("ti = √hbi", "t_i = \sqrt{h b_i} + x y z w")[0] is False  # 多出原文里没有的内容
+    assert plausible("x", "")[0] is False and plausible("ab", "\frac{a")[0] is False  # 空、括号不配对
+
+
+def test_inline_math_candidates_are_recognised_applied_and_cached(journal):
+    from paperdesk.vision import inline_math_ai as ima
+
+    api, pid, _eq, _fig = journal
+    with api.ctx.db.session() as conn:
+        row = conn.execute("SELECT ord FROM passages WHERE paper_id = ? ORDER BY ord LIMIT 1", (pid,)).fetchone()
+        cands = [{"src": "T = {t0, . . . , tK}", "tex": None, "page": 1, "bbox": [72, 100, 200, 112]},
+                 {"src": "BAD x1 y2", "tex": None, "page": 1, "bbox": [72, 120, 160, 132]}]
+        conn.execute("UPDATE passages SET math_json = ? WHERE paper_id = ? AND ord = ?", (json.dumps(cands, ensure_ascii=False), pid, row["ord"]))
+    job_id = ima.enqueue(api.ctx, pid)
+    assert job_id
+    job = api.wait_job(job_id)
+    assert job["status"] == "completed" and job["result"]["recognized"] == 1 and job["result"]["rejected"] == 1, job
+    with api.ctx.db.session() as conn:
+        arr = json.loads(conn.execute("SELECT math_json FROM passages WHERE paper_id = ? AND ord = ?", (pid, row["ord"])).fetchone()["math_json"])
+    assert arr[0]["tex"] and arr[0]["ai"] is True and not arr[1].get("tex")  # 核对不过的不采用
+    assert any(i["task_type"] == "vision_inline_math" for i in api.get("/privacy/requests").json()["items"])
+    n = api.fake.inline_calls
+    assert ima.enqueue(api.ctx, pid) is None and api.fake.inline_calls == n  # 已有结论（含被拒绝的）：不再调用模型
+
+def test_inline_math_reply_parser_survives_merged_objects_and_escapes():
+    from paperdesk.vision.inline_math_ai import _parse_items
+
+    # 真实网关上出现过：两项写进同一个对象，重复的键会让 json.loads 悄悄丢掉第一项
+    bad = '{"items":[{"n":1,"latex":"BSmathcal{T}^* = BS{t_0,BSldots,t_{K-1}BS},","n":2,"latex":"p_k^2"}]}'.replace("BS", chr(92)*2)
+    got = _parse_items(bad)
+    assert got[1] == chr(92) + "mathcal{T}^* = " + chr(92) + "{t_0," + chr(92) + "ldots,t_{K-1}" + chr(92) + "}," and got[2] == "p_k^2"
+    assert _parse_items('{"items":[{"n":1,"latex":""},{"n":2,"latex":"x_1"}]}') == {1: "", 2: "x_1"}  # 正常格式照常
+    assert _parse_items("抱歉，我看不清") == {}
+
+def test_inline_math_trailing_sentence_punctuation_is_not_part_of_the_formula():
+    from paperdesk.vision.inline_math_ai import tidy
+
+    assert tidy("T = \{t_0\},", "T = {t0, tK}").replace(chr(92), "") == "T = {t_0}"  # 句末的逗号在公式之外
+    assert tidy("\eta(\alpha,", "η(α,").endswith(",")  # 原文自己以逗号结尾：保留
+    assert tidy("Y = x.", "Y = x") == "Y = x"
+
+def test_inline_math_two_models_agree_or_get_arbitrated(monkeypatch):
+    import asyncio
+
+    from paperdesk.vision import inline_math_ai as ima
+
+    calls = []
+
+    async def fake_arbitrate(service, provider, model, paper_id, png, a, b):
+        calls.append((a, b))
+        return "B", "A 少了下标"
+
+    monkeypatch.setattr(ima.formula, "_arbitrate", fake_arbitrate)
+    run = lambda answers: asyncio.run(ima.decide(None, None, "m1", "p", b"png", "h = Ns f 1", answers))  # noqa: E731
+    one, _ = run([("m1", "h = \frac{s_f}{N-1}"), ("m2", "h=\frac{s_f}{N - 1}")])  # 归一化后一致：直接采用，不裁决
+    assert one and calls == []
+    two, why = run([("m1", "h = \frac{sf}{N-1}"), ("m2", "h = \frac{s_f}{N-1}")])  # 不一致：多数不算数，交给裁决
+    assert two == "h = \frac{s_f}{N-1}" and calls and "裁决" in why
+    only, _ = run([("m1", "h = \frac{sf}{N-1}"), ("m2", "")])  # 另一个模型没答：和只用一个模型一样
+    assert only == "h = \frac{sf}{N-1}"
+    none, _ = run([("m1", "q_{9}"), ("m2", "")])  # 都对不上原文：不采用
+    assert none is None
+
+
+def test_inline_math_job_asks_both_vision_models_in_parallel(journal):
+    from paperdesk.vision import inline_math_ai as ima
+
+    api, pid, _eq, _fig = journal
+    assert api.put("/settings/ai", {"vision_model": "vis-a", "vision_model_2": "vis-b"}).status_code == 200
+    with api.ctx.db.session() as conn:
+        row = conn.execute("SELECT ord FROM passages WHERE paper_id = ? ORDER BY ord LIMIT 1", (pid,)).fetchone()
+        cands = [{"src": "T = {t0, tK}", "tex": None, "page": 1, "bbox": [72, 100, 200, 112]}]
+        conn.execute("UPDATE passages SET math_json = ? WHERE paper_id = ? AND ord = ?", (json.dumps(cands, ensure_ascii=False), pid, row["ord"]))
+    job = api.wait_job(ima.enqueue(api.ctx, pid))
+    assert job["status"] == "completed" and job["result"]["models"] == ["vis-a", "vis-b"] and job["result"]["recognized"] == 1, job
+    assert api.fake.inline_calls == 2  # 两个模型各问一次（回答一致，不需要裁决）
+    logged = [i for i in api.get("/privacy/requests").json()["items"] if i["task_type"] == "vision_inline_math"]
+    assert {i["model"] for i in logged} == {"vis-a", "vis-b"}

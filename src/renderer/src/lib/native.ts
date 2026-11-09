@@ -75,6 +75,12 @@ export async function openExternal(url: string): Promise<void> {
   else if (/^mailto:/i.test(url)) window.location.href = url
 }
 
+/** 打开内置的论文下载浏览器：可以在里面登录，点到的 PDF 会自动导入。Web 调试模式没有这个窗口，退回系统浏览器。 */
+export async function openPaperBrowser(url: string): Promise<void> {
+  if (hasBridge()) return window.paperdesk!.openPaperBrowser(url)
+  return openExternal(url)
+}
+
 export async function getDataDirHint(): Promise<string | null> {
   if (hasBridge()) return (await window.paperdesk!.getAppInfo()).dataDir
   return null

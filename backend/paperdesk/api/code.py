@@ -187,8 +187,8 @@ def repo_flow(repo_id: str, symbol_id: int | None = None, max_depth: int = Query
     return build_flow(ctx, repo_id, symbol_id, max_depth=max_depth)
 
 
-# ---------------- AI：解释 / 命名 / 关联 / 一致性 ----------------
-from ..code import annotate, associate, consistency, explain  # noqa: E402
+# ---------------- AI：解释 / 命名 / 关联 ----------------
+from ..code import annotate, associate, explain  # noqa: E402
 from .ai import sse_response  # noqa: E402
 
 
@@ -284,17 +284,3 @@ def add_link(repo_id: str, body: ManualLink, ctx: AppContext = Depends(get_ctx))
 def symbol_paper(symbol_id: int, ctx: AppContext = Depends(get_ctx)):
     """反向：函数 → 论文里的相关段落/已建立的关联。"""
     return associate.paper_for_symbol(ctx, symbol_id)
-
-
-@router.post("/code/repos/{repo_id}/consistency")
-def code_consistency(repo_id: str, ctx: AppContext = Depends(get_ctx)):
-    repo = service.get_repo(ctx, repo_id)
-    if repo["status"] != "ready":
-        raise ApiError("conflict", "代码仓库还没有分析完成。", 409)
-    return {"job_id": ctx.jobs.submit("code_consistency", "论文参数 ↔ 代码参数一致性检查", {"repo_id": repo_id}, repo["paper_id"])}
-
-
-@router.get("/code/repos/{repo_id}/consistency")
-def consistency_report(repo_id: str, ctx: AppContext = Depends(get_ctx)):
-    service.get_repo(ctx, repo_id)
-    return consistency.get_report(ctx, repo_id)

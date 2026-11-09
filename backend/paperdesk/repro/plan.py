@@ -117,7 +117,7 @@ def _build_steps(report: dict, overview: dict) -> list[dict]:
             _evidence(it, "entry:train", "commands"))
     # 5 完整运行
     if facts["has_train"]:
-        add("run", "运行训练", "按论文设置的参数运行训练。命令里的参数只是占位，需要你对照论文和一致性检查结果填写。", t_cmd, t_cwd,
+        add("run", "运行训练", "按论文设置的参数运行训练。命令里的参数只是占位，需要你对照论文填写。", t_cmd, t_cwd,
             ["执行"] + (["占用GPU"] if facts["gpu"] else []), "训练可能耗时很长、占用大量显存；先确认资源。", _evidence(it, "entry:train", "commands", "gpu"),
             entry_cmd("train")[2])
     else:

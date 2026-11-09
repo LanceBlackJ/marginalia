@@ -9,7 +9,6 @@ import type {
   CodeRepo,
   CodeSource,
   CodeSymbol,
-  ConsistencyState,
   ExplainMeta,
   ExplainTarget,
   FileData,
@@ -20,7 +19,17 @@ import type {
   SymbolPaper
 } from '@/lib/types.code'
 
-export type CodeTab = 'code' | 'flow' | 'mapping' | 'overview' | 'consistency' | 'repro'
+export interface CodeSnippet {
+  path: string
+  a: number
+  b: number
+  title: string
+  symbolId?: number | null
+  from: 'flow' | 'mapping'
+  flowId?: number
+}
+
+export type CodeTab = 'code' | 'flow' | 'mapping' | 'overview' | 'repro'
 export type SideTab = 'explain' | 'calls' | 'paper'
 
 export interface Highlight {
@@ -73,6 +82,15 @@ interface CodeState {
   flowRoot: number | null
   flowDepth: number
   flowSelected: number | null
+  /** 从运行流程的某个节点跳到代码页时记下这个节点：代码页据此显示“返回运行流程”，回去时仍选中它 */
+  flowReturn: { tab: 'flow' | 'mapping'; id?: number; label: string } | null
+  viewFromFlow: (id: number, label: string) => Promise<void>
+  backFromCode: () => void
+  /** 点流程节点 / 论文↔代码关联时弹出的小窗：只显示对应的那一段代码 */
+  snippet: CodeSnippet | null
+  showSnippet: (s: CodeSnippet) => void
+  closeSnippet: () => void
+  openSnippetInCode: () => Promise<void>
   annotating: boolean
 
   modules: PaperModule[]
@@ -80,8 +98,6 @@ interface CodeState {
   mappingLoaded: boolean
   associating: boolean
 
-  consistency: ConsistencyState | null
-  checking: boolean
 
   init: (paperId: string) => Promise<void>
   reset: () => void
@@ -112,8 +128,6 @@ interface CodeState {
   /** auto：打开映射页时没有任何关联，自动做一次本地词法匹配（不用 AI、不发送内容、不弹提示）；手动点“生成关联”才会用 AI。 */
   associate: (opts?: { auto?: boolean }) => Promise<void>
   setLinkStatus: (id: string, status: PaperCodeLink['status']) => Promise<void>
-  loadConsistency: () => Promise<void>
-  runConsistency: () => Promise<void>
 }
 
 let explainCtrl: AbortController | null = null
@@ -147,10 +161,11 @@ const emptyRepoState = {
   flowError: null,
   flowRoot: null,
   flowSelected: null,
+  flowReturn: null,
+  snippet: null,
   modules: [] as PaperModule[],
   links: [] as PaperCodeLink[],
-  mappingLoaded: false,
-  consistency: null
+  mappingLoaded: false
 }
 
 export const useCodeStore = create<CodeState>((set, get) => {
@@ -184,7 +199,6 @@ export const useCodeStore = create<CodeState>((set, get) => {
     flowDepth: 4,
     annotating: false,
     associating: false,
-    checking: false,
     reanalyzing: false,
 
     init: async (paperId) => {
@@ -272,7 +286,26 @@ export const useCodeStore = create<CodeState>((set, get) => {
     },
 
     setLineSel: (sel) => set({ lineSel: sel }),
-    setTab: (t) => set({ tab: t }),
+    setTab: (t) => set(t === 'code' ? { tab: t } : { tab: t, flowReturn: null }),
+    viewFromFlow: async (id, label) => {
+      await get().goToSymbolId(id)
+      set({ flowReturn: { tab: 'flow', id, label } })
+    },
+    backFromCode: () => {
+      const r = get().flowReturn
+      if (!r) return
+      set({ tab: r.tab, flowSelected: r.tab === 'flow' && r.id !== undefined ? r.id : get().flowSelected, flowReturn: null })
+    },
+    showSnippet: (snippet) => set({ snippet }),
+    closeSnippet: () => set({ snippet: null }),
+    openSnippetInCode: async () => {
+      const sn = get().snippet
+      if (!sn) return
+      set({ snippet: null })
+      if (sn.symbolId != null) await get().goToSymbolId(sn.symbolId)
+      else await get().goToLines(sn.path, sn.a, sn.b)
+      set({ flowReturn: { tab: sn.from, id: sn.flowId, label: sn.title } })
+    },
     setSideTab: (t) => set({ sideTab: t }),
 
     openFile: async (path, range) => {
@@ -418,8 +451,8 @@ export const useCodeStore = create<CodeState>((set, get) => {
         if (auto) {
           if (job.status !== 'completed') toast.error('没能自动生成关联', job.error ?? '任务未完成')
         } else if (job.status === 'completed') {
-          const r = job.result as { modules?: number; links?: number; ai_used?: boolean } | null
-          toast.success('已生成论文 ↔ 代码关联', `${r?.modules ?? 0} 个论文模块，${r?.links ?? 0} 条关联${r?.ai_used ? '' : '，未使用 AI，仅词法匹配，都标为“可能关联”'}`)
+          const r = job.result as { modules?: number; links?: number; ai_used?: boolean; symbols_read?: number; symbols_matched?: number } | null
+          toast.success('已生成论文 ↔ 代码关联', `读了 ${r?.symbols_read ?? 0} 个函数/类，其中 ${r?.symbols_matched ?? 0} 个在论文里找到了对应；${r?.modules ?? 0} 个论文模块，${r?.links ?? 0} 条关联${r?.ai_used ? '' : '，未使用 AI，仅词法匹配，都标为“可能关联”'}`)
         } else toast.error('生成关联失败', job.error ?? '任务未完成')
         await get().loadMapping()
       } catch (err) {
@@ -439,33 +472,6 @@ export const useCodeStore = create<CodeState>((set, get) => {
         })
       } catch (err) {
         toast.error('操作失败', errorMessage(err))
-      }
-    },
-
-    loadConsistency: async () => {
-      const { repoId } = get()
-      if (!repoId) return
-      try {
-        const c = await codeApi.consistency(repoId)
-        if (get().repoId === repoId) set({ consistency: c })
-      } catch (err) {
-        toast.error('加载一致性报告失败', errorMessage(err))
-      }
-    },
-
-    runConsistency: async () => {
-      const { repoId } = get()
-      if (!repoId) return
-      set({ checking: true })
-      try {
-        const { job_id } = await codeApi.runConsistency(repoId)
-        const job = await watchJob(job_id)
-        if (job.status !== 'completed') toast.error('一致性检查失败', job.error ?? '任务未完成')
-        await get().loadConsistency()
-      } catch (err) {
-        toast.error('一致性检查失败', errorMessage(err))
-      } finally {
-        set({ checking: false })
       }
     }
   }

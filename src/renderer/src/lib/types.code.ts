@@ -328,28 +328,3 @@ export interface SymbolPaper {
   related_passages: RelatedPassage[]
   note: string
 }
-
-export interface ConsistencyItem {
-  parameter: string
-  relation: 'match' | 'differs' | 'not_found' | 'to_check'
-  paper: { value: string; page: number; ord: number; quote: string; method: 'regex' | 'ai'; context?: string; check?: 'ok' | 'weak'; check_note?: string | null }
-  code: Array<{ path: string; line: number; name: string; value: string; origin: string; context: string; also_in?: string[] }>
-  note: string
-  caveats: string[]
-}
-
-export interface ConsistencyReport {
-  items: ConsistencyItem[]
-  generated_at: string
-  ai_used: boolean
-  summary: { match: number; differs: number; not_found: number; to_check?: number }
-  note: string
-  repo: { commit_sha: string | null; commit_date: string | null; authored_by: AuthoredBy }
-}
-
-export interface ConsistencyState {
-  status: 'none' | 'ready' | 'failed'
-  report: ConsistencyReport | null
-  updated_at: string | null
-  error: string | null
-}

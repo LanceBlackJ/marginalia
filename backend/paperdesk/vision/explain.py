@@ -128,7 +128,7 @@ def build_explain_messages(pack: retrieval.ContextPack, eq: dict, latex_info: di
 
 async def explain_equation_events(
     app: AppContext, paper_id: str, equation_id: int, *, question: str = "", chain_id: str | None = None,
-    save: bool = True, refresh_latex: bool = False,
+    save: bool = True, refresh_latex: bool = False, conversation_id: str | None = None,
 ) -> AsyncIterator[Event]:
     service = AIService(app)
     card_id: str | None = None
@@ -179,15 +179,17 @@ async def explain_equation_events(
             before = conn.execute("SELECT COUNT(*) FROM insight_chains WHERE paper_id = ?", (paper_id,)).fetchone()[0]
             chain_id, chain_title = cards.resolve_chain(conn, paper_id, chain_id, "equation", f"equation:{equation_id}", olabel)
             created_chain = conn.execute("SELECT COUNT(*) FROM insight_chains WHERE paper_id = ?", (paper_id,)).fetchone()[0] > before
+            conv_id = cards.resolve_conversation(conn, paper_id, conversation_id)  # 归到当前对话：不然答完后在对话列表里看不到
             cards.create_card(
                 conn, card_id=card_id, paper_id=paper_id, chain_id=chain_id, object_type="equation", object_label=olabel,
                 selection=sel_store, question=q or DEFAULT_QUESTION, intent="formula", task_type=TaskType.FORMULA.value,
-                model=choice.model, saved=save,
+                model=choice.model, saved=save, conversation_id=conv_id,
             )
+            cards.touch_conversation(conn, conv_id, q or DEFAULT_QUESTION)
         includes = {"question": bool(q), "selection": True, "notes": False, "supplements": False, "code": False, "images": False}
         summary = f"发送了 {len(pack.passages)} 段原文（约 {pack.chars_sent:,} 字）、公式 LaTeX 及章节大纲"
         yield "meta", {
-            "card_id": card_id, "chain_id": chain_id, "chain_title": chain_title, "task_type": TaskType.FORMULA.value,
+            "card_id": card_id, "chain_id": chain_id, "chain_title": chain_title, "conversation_id": conv_id, "task_type": TaskType.FORMULA.value,
             "model": choice.model, "escalated": False,
             "context": {"passage_ords": pack.ords, "passage_count": len(pack.passages), "chars_sent": pack.chars_sent,
                         "includes": includes, "supplement_docs": [], "supplement_passages": []},

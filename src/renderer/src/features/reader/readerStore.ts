@@ -36,6 +36,13 @@ export const RIGHT_MIN = 320
 export const RIGHT_MAX = 560
 export const RIGHT_DEFAULT = 380
 
+/** 跳走之前的阅读位置：页码，加上文字界面里读到的段落（PDF 界面没有） */
+export interface BackPoint {
+  page: number
+  ord: number | null
+}
+const BACK_MAX = 30
+
 interface ReaderState {
   paperId: string | null
   paper: PaperDetail | null
@@ -82,6 +89,9 @@ interface ReaderState {
 
   jump: JumpRequest | null
   flash: FlashState | null
+  /** 跳转历史：点目录、引用、证据、书签等“跳走”之前的位置，可以一路退回去 */
+  backStack: BackPoint[]
+  goBack: () => void
 
   /** 当前正在选中的文字（驱动浮动工具栏） */
   selection: SelectionInfo | null
@@ -129,6 +139,16 @@ interface ReaderState {
 }
 
 let jumpSeq = 0
+
+/** 跳走之前先记住现在的位置（和栈顶一样就不重复记）。 */
+function rememberPlace(s: ReaderState, target?: { page: number; ord?: number | null }): BackPoint[] {
+  const here: BackPoint = { page: s.currentPage, ord: s.readView === 'pdf' ? null : s.textAnchor }
+  const top = s.backStack[s.backStack.length - 1]
+  if (top && top.page === here.page && top.ord === here.ord) return s.backStack
+  // 跳到的就是现在这个位置：不算跳走
+  if (target && target.page === here.page && (target.ord == null || target.ord === here.ord)) return s.backStack
+  return [...s.backStack, here].slice(-BACK_MAX)
+}
 let flashTimer: number | undefined
 
 function zoomFromPrefs(): { zoomMode: ZoomMode; customScale: number } {
@@ -183,6 +203,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   jump: null,
   flash: null,
+  backStack: [],
   selection: null,
   contextSelection: null,
   composerFocusTick: 0,
@@ -199,6 +220,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
       maxPage: 1,
       jump: null,
       flash: null,
+      backStack: [],
       selection: null,
       contextSelection: null,
       outline: [],
@@ -249,7 +271,7 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   closePaper: () => {
     window.clearTimeout(flashTimer)
-    set({ paperId: null, paper: null, loadState: 'idle', selection: null, jump: null, flash: null, activeSectionTitle: null })
+    set({ paperId: null, paper: null, loadState: 'idle', selection: null, jump: null, flash: null, backStack: [], activeSectionTitle: null })
   },
 
   patchPaper: (patch) => set((s) => (s.paper ? { paper: { ...s.paper, ...patch } } : s)),
@@ -301,18 +323,18 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
 
   jumpToPage: (page, from) => {
     const p = Math.max(1, Math.min(page, get().numPages || page))
-    set({ jump: { id: ++jumpSeq, page: p, flash: false, from: from ?? null } })
+    set((s) => ({ backStack: p === s.currentPage ? s.backStack : rememberPlace(s, { page: p }), jump: { id: ++jumpSeq, page: p, flash: false, from: from ?? null } })) // 同一页的“跳转”（切换界面保持位置）不算跳走
   },
 
   jumpToSection: (page, title) => {
     const p = Math.max(1, Math.min(page, get().numPages || page))
-    set({ jump: { id: ++jumpSeq, page: p, section: title, flash: false } })
+    set((s) => ({ backStack: rememberPlace(s), jump: { id: ++jumpSeq, page: p, section: title, flash: false } }))
   },
 
   jumpToEvidence: (ev) => {
     const key = ++jumpSeq
     window.clearTimeout(flashTimer)
-    set({ jump: { id: key, page: ev.page, bbox: ev.bbox, ord: ev.ord ?? null, flash: true, from: ev.from ?? null }, flash: { key, page: ev.page, bbox: ev.bbox, ord: ev.ord ?? null } })
+    set((s) => ({ backStack: rememberPlace(s, { page: ev.page, ord: ev.ord }), jump: { id: key, page: ev.page, bbox: ev.bbox, ord: ev.ord ?? null, flash: true, from: ev.from ?? null }, flash: { key, page: ev.page, bbox: ev.bbox, ord: ev.ord ?? null } }))
     flashTimer = window.setTimeout(() => {
       if (get().flash?.key === key) set({ flash: null })
     }, 2800)
@@ -331,6 +353,14 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     } catch {
       /* 段落不存在：保持不动 */
     }
+  },
+
+  goBack: () => {
+    const { backStack } = get()
+    const point = backStack[backStack.length - 1]
+    if (!point) return
+    window.clearTimeout(flashTimer)
+    set({ backStack: backStack.slice(0, -1), flash: null, jump: { id: ++jumpSeq, page: point.page, ord: point.ord, flash: false } })
   },
 
   setSelection: (selection) => set({ selection }),

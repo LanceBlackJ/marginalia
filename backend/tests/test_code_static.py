@@ -395,7 +395,7 @@ def test_hyperparameters_from_cython_constants_and_self_attributes():
 
 
 def test_canonical_parameter_names_cover_ai_spellings():
-    from paperdesk.code.consistency import canon
+    from paperdesk.code.params import canon
 
     assert canon("min_training_nodes") == "nodes_min" and canon("NUM_MAX") == "nodes_max"
     assert canon("experience_replay_buffer_size") == "replay_size" and canon("MEMORY_SIZE") == "replay_size"

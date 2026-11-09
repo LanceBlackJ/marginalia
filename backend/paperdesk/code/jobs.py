@@ -103,14 +103,5 @@ def handle_code_associate(ctx: JobContext) -> dict:
     return _run_async(lambda: associate.associate(ctx.app, ctx.payload["repo_id"], ctx, use_ai=bool(ctx.payload.get("ai", True))), ctx)
 
 
-def handle_code_consistency(ctx: JobContext) -> dict:
-    from . import consistency
-
-    ctx.progress(0.1, "抽取论文与代码的参数")
-    report = _run_async(lambda: consistency.run_check(ctx.app, ctx.payload["repo_id"], ctx), ctx)
-    return {"summary": report["summary"], "ai_used": report["ai_used"]}
-
-
 def register_ai(manager: JobManager) -> None:
     manager.register("code_associate", handle_code_associate)
-    manager.register("code_consistency", handle_code_consistency)
