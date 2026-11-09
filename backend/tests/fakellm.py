@@ -30,6 +30,8 @@ class FakeLLM:
         self.analysis_calls = 0
         self.finish_overrides: list[str] = []  # 依次覆盖流式回复的 finish_reason（如 "length" 模拟输出被截断）
         self.fail_models: dict[str, int] = {}  # 指定模型名 -> 一直返回这个 HTTP 状态（模拟某个模型暂时不可用）
+        self.think_budget = 0  # >0：max_tokens 不超过它时正文为空（模拟思考型模型把输出额度全花在思考上）
+        self.thinking_mode = ""  # "tag"：回答前带 <think>…</think>；"field"：思考放在 reasoning_content 字段（流式）
         self.translate_mode = ""  # DROP_SEGMENT：批量翻译时漏掉第 2 段
         self.transport = httpx.MockTransport(self.handler)
 
@@ -173,12 +175,19 @@ class FakeLLM:
         user = "\n".join(_flat(m["content"]) for m in messages if m["role"] == "user")
         model = body.get("model", "")
         text = self._answer(model, system, user)
+        if self.think_budget and int(body.get("max_tokens") or 0) <= self.think_budget:
+            text = ""
         pt, ct = max(1, len(system + user) // 4), max(1, len(text) // 3)
         if not body.get("stream"):
             payload = {"model": model, "choices": [{"message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
                        "usage": {"prompt_tokens": pt, "completion_tokens": ct}}
             return httpx.Response(200, json=payload)
         lines = []
+        if self.thinking_mode == "field":
+            for part in ("先回忆论文里", "相关的段落。"):
+                lines.append("data: " + json.dumps({"choices": [{"delta": {"reasoning_content": part}}]}, ensure_ascii=False))
+        elif self.thinking_mode == "tag":
+            text = "<think>先回忆论文里相关的段落。</think>\n" + text
         for i in range(0, len(text), 14):
             lines.append("data: " + json.dumps({"choices": [{"delta": {"content": text[i : i + 14]}}]}, ensure_ascii=False))
         fin = self.finish_overrides.pop(0) if self.finish_overrides else "stop"

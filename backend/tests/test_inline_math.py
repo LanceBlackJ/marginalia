@@ -122,3 +122,46 @@ def test_prose_line_that_is_mostly_inline_math_stays_in_its_paragraph():
     second = line(111, [("1},", "CMR10", True), (" for simplicity, we denote ", "Whitney-Book", False), ("b", "CMMI10", True), ("i", "CMMI7", True)])
     blocks = layout.segment_paragraphs([first, second], 1, 8.0)
     assert [b.kind for b in blocks] == ["paragraph"] and len(blocks) == 1, [(b.kind, b.text) for b in blocks]
+
+
+def test_radical_from_cmex_wraps_the_radicand():
+    """CMEX10 里的根号：ṡ(t)=√b(s)。被开方式到运算符或簇尾结束，括号配平之后才收尾。"""
+    cm = "CMMI10"
+    spans = [
+        sp("s", 10, cm, italic=True),
+        sp("(", 15, "CMR10"),
+        sp("t", 19, cm, italic=True),
+        sp(")=", 23, "CMR10"),
+        sp("√", 30, "CMEX10"),
+        sp("b", 40, cm, italic=True),
+        sp("(", 45, "CMR10"),
+        sp("s", 49, cm, italic=True),
+        sp(")", 54, "CMSY10"),
+    ]
+    assert tex_of(spans) == "s(t)=\\sqrt{b(s)}"
+
+
+def test_radical_stops_at_the_next_operator():
+    cm = "CMMI10"
+    spans = [sp("√", 10, "CMEX10"), sp("x", 20, cm, italic=True), sp("+", 25, "CMSY10"), sp("y", 31, cm, italic=True)]
+    assert tex_of(spans) == "\\sqrt{x}+y"
+
+
+def test_small_radical_over_a_stacked_fraction_is_not_a_subscript():
+    """t_i = √(h/b_i)：根号字号小、基线低（CMSY），后面是并好的分式；根号不能被当成下标。"""
+    frac = sp("(h)/(b)", 30, "CMMI7")
+    frac.frac = ([sp("h", 30, "CMMI7", size=5.6, base=BASE - 3.0)], [sp("b", 30, "CMMI7", size=5.6, base=BASE + 4.0)])
+    spans = [
+        sp("t", 10, "CMMI10", italic=True),
+        sp("=", 16, "CMR10"),
+        sp("√", 24, "CMSY10", size=5.6, base=BASE + 3.0),
+        frac,
+    ]
+    assert tex_of(spans) == "t=\\sqrt{\\frac{h}{b}}"
+
+
+def test_fraction_with_an_unreadable_half_gives_up_instead_of_guessing():
+    frac = sp("(h)/(?)", 30, "CMMI7")
+    frac.frac = ([sp("h", 30, "CMMI7", size=5.6, base=BASE - 3.0)], [sp("中", 30, "CMMI7", size=5.6, base=BASE + 4.0)])
+    spans = [sp("t", 10, "CMMI10", italic=True), sp("=", 16, "CMR10"), frac]
+    assert tex_of(spans) is None

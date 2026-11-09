@@ -23,6 +23,7 @@ from .settings import SECRET_NAME, load_settings
 Event = tuple[str, dict]
 QUICK_INTENTS = {"explain", "summarize", "term"}
 MAX_TRANSLATE_CHARS = 8000
+MAX_THINKING_CHARS = 30000  # 卡片里最多保存这么多思考文字
 
 
 @dataclass
@@ -103,6 +104,9 @@ class AIService:
                 u.prompt_tokens = max(u.prompt_tokens, ch.usage.prompt_tokens)
                 u.completion_tokens = max(u.completion_tokens, ch.usage.completion_tokens)
             acc["dropped"] += ch.dropped
+            if ch.thinking:
+                acc["thinking"] = (acc.get("thinking") or "") + ch.thinking
+                yield "thinking", {"text": ch.thinking}
             if ch.notice and provider.fallback_events:  # 强模型不可用，已自动改用快速模型：告知界面，并记下实际回答的模型
                 acc["fallback"] = provider.fallback_events[-1]
                 yield "stage", {"message": ch.notice}
@@ -342,10 +346,23 @@ class AIService:
                     self.app, task_type=task.value, model=ch.model, paper_id=req.paper_id, passage_ords=pack.ords,
                     chars_sent=pack.chars_sent, includes=includes, summary=summary,
                 )
-                acc["text"], acc["usage"] = "", Usage()
+                acc["text"], acc["usage"], acc["thinking"] = "", Usage(), ""
                 acc.pop("fallback", None)
                 async for ev in self._stream(provider, ch.model, messages, cfg, acc):
                     yield ev
+                if not acc["text"].strip():
+                    # 思考型模型把输出额度全花在内部思考上，正文一个字没写：放宽额度重来一次（用量照实累计）
+                    first = acc["usage"]
+                    limit = int(cfg["max_output_tokens"] or 4096)
+                    boosted = {**cfg, "max_output_tokens": min(32000, max(16000, 4 * limit))}
+                    if boosted["max_output_tokens"] <= limit:  # 额度本来就很大了，再试也一样
+                        raise LLMError("provider_error", "模型没有给出回答（输出额度可能被内部思考用完了）。请重试，或在设置里换用不带长思考的模型。")
+                    yield "stage", {"message": "模型把输出额度都用在了思考上，没有给出回答，正在放宽额度重试……"}
+                    async for ev in self._stream(provider, ch.model, messages, boosted, acc):
+                        yield ev
+                    acc["usage"] = Usage(first.prompt_tokens + acc["usage"].prompt_tokens, first.completion_tokens + acc["usage"].completion_tokens)
+                    if not acc["text"].strip():
+                        raise LLMError("provider_error", "模型没有给出回答（输出额度可能被内部思考用完了）。请重试，或在设置里换用不带长思考的模型 / 调大输出上限。")
                 acc["messages"] = messages
 
             yield "meta", {
@@ -405,6 +422,8 @@ class AIService:
                 if parsed.verification["status"] in ("verified", "unverified"):
                     parsed.verification["status"] = "partial"
 
+            if acc.get("thinking"):  # 模型的思考过程跟着卡片保存，界面里可以展开看
+                parsed.answer["thinking"] = acc["thinking"][:MAX_THINKING_CHARS]
             with self.app.db.session() as conn:
                 cards.finalize_card(
                     conn, card_id, status="complete", model=used_model, raw=acc["text"], answer=parsed.answer,
@@ -428,6 +447,8 @@ class AIService:
                     try:
                         stopped = evidence.parse_answer(partial, pack, task, web_items)
                         stopped.verification["notes"].append("你中途停止了生成，这条回答可能不完整。")
+                        if acc.get("thinking"):
+                            stopped.answer["thinking"] = acc["thinking"][:MAX_THINKING_CHARS]
                         if stopped.verification["status"] == "verified":
                             stopped.verification["status"] = "partial"
                         with self.app.db.session() as conn:

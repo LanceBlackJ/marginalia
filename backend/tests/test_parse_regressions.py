@@ -87,3 +87,41 @@ def test_spaceless_text_runs_get_word_spaces_from_glyph_gaps():
     assert layout._looks_spaceless(text)
     assert layout._respace(text, {(0.0, 100.0): chars}, (0.0, 100.0), 9.5) == "enabling the representation"
     assert not layout._looks_spaceless("https://example.com/paper")  # 正常的网址、公式不受影响（字母占比不够）
+
+
+def _page_with_inline_fraction():
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "f(t) =", fontsize=10)
+    page.insert_text((72, 140), "A longer body line of ordinary text so that ten points is the body size of this page.", fontsize=10)
+    page.insert_text((104, 97), "ab", fontsize=7)  # 分子
+    page.draw_line((103, 100.6), (116, 100.6), width=0.4)  # 分数线
+    page.insert_text((108, 108), "2", fontsize=7)  # 分母
+    page.insert_text((120, 100), ". Since", fontsize=10)
+    return doc, page
+
+
+def test_inline_stacked_fraction_is_one_span_on_the_baseline_of_the_text_beside_it():
+    """“s̈(t) = ∂ₛb(s)/2” 以前分子被并进上面的公式块、分母单独成行，正文只剩 “= 2”。"""
+    doc, page = _page_with_inline_fraction()
+    spans = layout.extract_spans(page)
+    fr = [s for s in spans if s.frac]
+    assert len(fr) == 1 and fr[0].text == "(ab)/(2)"
+    assert abs(fr[0].baseline - 100.0) < 0.5 and fr[0].size == 10.0
+    assert not [s for s in spans if s.text.strip() in ("ab", "2")]  # 原来的分子分母片段不再单独存在
+    doc.close()
+
+
+def test_full_size_fraction_and_plain_rules_are_left_alone():
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((72, 100), "x = ", fontsize=10)
+    page.insert_text((100, 95), "ab", fontsize=10)  # 整行大小的分式不是行内分式
+    page.draw_line((99, 98), (115, 98), width=0.4)
+    page.insert_text((104, 110), "2", fontsize=10)
+    assert not [s for s in layout.extract_spans(page) if s.frac]
+    doc.close()

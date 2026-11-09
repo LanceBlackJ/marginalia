@@ -14,7 +14,11 @@ from statistics import median
 
 Word = tuple[float, float, float, float, str]
 
-NUM_RE = re.compile(r"^[-+−–]?\d+(?:[.,]\d+)*(?:[%×x]\d*)?$|^NA$|^N/A$", re.IGNORECASE)
+# 数值单元格：数字、带 ± 的“均值 ± 标准差”、以及表里常见的占位记号（OOM = 显存不足）
+NUM_RE = re.compile(
+    r"^[-+−–]?\d+(?:[.,]\d+)*(?:[%×x]\d*)?(?:\s*(?:±|\+/-)\s*\d+(?:[.,]\d+)*%?)?$|^(?:NA|N/A|OOM|OOT|OOR|OOS|TLE|DNF)$",
+    re.IGNORECASE,
+)
 
 
 def _median_height(words: list[Word]) -> float:
@@ -40,6 +44,11 @@ def merge_cells(row: list[Word], h: float, gap: float = 0.6) -> list[tuple[float
     """行内相邻的词，间距不超过 gap × 行高就是同一个单元格（如 “Avg score”）。返回 [(x0, x1, text)]。"""
     cells: list[list] = []
     for w in row:
+        # “59.3 ± 0.1”被切成几个词：和前面的数合成一个单元格
+        if cells and (w[4] in ("±", "+/-") or cells[-1][2].rstrip().endswith(("±", "+/-"))) and w[0] - cells[-1][1] <= 1.5 * h:
+            cells[-1][1] = max(cells[-1][1], w[2])
+            cells[-1][2] += " " + w[4]
+            continue
         # 数字和文字永远分成不同的单元格（“Avg score 46.08” 里的数字是数据，不是行标签的一部分）
         if cells and w[0] - cells[-1][1] <= gap * h and _is_num(w[4]) == _is_num(cells[-1][2].split(" ")[-1]) and not _is_num(w[4]):
             cells[-1][1] = max(cells[-1][1], w[2])
@@ -145,6 +154,29 @@ def _segments(cells: list[tuple[float, float, str]]) -> list[tuple[str, list[tup
     return segs
 
 
+def _span_names(ws: list[Word], keep: list[float], spacing: float, h: float) -> list[str] | None:
+    """列名比列少：每个列名横跨相邻的几列（如 “SENATE” 管着它下面的两列）。
+    列名的横向范围（两边各放宽半个列距）盖住哪几列，这几列就都用这个名字；盖不住 90% 的列、或有列名没对到列，返回 None。"""
+    labels = merge_cells(sorted(ws, key=lambda w: w[0]), h)
+    if len(labels) < 2:
+        return None
+    got = [""] * len(keep)
+    used: set[int] = set()
+    for j, kc in enumerate(keep):
+        best, dist = None, None
+        for i, (x0, x1, _t) in enumerate(labels):
+            if x0 - 0.5 * spacing <= kc <= x1 + 0.5 * spacing:
+                d = abs(kc - (x0 + x1) / 2)
+                if dist is None or d < dist:
+                    best, dist = i, d
+        if best is not None:
+            got[j] = labels[best][2]
+            used.add(best)
+    if len(used) < len(labels) or sum(1 for v in got if v) < 0.9 * len(keep):
+        return None
+    return got
+
+
 def reconstruct_panels(words: list[Word], *, min_rows: int = 3, min_conf: float = 0.55) -> list[dict]:
     """图里并排的几块“行标签 + 数值”的数据网格（如每个子图下方的 Avg score 表）重建成表。
 
@@ -154,7 +186,13 @@ def reconstruct_panels(words: list[Word], *, min_rows: int = 3, min_conf: float 
     """
     if len(words) < 12:
         return []
+    # 竖排的分组名（左侧旋转的 “Supervised / Unsupervised”）不是行标签：先拿出来，不让它粘进第一格。
+    # 它只写在组的正中间、文字本身盖不住组里的所有行，没法可靠地逐行标注，所以只在重建提示里说一声
     h = _median_height(words)
+    vert = [w for w in words if len(w[4]) >= 3 and (w[3] - w[1]) > 2.5 * (w[2] - w[0]) and (w[3] - w[1]) > 2.5 * h]
+    if vert:
+        words = [w for w in words if w not in vert]
+        h = _median_height(words)
     row_words = group_rows(words)
     rows_cells = [merge_cells(r, h) for r in row_words]
     data: list[tuple[int, list]] = []  # (行下标, 切段结果)
@@ -212,7 +250,7 @@ def reconstruct_panels(words: list[Word], *, min_rows: int = 3, min_conf: float 
             if cand in outer and re.search(r"[–—]|^\s*[a-z]\s", " ".join(w[4] for w in row_words[cand])):
                 continue  # 带破折号或以子图字母开头的是子图标题，不是列名
             ws = [w for w in row_words[cand] if lo_x <= (w[0] + w[2]) / 2 <= hi_x and not _is_num(w[4])]
-            if len(ws) < max(2, int(0.6 * len(keep))):
+            if len(ws) < 2:
                 continue
             got = [""] * len(keep)
             for w in ws:
@@ -220,12 +258,16 @@ def reconstruct_panels(words: list[Word], *, min_rows: int = 3, min_conf: float 
                 j = min(range(len(keep)), key=lambda t: abs(keep[t] - wc))
                 if abs(keep[j] - wc) <= 0.8 * spacing:
                     got[j] = (got[j] + " " + w[4]).strip()
+            if sum(1 for v in got if v) < 0.6 * len(keep):
+                got = _span_names(ws, keep, spacing, h) or got  # 一个列名跨好几列（合并单元格表头）
             if sum(1 for v in got if v) >= 0.6 * len(keep):
                 names = got
                 break
         fill = sum(1 for r in grid for v in r[1:] if v) / (len(grid) * len(keep))
         reasons: list[str] = []
         conf = 1.0
+        if vert and k == 0:
+            reasons.append("左侧有竖排的分组名（" + "、".join(v[4] for v in sorted(vert, key=lambda v: v[1])) + "），没有逐行标出，请对照原表")
         if fill < 0.85:
             conf -= (0.85 - fill) * 1.5
             reasons.append(f"空单元格较多（填充率 {fill:.0%}）")

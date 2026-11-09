@@ -245,6 +245,15 @@ def search(paper_id: str, q: str = Query(..., min_length=1), limit: int = Query(
     return {"items": reader.search(ctx, paper_id, q, limit)}
 
 
+@router.post("/{paper_id}/fetch_fulltext")
+def fetch_fulltext(paper_id: str, ctx: AppContext = Depends(get_ctx)):
+    """只有题录的论文：自动去找开放获取的全文并附加（后台任务）。"""
+    detail = repo.get_detail(ctx, paper_id)
+    if detail["has_pdf"]:
+        raise ApiError("conflict", "该论文已有 PDF 文件", 409)
+    return {"job_id": ctx.jobs.submit("fetch_fulltext", f"获取全文：{detail['title'][:40]}", {"paper_id": paper_id}, paper_id)}
+
+
 @router.post("/{paper_id}/attach_pdf")
 def attach_pdf(paper_id: str, body: AttachBody, ctx: AppContext = Depends(get_ctx)):
     detail = repo.get_detail(ctx, paper_id)

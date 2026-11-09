@@ -11,6 +11,7 @@ import '@/features/formula/formula.css'
 import { useInsightStore, type PendingCard } from './insightStore'
 import { questionLine, shortModelName } from './insightModel'
 import { QuestionBubble } from './QuestionBubble'
+import { ThinkingBlock } from './ThinkingBlock'
 
 const CONFIG_ERRORS = new Set(['no_api_key', 'not_configured'])
 
@@ -105,6 +106,8 @@ export function PendingCardView({ pending }: { pending: PendingCard }) {
           )}
         </div>
       )}
+
+      {pending.thinking && <ThinkingBlock text={pending.thinking} live={streaming} answering={!!pending.text} />}
 
       {pending.status === 'failed' && pending.error && pending.text && pending.equationId == null && (
         <div className="pd-card-direct" data-translatable>

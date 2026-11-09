@@ -90,6 +90,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   import_doi: 'DOI 导入',
   import_url: '链接导入',
   attach_pdf: '附加 PDF',
+  fetch_fulltext: '获取全文',
   paper_analysis: '论文分析',
   supplement_add: '添加补充材料',
   supplement_download: '下载补充材料',

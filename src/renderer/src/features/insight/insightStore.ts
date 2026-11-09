@@ -20,6 +20,8 @@ export interface PendingCard {
   attachmentNames?: string[]
   meta: AskMeta | null
   text: string
+  /** 模型的思考过程（SSE thinking），和回答正文分开 */
+  thinking?: string
   status: 'streaming' | 'failed' | 'stopped'
   error: { code: string; message: string } | null
   escalatedTo: string | null
@@ -208,6 +210,7 @@ export const useInsightStore = create<InsightState>((set, get) => {
           attachmentNames: input.attachments?.map((a) => a.name),
           meta: null,
           text: '',
+          thinking: '',
           status: 'streaming',
           error: null,
           escalatedTo: null,
@@ -269,6 +272,11 @@ export const useInsightStore = create<InsightState>((set, get) => {
               case 'stage':
                 patchPending(tempId, { stage: typeof d.message === 'string' ? d.message : null })
                 break
+              case 'thinking': {
+                const t = typeof d.text === 'string' ? d.text : ''
+                set((s) => (s.pending && s.pending.tempId === tempId ? { pending: { ...s.pending, thinking: (s.pending.thinking ?? '') + t } } : s))
+                break
+              }
               case 'latex':
                 patchPending(tempId, { latex: data as EquationLatex })
                 break
@@ -278,7 +286,7 @@ export const useInsightStore = create<InsightState>((set, get) => {
                 break
               }
               case 'escalate':
-                patchPending(tempId, { text: '', escalatedTo: typeof d.model === 'string' ? d.model : '强模型' })
+                patchPending(tempId, { text: '', thinking: '', escalatedTo: typeof d.model === 'string' ? d.model : '强模型' })
                 break
               case 'done': {
                 finished = true

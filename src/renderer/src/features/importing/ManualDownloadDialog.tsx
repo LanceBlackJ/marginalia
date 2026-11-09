@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { Check, ExternalLink, Paperclip } from 'lucide-react'
 import { Button, Dialog, Skeleton, toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
-import { openExternal, openPaperBrowser, pickPdfFiles } from '@/lib/native'
+import { openExternal, pickPdfFiles } from '@/lib/native'
 import { formatAuthors } from '@/lib/format'
 import { useJobsStore } from '@/stores/jobsStore'
 import type { PaperDetail } from '@/lib/types'
+import { downloadInBrowser } from './fulltext'
 import { bestDownloadLink, otherDownloadLinks, useManualDownload, type ManualDownloadItem } from './manualDownload'
 
 function Row({ item }: { item: ManualDownloadItem }) {
@@ -62,7 +63,7 @@ function Row({ item }: { item: ManualDownloadItem }) {
       </p>
       <div className="pd-row" style={{ marginTop: 8, flexWrap: 'wrap' }}>
         {link && (
-          <Button size="sm" variant="primary" icon={<ExternalLink size={14} />} onClick={() => void openPaperBrowser(link)} title="在内置浏览器里打开：需要登录就直接登录，点到 PDF 会自动导入">
+          <Button size="sm" variant="primary" icon={<ExternalLink size={14} />} onClick={() => void downloadInBrowser(detail!)} title="在内置浏览器里打开：需要登录就直接登录，下载到的 PDF 会自动接到这一篇">
             打开下载页面（可登录）
           </Button>
         )}

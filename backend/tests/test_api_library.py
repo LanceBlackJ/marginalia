@@ -439,3 +439,26 @@ def test_url_import_metadata_only(tmp_path, sample_pdf):
         bad = api.wait_job(api.post("/import/url", {"url": "https://oa.example.org/dar.pdf", "metadata_only": True}).json()["job_id"])
         assert bad["result"]["items"][0]["status"] == "failed" and "仅保存元数据" in bad["result"]["items"][0]["message"]
         assert not any(u == "https://oa.example.org/dar.pdf" for u in seen)
+
+
+def test_fetch_fulltext_for_metadata_only_paper(tmp_path, sample_pdf):
+    api, _ = make_api(tmp_path, handler=_online_handler(sample_pdf.read_bytes(), oa=False))
+    with api.c:
+        job = api.wait_job(api.post("/import/doi", {"dois": ["10.1234/dar.2023.001"]}).json()["job_id"])
+        pid = job["result"]["items"][0]["paper_id"]
+        assert api.get(f"/papers/{pid}").json()["status"] == "metadata_only"
+
+        # 没有开放获取链接、也没有 arXiv 编号：任务失败，并提示去内置浏览器下载/附加本地文件
+        miss = api.wait_job(api.post(f"/papers/{pid}/fetch_fulltext", {}).json()["job_id"])
+        assert miss["status"] == "failed" and "内置浏览器" in str(miss.get("error")), miss
+        assert not api.get(f"/papers/{pid}").json()["has_pdf"]
+
+        # 有 arXiv 编号：自动下载并附加到同一条记录，不新建论文
+        with api.ctx.db.session() as conn:
+            conn.execute("UPDATE papers SET arxiv_id = ? WHERE id = ?", ("2203.01234", pid))
+        got = api.wait_job(api.post(f"/papers/{pid}/fetch_fulltext", {}).json()["job_id"])
+        assert got["status"] == "completed", got
+        d = api.get(f"/papers/{pid}").json()
+        assert d["status"] == "ready" and d["has_pdf"]
+        assert api.get("/papers").json()["total"] == 1
+        assert api.post(f"/papers/{pid}/fetch_fulltext", {}).status_code == 409

@@ -21,6 +21,7 @@ def register(manager: JobManager) -> None:
     manager.register("import_doi", handle_import_doi)
     manager.register("import_url", handle_import_url)
     manager.register("attach_pdf", handle_attach_pdf)
+    manager.register("fetch_fulltext", handle_fetch_fulltext)
 
 
 def _maybe_auto_analyze(ctx: JobContext, paper_id: str, outcome: ImportOutcome) -> None:
@@ -220,6 +221,52 @@ def handle_import_url(ctx: JobContext) -> dict:
                            "message": f"未能下载全文{reason}，已保存题录；请自行获取 PDF 后在论文页面附加。"}]}
     return {"items": [{"input": url, "status": "failed", "paper_id": None,
                        "message": dl_error or "；".join(resolved.errors) or "无法下载该链接指向的 PDF"}]}
+
+
+def handle_fetch_fulltext(ctx: JobContext) -> dict:
+    """只有题录的论文：按 arXiv 编号 / DOI 去找开放获取的全文，下载后附加到这篇论文上（不新建论文）。"""
+    paper_id = ctx.payload["paper_id"]
+    with ctx.app.db.session() as conn:
+        row = repo.get_row(conn, paper_id)
+    if row["has_pdf"]:
+        raise ApiError("conflict", "该论文已有 PDF 文件")
+    doi = normalize_doi(row["doi"] or "") if row["doi"] else None
+    arxiv_id = row["arxiv_id"]
+    if not arxiv_id and doi and doi.lower().startswith("10.48550/arxiv."):
+        arxiv_id = doi.split("arxiv.", 1)[1]  # arXiv 自己的 DOI：编号就在里面
+    urls: list[str] = []
+    with ctx.app.http(timeout=30) as client:
+        if arxiv_id:
+            urls.append(f"https://arxiv.org/pdf/{arxiv_id}")
+        if doi:
+            ctx.progress(0.1, "查找开放获取的全文")
+            try:
+                urls += [u for u in online.resolve_doi(client, doi).pdf_urls if u not in urls]
+            except Exception as exc:  # noqa: BLE001  数据源不可用只是少几个候选
+                ctx.log(f"查询开放获取链接失败：{exc}")
+    if not urls:
+        raise ApiError("not_found", "没有找到开放获取的全文。可以在内置浏览器里打开出版商页面下载（需要登录就直接登录），或者选择已下载的 PDF 附加。")
+    last = None
+    with ctx.app.http(timeout=60) as client, tempfile.TemporaryDirectory(prefix="pd_fulltext_") as tmp:
+        for i, url in enumerate(urls):
+            ctx.check_cancelled()
+            ctx.progress(0.3 + 0.5 * i / len(urls), f"下载 {url}")
+            dest = Path(tmp) / f"{new_id()}.pdf"
+            try:
+                online.download_pdf(client, url, dest)
+            except online.DownloadError as exc:
+                last = str(exc)
+                ctx.log(f"下载失败：{exc}")
+                continue
+            out = import_pdf_file(ctx.app, dest, attach_to=paper_id, log=ctx.log)
+            if out.status == "failed":
+                last = out.message or "解析失败"
+                continue
+            if out.status == "duplicate":
+                raise ApiError("conflict", out.message or "该 PDF 已存在于文献库")
+            _maybe_auto_analyze(ctx, paper_id, out)
+            return {"items": [_item(url, out)]}
+    raise ApiError("not_found", f"找到的开放获取链接都没能下载成功（{last or '未知原因'}）。可以在内置浏览器里打开出版商页面下载，或选择已下载的 PDF 附加。")
 
 
 def handle_attach_pdf(ctx: JobContext) -> dict:

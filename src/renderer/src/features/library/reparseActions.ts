@@ -1,7 +1,14 @@
 import { toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import type { Job, ReparseStats } from '@/lib/types'
+import { useTextStore } from '@/features/text/textStore'
 import { describeReparse, isSuspiciousResult } from './reparseModel'
+
+/** 文字视图正显示这一篇：它的段落、公式、译文都是旧版解析的，必须重新读一遍（只“关了再开”阅读器不会重新取文字）。 */
+function refreshTextView(paperId: string): void {
+  const ts = useTextStore.getState()
+  if (ts.paperId === paperId) void ts.load(paperId)
+}
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])
 const sleep = (ms: number): Promise<void> => new Promise((r) => window.setTimeout(r, ms))
@@ -29,6 +36,7 @@ export async function undoReparse(paperId: string, onDone?: (paperId: string) =>
   try {
     await api.papers.undoReparse(paperId)
     toast.success('已撤销重新解析', '这篇论文回到了重新解析之前的样子。')
+    refreshTextView(paperId)
     onDone?.(paperId)
   } catch (err) {
     toast.error('撤销失败', errorMessage(err))
@@ -52,6 +60,7 @@ export async function reparsePapers(ids: string[], opts: ReparseOptions = {}): P
         ok += 1
         const item = (job.result as JobResult | null)?.items?.find((i) => i.paper_id === id) ?? (job.result as JobResult | null)?.items?.[0]
         last = { id, stats: item?.stats }
+        refreshTextView(id)
         opts.onDone?.(id)
       } else if (job.status === 'cancelled') {
         toast.warning('重新解析已取消', '这篇论文保持原样。')

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, BookOpen, Check, Code2, FolderInput, Network, Pencil, Quote, Tag as TagIcon, Trash2, X } from 'lucide-react'
+import { ArrowLeft, BookOpen, Check, Code2, Download, FolderInput, Globe, Network, Paperclip, Pencil, Quote, Tag as TagIcon, Trash2, X } from 'lucide-react'
 import { Button, IconButton, Input, Skeleton, toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { textApi } from '@/lib/api.text'
@@ -23,7 +23,13 @@ import { FolderQuickMenu } from '@/features/library/FolderQuickMenu'
 import { TagDialog } from '@/features/library/TagDialog'
 import { VenueHover } from '@/features/discovery/VenueHover'
 import { folderPath } from '@/features/library/filterModel'
+import { attachLocalPdf, autoFetchFullText, downloadInBrowser } from '@/features/importing/fulltext'
+import { isActiveJob } from '@/lib/format'
+import { useJobsStore } from '@/stores/jobsStore'
 import './paperProfile.css'
+
+/** 同一篇论文在一次运行里只自动找一次全文，找不到也不反复重试 */
+const autoTried = new Set<string>()
 
 const STATUS_ZH: Record<string, string> = { ready: '', parsing: '解析中', metadata_only: '仅元数据', failed: '解析失败' }
 const NOTES_SHOWN = 5
@@ -127,6 +133,22 @@ export function PaperProfilePage() {
   }, [paperId, paper?.abstract])
 
   const reloadPaper = useCallback(() => api.papers.get(paperId).then(setPaper), [paperId])
+
+  // 补全文的任务（自动获取 / 附加 PDF）：进行中时按钮置灰；结束后重新读取论文，状态从“仅元数据”变成可阅读
+  const fulltextBusy = useJobsStore((s) => s.jobs.some((j) => j.paper_id === paperId && ['fetch_fulltext', 'attach_pdf'].includes(j.type) && isActiveJob(j.status)))
+  const finishedTick = useJobsStore((s) => s.finishedTick)
+  useEffect(() => {
+    if (finishedTick > 0) void reloadPaper().catch(() => undefined)
+  }, [finishedTick, reloadPaper])
+
+  // 只有题录、但能确定 arXiv 编号：打开页面就直接去拿全文，不用再点
+  useEffect(() => {
+    if (!paper || paper.status !== 'metadata_only' || paper.has_pdf || fulltextBusy || autoTried.has(paper.id)) return
+    const arxiv = !!paper.arxiv_id || /^10\.48550\/arxiv\./i.test(paper.doi ?? '')
+    if (!arxiv) return
+    autoTried.add(paper.id)
+    void autoFetchFullText(paper.id)
+  }, [paper, fulltextBusy])
 
   useEffect(() => {
     let alive = true
@@ -341,7 +363,7 @@ export function PaperProfilePage() {
 
         <div className="pd-pp-actions">
           <Button variant="primary" icon={<BookOpen size={15} />} disabled={!canRead} onClick={() => navigate(`/reader/${paper.id}`)}>
-            {canRead ? startLabel : '暂时不能阅读'}
+            {canRead ? startLabel : paper.status === 'metadata_only' ? '还没有全文' : '暂时不能阅读'}
           </Button>
           <Button icon={<Network size={15} />} disabled={!canRead} onClick={() => navigate(`/mindmap/${paper.id}`)}>
             思维导图
@@ -353,6 +375,24 @@ export function PaperProfilePage() {
             生成引用
           </Button>
         </div>
+        {paper.status === 'metadata_only' && !paper.has_pdf && (
+          <div className="pd-pp-getfull" role="group" aria-label="补充全文">
+            <p className="pd-aux pd-muted" style={{ margin: 0 }}>
+              这篇论文目前只有题录，没有 PDF 全文。可以让软件去找开放获取的版本，或者自己补上：
+            </p>
+            <div className="pd-row" style={{ flexWrap: 'wrap', marginTop: 8 }}>
+              <Button size="sm" variant="primary" icon={<Download size={14} />} loading={fulltextBusy} onClick={() => void autoFetchFullText(paper.id)}>
+                自动获取全文
+              </Button>
+              <Button size="sm" icon={<Globe size={14} />} disabled={fulltextBusy} onClick={() => void downloadInBrowser(paper)} title="在内置浏览器里打开：需要登录就直接登录，下载到的 PDF 会自动附加到这篇论文">
+                在浏览器里下载（可登录）
+              </Button>
+              <Button size="sm" icon={<Paperclip size={14} />} disabled={fulltextBusy} onClick={() => void attachLocalPdf(paper.id)}>
+                选择本地 PDF
+              </Button>
+            </div>
+          </div>
+        )}
         {!canRead && paper.parse_error && <p className="pd-aux pd-muted">{paper.parse_error}</p>}
         <div className="pd-pp-bar" aria-label={`读到 ${progress}%`}>
           <div style={{ width: `${progress}%` }} />

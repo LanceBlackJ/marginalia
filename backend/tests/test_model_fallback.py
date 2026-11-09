@@ -101,3 +101,58 @@ def test_provider_fallback_only_before_any_output():
     except LLMError:
         pass
     assert calls == ["strong"] and not prov.fallback_events  # 已经输出过内容：不回退
+
+
+def test_ask_retries_with_bigger_budget_when_model_spends_it_all_thinking(imported):
+    api, pid = imported
+    api.put("/settings/ai", {"max_output_tokens": 2048})  # 用户把上限调得很小：第一次正文为空，放宽后才有回答
+    api.fake.think_budget = 4096
+    ev = api.sse("/ai/ask", {"paper_id": pid, "question": "拓扑注意力模块是怎么工作的？请详细解释它的设计", "intent": "free"})
+    assert ev[-1][0] == "done", ev[-1]
+    assert any("放宽额度" in d["message"] for n, d in ev if n == "stage")
+    assert ev[-1][1]["card"]["answer"]["direct"].strip()
+
+
+def test_ask_reports_error_instead_of_saving_an_empty_card(imported):
+    api, pid = imported
+    api.put("/settings/ai", {"max_output_tokens": 2048})
+    api.fake.think_budget = 10**6  # 再大的额度也只有思考
+    ev = api.sse("/ai/ask", {"paper_id": pid, "question": "拓扑注意力模块是怎么工作的？请详细解释它的设计", "intent": "free"})
+    assert ev[-1][0] == "error" and "没有给出回答" in ev[-1][1]["message"]
+
+
+def test_default_output_limit_is_16000_and_old_saved_default_follows_it(imported):
+    from paperdesk.ai import settings as S
+    api, _pid = imported
+    assert S.DEFAULTS["max_output_tokens"] == 16000
+    api.put("/settings/ai", {"max_output_tokens": 4096})  # 以前界面保存下来的旧默认值
+    assert api.get("/settings/ai").json()["max_output_tokens"] == 16000
+    api.put("/settings/ai", {"max_output_tokens": 8000})  # 明确改过的值照旧
+    assert api.get("/settings/ai").json()["max_output_tokens"] == 8000
+
+
+def _ask_with_thinking(imported, mode: str):
+    api, pid = imported
+    api.fake.thinking_mode = mode
+    ev = api.sse("/ai/ask", {"paper_id": pid, "question": "拓扑注意力模块是怎么工作的？请详细解释它的设计", "intent": "free"})
+    assert ev[-1][0] == "done", ev[-1]
+    return ev, ev[-1][1]["card"]
+
+
+def test_thinking_in_think_tags_is_streamed_separately_and_saved_on_the_card(imported):
+    ev, card = _ask_with_thinking(imported, "tag")
+    streamed = "".join(d["text"] for n, d in ev if n == "thinking")
+    assert streamed == "先回忆论文里相关的段落。"  # 标签被拆在数据块之间也不丢
+    assert card["answer"]["thinking"] == streamed
+    assert "<think>" not in card["raw_markdown"] and "先回忆" not in card["answer"]["direct"]  # 思考不混进正文
+
+
+def test_thinking_in_reasoning_content_field_is_streamed_and_saved(imported):
+    ev, card = _ask_with_thinking(imported, "field")
+    assert "".join(d["text"] for n, d in ev if n == "thinking") == "先回忆论文里相关的段落。"
+    assert card["answer"]["thinking"] == "先回忆论文里相关的段落。" and card["answer"]["direct"].strip()
+
+
+def test_no_thinking_key_when_model_does_not_think(imported):
+    ev, card = _ask_with_thinking(imported, "")
+    assert not [1 for n, _ in ev if n == "thinking"] and "thinking" not in card["answer"]

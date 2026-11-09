@@ -592,6 +592,8 @@ export interface CardAnswer {
   follow_ups: string[]
   /** 论文之外：模型自身知识/网络资料补充的内容，不是论文原文 */
   outside?: string | null
+  /** 模型的思考过程（有就保存，界面里可展开；不是论文原文） */
+  thinking?: string
   /** 回答里引用到的网络资料（[W序号]） */
   web?: Array<{ n: number; title: string; url: string; source: string }>
 }

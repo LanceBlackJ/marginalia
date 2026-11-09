@@ -22,7 +22,7 @@ export const useManualDownload = create<ManualDownloadState>((set) => ({
   close: () => set({ items: [] })
 }))
 
-interface LinkSource {
+export interface LinkSource {
   doi: string | null
   source_url?: string | null
   access_info?: AccessLink[] | null

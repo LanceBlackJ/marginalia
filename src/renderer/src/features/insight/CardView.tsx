@@ -14,6 +14,7 @@ import { isEquationCard, isFigureCard } from '@/lib/types.vision'
 import { useInsightStore } from './insightStore'
 import { cardMetaParts, questionLine, verifyLabel } from './insightModel'
 import { QuestionBubble } from './QuestionBubble'
+import { ThinkingBlock } from './ThinkingBlock'
 import { QuestionEditor } from './QuestionEditor'
 import type { FigureCard } from '@/lib/types.vision'
 
@@ -213,6 +214,7 @@ export function CardView({ card, editable = false }: { card: InsightCard; editab
           )}
 
           {isEquationCard(card) && <EquationHeader card={card} />}
+          {card.answer.thinking && <ThinkingBlock text={card.answer.thinking} />}
           <div className="pd-card-direct" data-translatable>
             <Markdown text={card.answer.direct} evidence={card.evidence} invalid={card.verification.invalid_citations} invalidRefs={card.verification.invalid_refs} />
           </div>

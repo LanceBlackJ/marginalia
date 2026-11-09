@@ -7,6 +7,7 @@ import { attachAsSupplement, canAttachAsSupplement } from '@/features/materials/
 import { useJobsStore } from '@/stores/jobsStore'
 import type { ImportResult, Job } from '@/lib/types'
 import { useManualDownload } from './manualDownload'
+import { attachDownloadedPdf } from './fulltext'
 
 /** 全局导入对话框状态（顶栏和文献库都可以触发）。 */
 interface ImportUiState {
@@ -43,6 +44,7 @@ export async function importLocalFiles(): Promise<void> {
 
 /** 论文下载浏览器里截下来的 PDF：直接导入（来源标题里写明是从哪个网址下载的）。 */
 export async function importDownloadedPdf(path: string, filename: string): Promise<void> {
+  if (await attachDownloadedPdf(path, filename)) return // 是从某篇只有题录的论文里点进去下载的：接回那一篇
   try {
     const { job_id } = await api.imports.files([path])
     startJob(job_id, `已从内置浏览器下载《${filename}》，正在导入，可在任务中心查看进度。`)
@@ -83,16 +85,20 @@ export async function importUrl(url: string, metadataOnly = false): Promise<void
 
 /** 导入任务结束后的汇总提示（在 AppShell 中注册）。 */
 export function summarizeImportJob(job: Job): void {
-  if (!['import', 'import_doi', 'import_url', 'attach_pdf'].includes(job.type)) return
+  if (!['import', 'import_doi', 'import_url', 'attach_pdf', 'fetch_fulltext'].includes(job.type)) return
   if (job.status === 'cancelled') {
-    toast.warning('导入已取消')
+    toast.warning(job.type === 'fetch_fulltext' ? '已取消获取全文' : '导入已取消')
     return
   }
   if (job.status === 'failed') {
-    toast.error('导入失败', job.error ?? '未知错误')
+    toast.error(job.type === 'fetch_fulltext' ? '没能自动获取全文' : '导入失败', job.error ?? '未知错误')
     return
   }
   const items = (job.result as ImportResult | null)?.items ?? []
+  if ((job.type === 'fetch_fulltext' || job.type === 'attach_pdf') && items.length === 1 && items[0].status === 'imported') {
+    toast.success('已补上全文', '已附加到这篇论文，可以开始阅读了。公式与表格正在后台处理。')
+    return
+  }
   const count = (s: string): number => items.filter((i) => i.status === s).length
   const imported = count('imported')
   const dup = count('duplicate')

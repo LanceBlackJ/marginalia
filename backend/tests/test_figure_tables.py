@@ -163,3 +163,49 @@ def test_panel_letters_just_above_a_figure_become_figure_text_but_real_text_does
     changed = datablocks.reclassify(passages, figs, get, lambda o, v: o.__setitem__("kind", v))
     assert changed == {0: "子图字母"}
     assert [p["kind"] for p in passages] == ["figure_text", "paragraph", "paragraph", "caption"]
+
+
+def _result_table(*, pm: bool = False):
+    """仿 BHyGNN+ 的表 1：合并单元格表头（每个数据集名管两列）、竖排的分组名、OOM 占位、可选 “均值 ± 标准差”。"""
+    words = []
+    cols = [200 + i * 31 for i in range(6)]  # 6 列，两两一组
+    for g, name in enumerate(["SENATE", "SYNTHETIC", "CONGRESS"]):
+        words.append(_w(cols[2 * g] + 8, 20, name, 30))
+    rows = [("MLP", "sup"), ("HGNN", "sup"), ("HCHA", "sup"), ("TriCL", "uns"), ("HyperGCL", "uns")]
+    for r, (name, _g) in enumerate(rows):
+        y = 40 + r * 10
+        words.append(_w(133, y, name, 24))
+        for c, x in enumerate(cols):
+            if r == 1 and c >= 4:
+                words.append(_w(x, y, "OOM", 14))
+            elif pm:
+                words.append(_w(x - 4, y, f"{60 + r + c}.1", 14))
+                words.append(_w(x + 12, y, "±", 5))
+                words.append(_w(x + 19, y, "0.3", 12))
+            else:
+                words.append(_w(x, y, f"{60 + r + c}.{c}5", 16))
+    words.append((115, 40, 123, 70, "Supervised"))  # 竖排：很高、很窄
+    words.append((115, 70, 123, 94, "Unsup"))
+    return words
+
+
+def test_merged_header_spans_columns_and_oom_placeholder_kept():
+    tabs = LT.reconstruct_panels(_result_table(), min_conf=0.0)
+    assert len(tabs) == 1
+    t = tabs[0]
+    assert t["columns"][1:] == ["SENATE", "SENATE", "SYNTHETIC", "SYNTHETIC", "CONGRESS", "CONGRESS"]
+    sheaf = next(r for r in t["rows"] if r[0].endswith("HGNN"))
+    assert sheaf[-2:] == ["OOM", "OOM"]  # 占位记号是单元格，不是丢掉
+    assert "没找到列名" not in t["reasons"]
+
+
+def test_vertical_group_label_is_not_glued_into_first_cell_but_reported():
+    t = LT.reconstruct_panels(_result_table(), min_conf=0.0)[0]
+    assert [r[0] for r in t["rows"]] == ["MLP", "HGNN", "HCHA", "TriCL", "HyperGCL"]
+    assert any("竖排" in r and "Supervised" in r for r in t["reasons"])
+
+
+def test_mean_plus_minus_std_is_one_cell():
+    t = LT.reconstruct_panels(_result_table(pm=True), min_conf=0.0)[0]
+    assert t["rows"][0][1] == "60.1 ± 0.3"
+    assert LT._is_num("59.3 ± 0.1") and LT._is_num("OOM") and not LT._is_num("Supervised")

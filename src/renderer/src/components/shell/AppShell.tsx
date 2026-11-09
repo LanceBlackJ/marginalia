@@ -42,7 +42,7 @@ function useJobsPolling(enabled: boolean): void {
 
 function ImportProgressBar() {
   const navigate = useNavigate()
-  const active = useActiveJobs().filter((j) => ['import', 'import_doi', 'import_url', 'attach_pdf'].includes(j.type))
+  const active = useActiveJobs().filter((j) => ['import', 'import_doi', 'import_url', 'attach_pdf', 'fetch_fulltext'].includes(j.type))
   if (active.length === 0) return null
   const job = active[0]
   return (

@@ -997,3 +997,20 @@
 .pd-composer-ctx .pd-chip--fig {
   border-style: dashed;
 }
+
+/* 模型的思考过程：次要信息，灰色小字、限高可滚动 */
+.pd-think {
+  margin: 6px 0;
+}
+.pd-think-body {
+  margin-top: 4px;
+  padding: 8px 10px;
+  max-height: 240px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--pd-text-weak, #666);
+  border-left: 2px solid var(--pd-border, #d4d4d4);
+}

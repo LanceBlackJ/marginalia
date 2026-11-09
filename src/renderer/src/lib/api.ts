@@ -211,6 +211,8 @@ export const api = {
       post<{ matches: LocateMatch[] }>(`/api/papers/${id}/locate`, { text, page }),
     search: (id: string, q: string, limit = 50, signal?: AbortSignal) =>
       get<{ items: SearchHit[] }>(`/api/papers/${id}/search`, { q, limit }, signal),
+    /** 只有题录的论文：自动找开放获取的全文并附加（后台任务） */
+    fetchFulltext: (id: string) => post<{ job_id: string }>(`/api/papers/${id}/fetch_fulltext`, {}),
     attachPdf: (id: string, path: string) => post<{ job_id: string }>(`/api/papers/${id}/attach_pdf`, { path }),
     /** 重新解析（后台任务，可取消）：用当前版本的解析器重新读 PDF，笔记等用户数据会重新映射；force=true 在新解析段落数少得可疑时仍然替换。 */
     reparse: (id: string, force = false) => post<{ job_id: string }>(`/api/papers/${id}/reparse`, { force }),

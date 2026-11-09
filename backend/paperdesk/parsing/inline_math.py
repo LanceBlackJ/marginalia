@@ -47,6 +47,9 @@ _ITALIC_FONT = re.compile(r"italic|-it\d*$|oblique", re.I)
 _SCRIPT_TEXT = re.compile(r"^[A-Za-z0-9,;:=+\-−()  ]+$")  # 上下标里可以有的字符：字母数字、逗号、运算符、括号
 _PUNCT_ONLY = re.compile(r"^[\s,.;:=+\-−×·/|()\[\]<>≤≥≠≈…]+$|^\d{1,3}$")
 _FUNCS = {"log", "ln", "min", "max", "exp", "sin", "cos", "sup", "inf"}
+RADICAL = "\x00radical"  # 根号的占位：build_tex 把它和后面的被开方式一起写成 \sqrt{…}
+# 被开方式到这里结束：括号配平之后遇到的运算符、比较号、逗号
+_RADICAND_END = re.compile(r"\s*(?:[+\-=<>,;]|\\(?:cdot|times|pm|leq?|geq?|neq|approx|to|in)\b)")
 _NEEDS_BASE = re.compile(r"[=+\-,(|]$|\\(?:in|to|cdot|times|setminus|le|ge|ldots)$|\{$")
 _TRAILING_OP = re.compile(r"(?:[+\-]|\\times|\\cdot)$")
 MAX_CLUSTER_SPANS = 28
@@ -94,8 +97,23 @@ def expand_members(cluster: list) -> list:
     return [m for s in cluster for m in (s.members or [s])]
 
 
+def _frac_tex(s) -> str | None:
+    """行内堆叠分式：分子、分母各自还原，任何一边认不全就整个放弃（交给视觉模型）。"""
+    parts = []
+    for group in s.frac:
+        size = max(x.size for x in group)
+        ref = next(x for x in group if x.size >= 0.95 * size)
+        t = build_tex(group, size, ref.baseline, numeric_ok=True)
+        if t is None:
+            return None
+        parts.append(t)
+    return "\\frac{" + parts[0] + "}{" + parts[1] + "}"
+
+
 def decode(s) -> str | None:
     """一个片段的 LaTeX；有不认识的字符返回 None。"""
+    if getattr(s, "frac", None):
+        return _frac_tex(s)
     tex = _decode_plain(s)
     if tex is None or not s.accent:
         return tex
@@ -106,6 +124,8 @@ def _decode_plain(s) -> str | None:
     t = s.text
     if not t.strip():
         return " " if t else ""
+    if t.strip() == "√":
+        return RADICAL  # 任何字体里的根号（CMEX 的大号根号已在提取时改成 √）
     low = s.font.lower()
     out: list[str] = []
     if "tex_cm_maths_sym" in low:
@@ -139,7 +159,9 @@ def _decode_plain(s) -> str | None:
         word = t.strip()
         if not word:
             return ""
-        return {"P": "\\sum ", "X": "\\sum ", "Q": "\\prod "}.get(word)  # 行内的求和、连乘；积分、根号等别的大号符号不处理
+        if word == "√":
+            return RADICAL  # 被开方式有多长要看后面的片段，由 build_tex 决定在哪里收尾
+        return {"P": "\\sum ", "X": "\\sum ", "Q": "\\prod "}.get(word)  # 行内的求和、连乘；积分等别的大号符号不处理
     if "macopen" in low:
         return MACOPEN.get(t.strip())
     for ch in t:
@@ -179,6 +201,8 @@ def _mathish(s, body: float) -> bool:
 
 def _level(s, base_size: float, base_line: float) -> str:
     """相对基线：'n' 正常、'sub' 下标、'sup' 上标。"""
+    if s.text.strip() == "√":
+        return "n"  # 根号的字号比正文小、基线也低，但它不是下标
     if s.size < 0.86 * base_size:
         d = s.baseline - base_line
         if d > 0.12 * base_size:
@@ -188,7 +212,7 @@ def _level(s, base_size: float, base_line: float) -> str:
     return "n"
 
 
-def build_tex(spans: list, base_size: float, base_line: float) -> str | None:
+def build_tex(spans: list, base_size: float, base_line: float, *, numeric_ok: bool = False) -> str | None:
     """把一簇按 x 排好的片段拼成 LaTeX；任何一个字符不认得、结构太复杂就返回 None。
 
     上标和下标各攒在自己的缓冲里（求和号的上下限在 x 上是交错的，但各自内部的顺序是对的），遇到下一个正常大小的片段再一起写出。"""
@@ -196,6 +220,9 @@ def build_tex(spans: list, base_size: float, base_line: float) -> str | None:
     subs: list[str] = []
     sups: list[str] = []
     bad = False
+    rad_open = False  # 正在写根号里的被开方式
+    rad_depth = 0  # 被开方式里还没配平的括号数
+    rad_has = False  # 被开方式里已经有内容
 
     def flush() -> None:
         nonlocal subs, sups, bad
@@ -223,15 +250,31 @@ def build_tex(spans: list, base_size: float, base_line: float) -> str | None:
             (subs if lv == "sub" else sups).append(f"\\mathrm{{{word}}}" if plain_word else tex)  # 下标里的 cost、pair 这类正体单词
             continue
         flush()
+        if tex == RADICAL:
+            if rad_open:
+                return None  # 根号套根号：不处理，交给视觉模型
+            parts.append("\\sqrt{")
+            rad_open, rad_depth, rad_has = True, 0, False
+            continue
+        if rad_open and rad_has and rad_depth == 0 and _RADICAND_END.match(tex):
+            parts.append("}")
+            rad_open = False
         if plain_word:
             if word.lower() in _FUNCS:
                 tex = f"\\{word.lower()} "
             else:
                 return None  # 普通英文单词混进来了：说明簇切得不对，放弃
         parts.append(tex)
+        if rad_open:
+            rad_depth += tex.count("(") - tex.count(")")
+            rad_has = True
     flush()
+    if rad_open:
+        if not rad_has:
+            return None
+        parts.append("}")
     out = re.sub(r"\s+", " ", "".join(parts)).strip()
-    if bad or not out or not re.search(r"[A-Za-z\\]", out) or _TRAILING_OP.search(out):
+    if bad or not out or not (numeric_ok or re.search(r"[A-Za-z\\]", out)) or _TRAILING_OP.search(out):
         return None  # 以运算符结尾：表达式在这一行被截断了
     return out
 

@@ -31,7 +31,9 @@ is_caption = layout.is_caption
 #  14 = 三线表（图注 + 几条通栏横线，没有竖线和边框）认成表格区域，格子里的长文字不再当正文段落、不再被逐段翻译
 # 15 = 参考文献折行续条并回上一条（编号/悬挂缩进）、文末说明不再算参考文献、页眉带宽放宽、无空格长串按字符间隙补空格、文字绕排图的图注抽出、
 #      IEEE 罗马编号表题（TABLE I + 标题）、带编号的长小节标题与“3.3.1 Memory”、跨页摘要接回、小号脚注另起一段、算法框里的粗体词不当小节标题
-PARSER_VERSION = 15
+# 16 = CMEX 字体里的根号（控制字符码）保留成 √ 并和被开方式排在同一行，行内公式还原成 \sqrt{…}（以前整个根号丢了，ṡ=√b(s) 变成 ṡ=b(s)）
+# 17 = 行内堆叠分式（小字号分子 + 分数线 + 分母）并成一个片段、还原成 \frac{…}{…}（以前分子被并进上面的公式块，正文只剩 “= 2”）
+PARSER_VERSION = 17
 COVER_RE = re.compile(r"引用本文\s*[:：]|您可能感兴趣的其他文章|在线阅读\s*View online")
 
 
@@ -238,7 +240,12 @@ def math_runs(b: Block) -> list[dict]:
                     nxt = spans[i + 1].text
                     closers = len(nxt) - len(nxt.lstrip(")"))
                     if closers >= deficit:
-                        tex, src = tex + ")" * deficit, src + ")" * deficit
+                        head, _, rad = tex.rpartition("\\sqrt{")
+                        if "\\sqrt{" in tex and rad.endswith("}") and rad.count("(") > rad.count(")"):
+                            tex = head + "\\sqrt{" + rad[:-1] + ")" * deficit + "}"  # 缺的右括号属于根号里的被开方式，要写在根号收尾的大括号之前
+                        else:
+                            tex += ")" * deficit
+                        src += ")" * deficit
             if len(src) <= 2:
                 # 单个字母的公式如果和前后的文字粘在一起（“i”后面紧跟“th”），正文里按词边界找不到它，
                 # 前端可能错配到后面别处的同一个字母：这种不收，保持原文字

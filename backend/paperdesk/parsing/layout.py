@@ -88,6 +88,8 @@ class Span:
     # 行内公式还原：这个片段（一个变量）头上的重音（\dot 等），以及并进来的原始片段（重音片段 + 变量本身，还原正文里的原文用）
     accent: str = ""
     members: list = field(default_factory=list)
+    # 行内堆叠分式（分子、分数线、分母）并成的一个片段：(分子片段, 分母片段)；text 写成 “(分子)/(分母)”
+    frac: tuple | None = None
 
 
 @dataclass
@@ -231,6 +233,8 @@ def extract_spans(page: pymupdf.Page) -> list[Span]:
                     text = _respace(text, raw_spans, (round(sp["origin"][1], 1), round(sp["bbox"][0], 1)), float(sp["size"]))
                 x0, y0, x1, y1 = sp["bbox"]
                 font = sp["font"]
+                if "cmex" in font.lower() and len(text.strip()) == 1 and text.strip() not in "PXQ" and (x1 - x0) >= 0.7 * float(sp["size"]):
+                    text = "√"  # CMEX10 里的根号（控制字符码，clean_text 会把它当空白丢掉，式子就少了一个根号）
                 if text.strip() == "I" and (x1 - x0) < 0.45 * float(sp["size"]) and MATH_FONT_RE.search(font):
                     continue  # 自定义数学字体里的装饰字形（竖线/覆盖符），不是文字
                 out.append(
@@ -242,6 +246,59 @@ def extract_spans(page: pymupdf.Page) -> list[Span]:
                         font, bool(MATH_FONT_RE.search(font)) and not set(text.strip()) <= _LIG_CHARS,  # 单独排在子集字体里的连字（ﬁ）不是数学
                     )
                 )
+    # 根号的横线是细线、字形又比正文高，基线和后面的被开方式差得多，会被排到另一行、把 “ṡ(t)=√b(s)” 拦腰切断：
+    # 给它换上紧右边那个片段的基线，让它和被开方式、前面的等号排在同一行
+    out = _stack_fractions(page, out)  # 先并分式：根号要对齐的是“根号 + 分式”整体的基线
+    for r in out:
+        if r.text != "√":
+            continue
+        # 根号字形整个抬在被开方式上面（字形底边几乎只碰到被开方式的顶边），所以不能要求竖向重叠，只看紧右边、纵向相距不到一个字号
+        nxt = [s for s in out if s is not r and -0.9 * r.size <= s.x0 - r.x1 <= 0.6 * r.size and abs((s.y0 + s.y1) / 2 - (r.y0 + r.y1) / 2) <= 1.2 * r.size]
+        if nxt:
+            r.baseline = min(nxt, key=lambda s: s.x0).baseline
+    return out
+
+
+def _stack_fractions(page: pymupdf.Page, spans: list[Span]) -> list[Span]:
+    """行内的堆叠分式（如 “s̈(t) = ∂ₛb(s)/2”）：小字号的分子、一条分数线、小字号的分母。
+    它们本来会被切成三处：分子成了另一行（后来被并进上面的公式块）、分母单独成行，正文里只剩一个 “= 2”。
+    用画出来的那条分数线找回来：线正上方、正下方且落在线的横向范围内的片段，合成一个和左边正文同基线的片段。"""
+    small = [s for s in spans if s.text.strip()]
+    if len(small) < 3:
+        return spans
+    body = body_font_size([spans])
+    if not any(s.size < 0.9 * body for s in small):
+        return spans
+    try:
+        bars = [d["rect"] for d in page.get_drawings() if d["rect"].height < 0.8 and 5.0 <= d["rect"].width <= 120.0]
+    except Exception:  # noqa: BLE001  取不到矢量线就不处理分式
+        return spans
+    used: set[int] = set()
+    out = list(spans)
+    for bar in bars:
+        y = (bar.y0 + bar.y1) / 2
+        x0, x1 = bar.x0 - 3.0, bar.x1 + 3.0
+        num = [s for s in spans if id(s) not in used and s.x0 >= x0 and s.x1 <= x1 and y - 14 <= s.y0 and s.y1 <= y + 1.5 and s.text.strip()]
+        den = [s for s in spans if id(s) not in used and s.x0 >= x0 and s.x1 <= x1 and s.y0 >= y - 1.5 and s.y1 <= y + 14 and s.text.strip()]
+        if not num or not den or any(s.size >= 0.9 * body for s in num + den):
+            continue  # 整行大小的分式是单独的公式块，不在这里处理
+        num.sort(key=lambda s: s.x0)
+        den.sort(key=lambda s: s.x0)
+        # 左边紧挨着的正文大小片段：分式的基线要和它对齐，找不到就不是行内分式
+        left = [s for s in spans if s.size >= 0.9 * body and -2.0 <= x0 + 3.0 - s.x1 <= 14.0 and s.y0 - 4 <= y <= s.y1 + 4]
+        if not left:
+            continue
+        ref = max(left, key=lambda s: s.x1)
+        up = "".join(s.text for s in num).strip()
+        dn = "".join(s.text for s in den).strip()
+        frac = Span(
+            min(s.x0 for s in num + den), min(s.y0 for s in num), max(s.x1 for s in num + den), max(s.y1 for s in den), ref.baseline,
+            f"({up})/({dn})", ref.size, False, False, num[0].font, True,
+        )
+        frac.frac = (num, den)
+        for s in num + den:
+            used.add(id(s))
+        out = [s for s in out if id(s) not in used] + [frac]
     return out
 
 

@@ -49,6 +49,7 @@ class StreamChunk:
     usage: Usage | None = None
     finish_reason: str | None = None
     dropped: int = 0  # 无法解析而被丢弃的数据帧数量（只在流末尾的收尾块里给出）
+    thinking: str = ""  # 模型的思考过程（<think> 块或 reasoning_content），不属于回答正文，界面单独显示
     notice: str | None = None  # 给界面看的提示（例如强模型不可用、已改用快速模型）；没有文字内容
 
 
@@ -163,6 +164,7 @@ class ThinkFilter:
     def __init__(self) -> None:
         self.buf = ""
         self.inside = False
+        self.thought = ""  # 本次 feed 期间收集到的思考文字，取走后清空
         self._started = False  # 是否已经输出过正文（用于吞掉思考块后紧跟的换行）
 
     def feed(self, chunk: str) -> str:
@@ -173,8 +175,10 @@ class ThinkFilter:
                 i = self.buf.find(THINK_CLOSE)
                 if i < 0:
                     keep = _partial_suffix(self.buf, THINK_CLOSE)
+                    self.thought += self.buf[: len(self.buf) - keep]
                     self.buf = self.buf[len(self.buf) - keep:] if keep else ""
                     return out
+                self.thought += self.buf[:i]
                 self.buf = self.buf[i + len(THINK_CLOSE):]
                 self.inside = False
                 if not self._started:
@@ -194,7 +198,13 @@ class ThinkFilter:
                 self.buf = self.buf[i + len(THINK_OPEN):]
                 self.inside = True
 
+    def take(self) -> str:
+        t, self.thought = self.thought, ""
+        return t
+
     def flush(self) -> str:
+        if self.inside:
+            self.thought += self.buf
         out = "" if self.inside else self.buf
         self.buf = ""
         return out
@@ -363,13 +373,15 @@ class LLMProvider:
                                 continue
                             if chunk.text:
                                 chunk.text = think.feed(chunk.text)
-                                if not chunk.text and chunk.usage is None and chunk.finish_reason is None:
-                                    continue  # 整块都在思考标签内
+                            chunk.thinking += think.take()
+                            if not chunk.text and not chunk.thinking and chunk.usage is None and chunk.finish_reason is None:
+                                continue  # 没有任何可用内容
                             started = True
                             yield chunk
                         tail = think.flush()
-                        if tail or dropped:
-                            yield StreamChunk(text=tail, dropped=dropped)
+                        rest = think.take()
+                        if tail or dropped or rest:
+                            yield StreamChunk(text=tail, dropped=dropped, thinking=rest)
                         return
             except LLMError as err:
                 if not err.retriable or attempt >= self.max_retries or started:
@@ -429,14 +441,16 @@ class OpenAICompatibleProvider(LLMProvider):
         usage = self._usage(data.get("usage"))
         choices = data.get("choices") or []
         text = ""
+        reasoning = ""
         finish = None
         if choices:
             delta = choices[0].get("delta") or {}
             text = delta.get("content") or ""
+            reasoning = delta.get("reasoning_content") or delta.get("reasoning") or ""  # DeepSeek / Qwen3 等把思考放在单独字段
             finish = choices[0].get("finish_reason")
-        if not text and usage is None and finish is None:
+        if not text and not reasoning and usage is None and finish is None:
             return None
-        return StreamChunk(text=text, usage=usage, finish_reason=finish)
+        return StreamChunk(text=text, usage=usage, finish_reason=finish, thinking=reasoning)
 
 
 class AnthropicProvider(LLMProvider):

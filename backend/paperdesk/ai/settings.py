@@ -26,7 +26,8 @@ DEFAULTS: dict[str, Any] = {
     "timeout_s": 60,
     "max_retries": 2,
     "temperature": 0.2,
-    "max_output_tokens": 4096,
+    # 思考型模型（如 MiniMax-M2.7）的思考也计入输出额度，4096 会被思考用光、正文为空，所以默认放宽到 16000（只按实际生成的字数计费）
+    "max_output_tokens": 16000,
     "auto_analyze": True,
     "price_per_mtok": {},
     "monthly_budget": None,
@@ -53,11 +54,16 @@ DEFAULT_BASE_URLS = {
 }
 
 
+OLD_DEFAULT_MAX_OUTPUT = 4096
+
+
 def load_settings(app: AppContext) -> dict:
     with app.db.session() as conn:
         row = conn.execute("SELECT value_json FROM settings WHERE key = 'ai'").fetchone()
     saved = loads(row["value_json"], {}) if row else {}
     data = {**DEFAULTS, **saved}
+    if saved.get("max_output_tokens") == OLD_DEFAULT_MAX_OUTPUT:  # 旧默认值：当作没改过，跟随新默认
+        data["max_output_tokens"] = DEFAULTS["max_output_tokens"]
     # 内置价目表打底，用户填写的同名价格覆盖它
     data["price_per_mtok"] = {**GATEWAY_PRICES, **(saved.get("price_per_mtok") or {})}
     return data
