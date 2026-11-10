@@ -66,8 +66,11 @@ class _CaptionMatcher:
 
 
 CAPTION_START_RE = _CaptionMatcher()
-NUMBERED_HEAD_RE = re.compile(r"^\s*(?:\d{1,2}(?:\.\d{1,2}){0,3}\.?|[IVX]{1,5}\.|[A-Z]\.)\s+[A-Z一-鿿]")
+NUMBERED_HEAD_RE = re.compile(r"^\s*(?:\d{1,2}(?:\.\d{1,2}){0,3}\.?|[IVX]{1,5}\.|[A-Z]\.|[A-Z]\.\d{1,2}(?:\.\d{1,2}){0,2})\s+[A-Z一-鿿]")
 REF_START_RE = re.compile(r"^\s*(?:\[\d{1,3}\]|\d{1,3}\.)\s+\S")
+# 作者-年份格式的条目开头：“Frome, A., Corrado, G.” / “K. He, X. Zhang”
+AUTHOR_START_RE = re.compile(r"^\s*(?:[A-Z][\w'’\-]+,\s+(?:[A-Z]\.[\s\-]*){1,3}|(?:[A-Z]\.[\s\-]*){1,3}[A-Z][\w'’\-]+,)")
+_YEAR_IN_ENTRY = re.compile(r"(?<!\d)(?:19|20)\d{2}[a-z]?(?!\d)")
 TERMINAL = tuple(".?!:;。？！：；")
 
 
@@ -107,6 +110,8 @@ class Line:
     italic: float
     math: float  # 数学字符占比
     in_figure: bool = False
+    region: int = -1  # 视觉划分里它属于第几个区域（-1 = 没有视觉划分）
+    role: str = ""  # 区域的角色：heading / paragraph / caption / formula / reference ……
 
     @property
     def width(self) -> float:
@@ -133,6 +138,8 @@ class Block:
     eq_number: str | None = None
     lines: list[Line] = field(default_factory=list)
     heading_hint: bool = False
+    ref_page: bool = False  # 这一页是按内容判断出来的参考文献页（整篇没有“References”标题时的兜底）
+    role: str = ""  # 视觉划分给的角色（title / authors / abstract / heading / sidebar …），没有视觉划分时为空
 
     @property
     def width(self) -> float:
@@ -156,8 +163,28 @@ def _join_cjk_runs(m: re.Match) -> str:
     return out
 
 
+# TeX 排版的带重音字母，PDF 文字层里是“重音符号 + 字母”两个字符（J¨urgen、Jos´e、Arbel´aez）：合成带重音的字母。
+# 只在重音前面紧挨着字母时合并（人名、地名在词中间）；公式里的 ¨s（点点）前面不是字母，不受影响
+_ACCENTS = {
+    "¨": {"a": "ä", "e": "ë", "i": "ï", "o": "ö", "u": "ü", "y": "ÿ", "A": "Ä", "E": "Ë", "I": "Ï", "O": "Ö", "U": "Ü"},
+    "´": {"a": "á", "e": "é", "i": "í", "o": "ó", "u": "ú", "y": "ý", "c": "ć", "n": "ń", "s": "ś", "z": "ź", "A": "Á", "E": "É", "I": "Í", "O": "Ó", "U": "Ú", "C": "Ć"},
+    "`": {"a": "à", "e": "è", "i": "ì", "o": "ò", "u": "ù", "A": "À", "E": "È", "O": "Ò"},
+    "ˆ": {"a": "â", "e": "ê", "i": "î", "o": "ô", "u": "û", "A": "Â", "E": "Ê", "O": "Ô"},
+    "˜": {"a": "ã", "n": "ñ", "o": "õ", "A": "Ã", "N": "Ñ", "O": "Õ"},
+    "¸": {"c": "ç", "C": "Ç", "s": "ş", "S": "Ş"},
+    "ˇ": {"c": "č", "s": "š", "z": "ž", "r": "ř", "e": "ě", "n": "ň", "C": "Č", "S": "Š", "Z": "Ž"},
+    "˘": {"a": "ă", "g": "ğ", "A": "Ă", "G": "Ğ"},
+}
+_ACCENT_RE = re.compile("(?<=[A-Za-z])([" + "".join(_ACCENTS) + "])([A-Za-z])")
+
+
+def _compose_accent(m: re.Match) -> str:
+    return _ACCENTS[m.group(1)].get(m.group(2), m.group(0))
+
+
 def clean_text(text: str) -> str:
     text = _LIG_RE.sub(lambda m: LIGATURES[m.group(0)], text)
+    text = _ACCENT_RE.sub(_compose_accent, text)
     text = text.translate(_FULLWIDTH)
     text = _CJK_RUNS.sub(_join_cjk_runs, text)
     text = re.sub(r"[\x00-\x08\x0b-\x1f]", " ", text)  # control chars from odd fonts, e.g. BEL after a section number
@@ -223,15 +250,31 @@ def extract_spans(page: pymupdf.Page) -> list[Span]:
                 text = unscramble_cjk(sp["text"])
                 if not text.strip():
                     continue
-                if _looks_spaceless(text):
+                lead_space = sp["text"][:1].isspace()
+                if _looks_spaceless(text) or lead_space:
                     if raw_spans is None:
                         raw_spans = {}
                         for rb in page.get_text("rawdict")["blocks"]:
                             for rl in rb.get("lines", []):
                                 for rs in rl["spans"]:
                                     raw_spans[(round(rs["origin"][1], 1), round(rs["bbox"][0], 1))] = rs["chars"]
+                if _looks_spaceless(text):
                     text = _respace(text, raw_spans, (round(sp["origin"][1], 1), round(sp["bbox"][0], 1)), float(sp["size"]))
                 x0, y0, x1, y1 = sp["bbox"]
+                base_y = sp["origin"][1]
+                if lead_space and raw_spans is not None:
+                    # TeX 排出来的上下标常是 “ K” 这样以空格开头的片段：PyMuPDF 把整个片段的基线记成那个空格的（正文基线），
+                    # 上标 K 就被当成了正文字符（W^K_i 变成 “KW K_i”）。基线、位置要用第一个非空格字符自己的
+                    chars = raw_spans.get((round(sp["origin"][1], 1), round(sp["bbox"][0], 1)))
+                    k = next((i for i, c in enumerate(chars or []) if not c["c"].isspace()), 0)
+                    if chars and k > 0:
+                        c0 = chars[k]
+                        dy = c0["origin"][1] - base_y
+                        if abs(dy) > 0.4:
+                            base_y += dy
+                            y0 += dy
+                            y1 += dy
+                        x0 = max(x0, c0["bbox"][0])
                 font = sp["font"]
                 if "cmex" in font.lower() and len(text.strip()) == 1 and text.strip() not in "PXQ" and (x1 - x0) >= 0.7 * float(sp["size"]):
                     text = "√"  # CMEX10 里的根号（控制字符码，clean_text 会把它当空白丢掉，式子就少了一个根号）
@@ -239,7 +282,7 @@ def extract_spans(page: pymupdf.Page) -> list[Span]:
                     continue  # 自定义数学字体里的装饰字形（竖线/覆盖符），不是文字
                 out.append(
                     Span(
-                        x0, y0, x1, y1, sp["origin"][1], text, float(sp["size"]),
+                        x0, y0, x1, y1, base_y, text, float(sp["size"]),
                         bool(sp["flags"] & 16) or "bold" in font.lower() or "semibold" in font.lower()
                         or bool(re.search(r"-(bd|bol)\b", font.lower())),
                         bool(sp["flags"] & 2) or bool(re.search(r"italic|-it\d*$|oblique", font.lower())),
@@ -278,8 +321,9 @@ def _stack_fractions(page: pymupdf.Page, spans: list[Span]) -> list[Span]:
     for bar in bars:
         y = (bar.y0 + bar.y1) / 2
         x0, x1 = bar.x0 - 3.0, bar.x1 + 3.0
-        num = [s for s in spans if id(s) not in used and s.x0 >= x0 and s.x1 <= x1 and y - 14 <= s.y0 and s.y1 <= y + 1.5 and s.text.strip()]
-        den = [s for s in spans if id(s) not in used and s.x0 >= x0 and s.x1 <= x1 and s.y0 >= y - 1.5 and s.y1 <= y + 14 and s.text.strip()]
+        # 按片段的中心点分上下：减号这类字形的包围盒会跨过分数线（m−1 的 “−” 落在线上），按整个包围盒分会把它漏掉
+        num = [s for s in spans if id(s) not in used and s.x0 >= x0 and s.x1 <= x1 and y - 14 <= (s.y0 + s.y1) / 2 < y and s.text.strip()]
+        den = [s for s in spans if id(s) not in used and s.x0 >= x0 and s.x1 <= x1 and y < (s.y0 + s.y1) / 2 <= y + 14 and s.text.strip()]
         if not num or not den or any(s.size >= 0.9 * body for s in num + den):
             continue  # 整行大小的分式是单独的公式块，不在这里处理
         num.sort(key=lambda s: s.x0)
@@ -312,7 +356,7 @@ def body_font_size(all_spans: list[list[Span]]) -> float:
 
 
 # ---------------------------------------------------------------- 栏检测
-def detect_gutter(spans: list[Span], page_h: float | None = None) -> tuple[float, float] | None:
+def _gutter(spans: list[Span], page_h: float | None, reach: float, min_side: float, min_run: int, sidebar: bool = False) -> tuple[float, float] | None:
     """在窄片段（栏内文字）的 x 占用里找页面中部的空隙，作为栏间沟。没有可靠的沟则视为单栏。
     页眉页脚区域（页码、期刊名等）不参与判断，且两侧都必须有足够多的栏内文字。"""
     if page_h:
@@ -324,10 +368,24 @@ def detect_gutter(spans: list[Span], page_h: float | None = None) -> tuple[float
     span_w = right - left
     if span_w < 200:
         return None
-    narrow = [s for s in spans if (s.x1 - s.x0) < 0.55 * span_w]
+    mid = (left + right) / 2
+    # 跨过页面中线的行（通栏的标题、摘要，居中的作者行、收稿日期：中间没有空档）不参与统计，否则它们盖住栏沟，两栏页面会被判成单栏。
+    # 证据只来自“确实在中间断开”或者“整行落在一侧”的行
+    # PRL、Nature 这类首页上方都有大段通栏文字，而且 PDF 里每个词常常是单独的片段，片段本身都很窄。
+    rows: dict[int, list[Span]] = {}
+    for sp in spans:
+        if sp.text.strip():
+            rows.setdefault(round(sp.baseline / 3.0), []).append(sp)
+    full_ids: set[int] = set()
+    for r in rows.values():
+        r.sort(key=lambda x: x.x0)
+        if r[0].x0 < mid < r[-1].x1 and not any(
+            b_.x0 - a_.x1 >= 6.0 and mid - reach * span_w <= (a_.x1 + b_.x0) / 2 <= mid + reach * span_w for a_, b_ in zip(r, r[1:])
+        ):
+            full_ids.update(id(x) for x in r)
+    narrow = [s for s in spans if (s.x1 - s.x0) < 0.55 * span_w and id(s) not in full_ids]
     if len(narrow) < 8:
         return None
-    mid = (left + right) / 2
     # 覆盖度直方图（1pt 一格）：栏间沟允许被少数跨栏片段（作者行、短标题）穿过，
     # 只要中部有一段覆盖度远低于两侧即可。
     nbins = int(span_w) + 2
@@ -346,28 +404,68 @@ def detect_gutter(spans: list[Span], page_h: float | None = None) -> tuple[float
     thresh = max(2.0, 0.12 * max(cover) if cover else 2.0)
     if max(cover, default=0) < 6:
         return None
-    lo, hi = int(max(0, (mid - left) - 0.14 * span_w)), int(min(nbins, (mid - left) + 0.14 * span_w))
-    best: tuple[int, int] | None = None
+    lo, hi = int(max(0, (mid - left) - reach * span_w)), int(min(nbins, (mid - left) + reach * span_w))
+    runs: list[tuple[int, int]] = []
     i = lo
     while i < hi:
         if cover[i] <= thresh:
             j = i
             while j < hi and cover[j] <= thresh:
                 j += 1
-            if j - i >= 5 and (best is None or j - i > best[1] - best[0]):
-                best = (i, j)
+            if j - i >= min_run:
+                runs.append((i, j))
             i = j
         else:
             i += 1
-    if best is None:
-        return None
-    g0, g1 = left + best[0], left + best[1]
-    n_left = sum(1 for sp in narrow if sp.x1 <= g0 + 2)
-    n_right = sum(1 for sp in narrow if sp.x0 >= g1 - 2)
-    if n_left < max(6, 0.25 * len(narrow)) or n_right < max(6, 0.25 * len(narrow)):
-        return None
-    return (g0, g1)
+    # 从最宽的空档开始，第一个“两侧都是成段文字”的就是栏沟（宽的那条可能只是靠右排版的零星几行留出来的）
+    ranked = sorted(runs, key=lambda r: r[1] - r[0], reverse=True)
+    # 普通两栏只认最宽的那条空档；侧栏模式（栏沟不在正中）才逐条试：最宽的那条可能是靠右排版的零星几行留出来的，
+    # 但真正的侧栏沟必须靠近版心的一侧边缘（侧栏宽度不超过版心的 35%），否则表格、参考文献里的空白条会被误当成栏沟
+    for best in (ranked if sidebar else ranked[:1]):
+        g0, g1 = left + best[0], left + best[1]
+        if sidebar and min(g0 - left, right - g1) > 0.35 * span_w:
+            continue
+        if sidebar:
+            # 真正的侧栏沟几乎没有文字穿过；单栏的参考文献（悬挂缩进）偶然在某处留出的空白，会有大量长行从上面跨过去
+            texts = [sp for sp in spans if sp.text.strip()]
+            if sum(1 for sp in texts if sp.x0 < g0 - 1 and sp.x1 > g1 + 1) > 0.05 * len(texts):
+                continue
+        n_left = sum(1 for sp in narrow if sp.x1 <= g0 + 2)
+        n_right = sum(1 for sp in narrow if sp.x0 >= g1 - 2)
+        if n_left < max(6, min_side * len(narrow)) or n_right < max(6, min_side * len(narrow)):
+            continue
+        # 两侧都必须是成段的文字：各有至少 8 行、每行文字总宽不少于 50pt。
+        # 目录页右边一列页码、表格右边一列数字也会留出一条空白，但它们每行只有十几 pt 宽，不是栏
+        side_w: dict[int, list[float]] = {}
+        for sp in spans:
+            if sp.text.strip():
+                cnt = side_w.setdefault(round(sp.baseline / 3.0), [0.0, 0.0])
+                if sp.x1 <= g0 + 1:
+                    cnt[0] += sp.x1 - sp.x0
+                elif sp.x0 >= g1 - 1:
+                    cnt[1] += sp.x1 - sp.x0
+        if sum(1 for lw, _rw in side_w.values() if lw >= 50) < 8 or sum(1 for _lw, rw in side_w.values() if rw >= 50) < 8:
+            continue
+        # 收紧到左右两栏的真实边缘：参考文献是悬挂缩进（第一行顶格、后面的行缩进），右栏在缩进区只有零星几行，
+        # 覆盖度很低，会把“空档”从栏边一直拉宽到缩进处，顶格的行就被误判成跨栏的通栏行
+        starts = [sp.x0 for sp in narrow if sp.x0 >= g0 + 1]
+        if starts:
+            t1 = min(starts)  # 右栏最靠左的文字
+            ends = [sp.x1 for sp in narrow if sp.x1 <= t1 + 0.5]
+            t0 = max(ends) if ends else g0  # 左栏最靠右的文字
+            if t1 - t0 >= 4 and t0 >= g0 - 12:
+                g0, g1 = t0, t1
+        return (g0, g1)
+    return None
 
+
+
+
+def detect_gutter(spans: list[Span], page_h: float | None = None) -> tuple[float, float] | None:
+    """栏间沟。先在页面正中间找（普通两栏）；找不到再放宽范围找一次——首页左边常有一条窄的侧栏
+    （PLOS ONE、Frontiers 的版权、日期、基金信息），沟不在页面正中，居中找就会把侧栏和正文一行一行交错拼在一起。
+    放宽后要求两侧都是成段的文字（见 _gutter 末尾），避免把单栏页里偶然的空白条当成栏沟。"""
+    return _gutter(spans, page_h, 0.14, 0.25, 5) or _gutter(spans, page_h, 0.36, 0.1, 6, True)
 
 # ---------------------------------------------------------------- 行重组
 def _classify(spans: list[Span], gutter: tuple[float, float] | None) -> None:
@@ -427,6 +525,20 @@ def _line_from(spans: list[Span]) -> Line:
     )
 
 
+def _script_adjacent(cur: list[Span], sp: Span) -> bool:
+    """sp 是紧挨着 cur 里某个片段（横向相距不超过 4pt）的上下标：一边字号不到另一边的 0.85 倍，而且只有 1-3 个字符。
+    只有这样的片段才允许用“放宽的竖向重叠”并进这一行；否则 14pt 的标题会把相邻的 10pt 正文行（基线只差 7 磅）吸进来，两栏的行被串成一行。"""
+    t = sp.text.strip()
+    for c in cur:
+        if not (-4.0 <= sp.x0 - c.x1 <= 4.0 or -4.0 <= c.x0 - sp.x1 <= 4.0):
+            continue
+        if sp.size <= 0.85 * c.size and 1 <= len(t) <= 3:
+            return True
+        if c.size <= 0.85 * sp.size and 1 <= len(c.text.strip()) <= 3:
+            return True
+    return False
+
+
 def _cluster(group: list[Span]) -> list[list[Span]]:
     """按基线（或垂直范围大幅重叠）把片段聚成视觉行。"""
     group = sorted(group, key=lambda s: (s.baseline, s.x0))
@@ -435,18 +547,26 @@ def _cluster(group: list[Span]) -> list[list[Span]]:
     ref_base = ref_size = 0.0
     for sp in group:
         same = False
+        loose = False
         if cur:
             same = abs(sp.baseline - ref_base) <= 0.42 * max(ref_size, sp.size)
             if not same:
+                loose = True
                 top = min(c.y0 for c in cur)
                 bot = max(c.y1 for c in cur)
                 ov = min(bot, sp.y1) - max(top, sp.y0)
                 # 行内的大号求和号等会把基线抬高 6 左右（字号 8）：竖向大幅重叠时容忍到 0.85 倍字号；
                 # 相邻两行的基线距至少是 1.1 倍字号，而且几乎不重叠，所以不会把两行并成一行
                 same = ov >= 0.65 * min(bot - top, sp.y1 - sp.y0) and abs(sp.baseline - ref_base) <= 0.85 * max(ref_size, sp.size)
+                if not same and _script_adjacent(cur, sp):
+                    # 上标（fb⁻¹、10⁻⁵）字号只有正文的 0.76 倍、基线抬高 5 磅左右，和正文的竖向重叠刚好不够 65%：
+                    # 一边明显小一号时，重叠有一半、基线差不到 0.6 倍字号就是上下标，并进这一行；否则它们自成一行，把一句话切成三段
+                    same = ov >= 0.5 * min(bot - top, sp.y1 - sp.y0) and abs(sp.baseline - ref_base) <= 0.6 * max(ref_size, sp.size)
         if same:
             cur.append(sp)
-            if sp.size >= ref_size:
+            # 靠宽松规则并进来的大号字形（求和号等，基线抬高好几磅）不能改这一行的参照基线：
+            # 否则下一行的词会以它为准被并进来，一连串行（甚至另一栏的行）被串成一行再按横坐标排序，词序混乱、词被粘在一起
+            if sp.size >= ref_size and not loose:
                 ref_base, ref_size = sp.baseline, sp.size
         else:
             if cur:
@@ -470,8 +590,12 @@ def _split_by_gutter(group: list[Span], gutter: tuple[float, float] | None) -> l
     if mid:
         return [("F", group)]  # 有片段跨过栏沟：整宽行（图注、作者行、通栏标题）
     if left and right:
-        size = max(s.size for s in group)
-        gap = min(s.x0 for s in right) - max(s.x1 for s in left)
+        # 按栏沟两侧紧挨着的两个片段里较小的字号比：右栏是 14pt 的粗体标题、左栏是 10pt 正文时，
+        # 两栏之间的空隙（10pt）必须算作“两栏”，不能用最大字号把它当成跨栏的连续文字
+        lead = min(right, key=lambda s: s.x0)
+        tail = max(left, key=lambda s: s.x1)
+        size = min(lead.size, tail.size)
+        gap = lead.x0 - tail.x1
         if gap >= max(6.0, 0.9 * size):
             return [("L", left), ("R", right)]
         return [("F", group)]  # 两侧文字几乎相连：跨栏的连续文字
@@ -506,8 +630,30 @@ def _split_mixed_far(group: list[Span]) -> list[list[Span]]:
     return parts
 
 
+def _fix_raised_radicals(spans: list[Span]) -> None:
+    """“√s”（质心能量）里的根号字形被排版成一个单独的、画在上一行里的大号字符（它的底边在 s 的上方），
+    抽出来就落在上一行的末尾（“presented √ from searches … at s = 7”）。根号右边紧挨着、下一行的那个字母才是它的被开方式：把根号挪到那一行。"""
+    for r in spans:
+        if r.text.strip() != "√":
+            continue
+        target = None
+        for s in spans:
+            if s is r or not s.text.strip() or s.text.strip() == "√":
+                continue
+            below = s.baseline - r.baseline
+            if 0.5 * s.size < below < 2.2 * s.size and -1.0 <= s.x0 - r.x1 <= 3.0 and s.size <= 1.2 * r.size:
+                if target is None or s.baseline < target.baseline:
+                    target = s
+        if target is not None:
+            shift = target.baseline - r.baseline
+            r.baseline += shift
+            r.y0 += shift
+            r.y1 += shift
+
+
 def build_lines(spans: list[Span], gutter: tuple[float, float] | None, body: float, page_h: float | None = None) -> list[Line]:
     # 首字下沉：单个大号字母，并入其右侧缩进行的开头
+    _fix_raised_radicals(spans)
     caps = [s for s in spans if len(s.text.strip()) == 1 and s.text.strip().isalpha() and s.size >= 2.2 * body]
     spans = [s for s in spans if s not in caps]
     lines: list[Line] = []
@@ -530,6 +676,94 @@ def build_lines(spans: list[Span], gutter: tuple[float, float] | None, body: flo
             target.text = letter + target.text
             target.x0 = min(target.x0, cap.x0)
     return lines
+
+
+def detect_side_band(spans: list[Span], page_h: float | None = None) -> tuple[float, float, float, float] | None:
+    """页面中段的一条窄侧栏（Frontiers：Edited by / Reviewed by / Correspondence），它右边是一栏很宽的摘要，上面是通栏的标题作者，
+    下面才是两栏正文。侧栏和摘要各排各的行距，同一个视觉行里常常混着两边的词，整页又看不出栏沟。
+    找法：左侧 40% 里找一条竖带，在一段不短的纵向范围内没有任何文字穿过，而且这段范围的上方、下方都有文字横着穿过它（被通栏的行夹住——
+    整页贯通的竖带是普通的栏沟，不归这里管），两边在这段范围里都有成段的文字。返回 (竖带左, 竖带右, 范围上, 范围下)。"""
+    use = [s for s in spans if s.text.strip() and (not page_h or (s.y1 >= 0.05 * page_h and s.y0 <= 0.95 * page_h))]
+    if len(use) < 60:
+        return None
+    left = min(s.x0 for s in use)
+    right = max(s.x1 for s in use)
+    top = min(s.y0 for s in use)
+    bot = max(s.y1 for s in use)
+    span_w = right - left
+    if span_w < 250 or bot - top < 300:
+        return None
+    best: tuple[float, float, float, float] | None = None
+    best_len = 0.0
+    x = left + 0.08 * span_w
+    cands: list[tuple[float, float, float]] = []  # (x, run_lo, run_hi)
+    while x <= left + 0.4 * span_w:
+        ivs = sorted((s.y0, s.y1) for s in use if s.x0 < x < s.x1)
+        # 穿过这条竖线的文字把纵向分成若干段空档：取最长且上下都被文字夹住的那一段
+        edges = [top] + [v for iv in ivs for v in iv] + [bot]
+        lo_best = hi_best = 0.0
+        cur_hi = ivs[0][1] if ivs else None
+        prev_end = None
+        for (y0, y1) in ivs:
+            if prev_end is not None and y0 - prev_end > hi_best - lo_best:
+                lo_best, hi_best = prev_end, y0
+            prev_end = max(prev_end, y1) if prev_end is not None else y1
+        if hi_best - lo_best >= 110:
+            cands.append((x, lo_best, hi_best))
+        x += 1.0
+    # 只留空档最长的那几条竖线（侧栏的行长短不一，侧栏内部的竖线也有一段空档，但比真正的竖带短得多）
+    if cands:
+        longest = max(c[2] - c[1] for c in cands)
+        cands = [c for c in cands if c[2] - c[1] >= 0.85 * longest]
+    # 合并相邻、纵向范围重合的竖线成一条带
+    groups: list[list[tuple[float, float, float]]] = []
+    for c in cands:
+        if groups and c[0] - groups[-1][-1][0] <= 1.5 and min(c[2], groups[-1][-1][2]) - max(c[1], groups[-1][-1][1]) >= 100:
+            groups[-1].append(c)
+        else:
+            groups.append([c])
+    for g in groups:
+        g0, g1 = g[0][0], g[-1][0]
+        if g1 - g0 < 6:
+            continue
+        y_lo, y_hi = max(c[1] for c in g), min(c[2] for c in g)
+        if y_hi - y_lo < 110 or y_hi - y_lo > 0.8 * (bot - top):
+            continue
+        mid = (g0 + g1) / 2
+        above = any(s.x0 < mid - 1 and s.x1 > mid + 1 and s.y1 <= y_lo + 2 for s in use)
+        below = any(s.x0 < mid - 1 and s.x1 > mid + 1 and s.y0 >= y_hi - 2 for s in use)
+        if not (above and below):
+            continue
+        # 下面两栏正文的右栏第一行常常比左栏高一点，落在空档的下沿里：右边的行必须从竖带右缘起笔才算这一栏宽正文，范围收到最后一条这样的行
+        starts = [s for s in use if y_lo <= (s.y0 + s.y1) / 2 <= y_hi and s.x0 >= g1 - 2]
+        row_min: dict[int, float] = {}
+        for sp in starts:
+            k = round(sp.baseline / 3.0)
+            row_min[k] = min(row_min.get(k, 1e9), sp.x0)
+        good = {k for k, v in row_min.items() if v <= g1 + 8}
+        if len(good) < 6:
+            continue
+        gy = [(sp.y0, sp.y1) for sp in starts if round(sp.baseline / 3.0) in good]
+        y_lo, y_hi = max(y_lo, min(v[0] for v in gy) - 2), min(y_hi, max(v[1] for v in gy) + 2)
+        if y_hi - y_lo < 110:
+            continue
+        inside = [s for s in use if y_lo <= (s.y0 + s.y1) / 2 <= y_hi]
+        lft = [s for s in inside if s.x1 <= g0 + 2]
+        rgt = [s for s in inside if s.x0 >= g1 - 2]
+        if len(lft) < 12 or len(rgt) < 30 or len(lft) + len(rgt) < 0.9 * len(inside):
+            continue
+        lrows = {round(s.baseline / 3.0) for s in lft}
+        rrows = {round(s.baseline / 3.0) for s in rgt}
+        if len(lrows) < 6 or len(rrows) < 6:
+            continue
+        # 右边必须是密排的正文（词间空隙小），否则是表格的列
+        rext = max(s.x1 for s in rgt) - min(s.x0 for s in rgt)
+        if rext < 0.4 * span_w or sum(s.x1 - s.x0 for s in rgt) < 0.45 * rext * len(rrows):
+            continue
+        if (y_hi - y_lo) > best_len:
+            best_len = y_hi - y_lo
+            best = (g0, g1, y_lo, y_hi)
+    return best
 
 
 def normalize_classes(lines: list[Line]) -> None:
@@ -557,17 +791,55 @@ def reading_order(lines: list[Line]) -> list[Line]:
     ordered: list[Line] = []
     left: list[Line] = []
     right: list[Line] = []
+    side: list[Line] = []
+    wide: list[Line] = []
+
+    page_w = (max(l.x1 for l in lines) - min(l.x0 for l in lines)) if lines else 0.0
+
+    def head_run(col: list[Line]) -> list[Line]:
+        run: list[Line] = []
+        for l in sorted(col, key=lambda l: (l.y0, l.x0)):
+            # 粗体的短行是左右两栏各自的章节标题（“1 Introduction | 2 Method”），不是并排的作者
+            if l.width <= 0.4 * page_w and len(l.text.split()) <= 8 and l.bold < 0.6 and not NUMBERED_HEAD_RE.match(l.text) and not l.text.rstrip().endswith((".", ",", ";", ":")):
+                run.append(l)
+            else:
+                break
+        return run
 
     def flush() -> None:
-        ordered.extend(sorted(left, key=lambda l: (l.y0, l.x0)))
-        ordered.extend(sorted(right, key=lambda l: (l.y0, l.x0)))
+        ordered.extend(sorted(side, key=lambda l: (l.y0, l.x0)))
+        ordered.extend(sorted(wide, key=lambda l: (l.y0, l.x0)))
+        side.clear()
+        wide.clear()
+        lft = sorted(left, key=lambda l: (l.y0, l.x0))
+        rgt = sorted(right, key=lambda l: (l.y0, l.x0))
+        # 作者并排排成左右两格（“Sergey Ioffe | Christian Szegedy”）：两格各是几行很短的姓名、单位。
+        # 按“先左栏后右栏”排，右边的作者就跑到左栏正文（摘要、引言）后面去了；两边顶上都是这样的短行、并且同一高度起笔时，先放这两小块
+        lr, rr = head_run(lft), head_run(rgt)
+        if lr and rr and len(lr) < len(lft) and abs(rr[0].y0 - lr[0].y0) < max(rr[0].size, lr[0].size):
+            lr = [l for l in lr if l.y0 <= rr[-1].y1]
+            lft = lr + [l for l in lft if l not in lr]
+            rgt_head = rr
+            ordered.extend(lr)
+            ordered.extend(rgt_head)
+            lft = [l for l in lft if l not in lr]
+            rgt = [l for l in rgt if l not in rgt_head]
+        ordered.extend(lft)
+        ordered.extend(rgt)
         left.clear()
         right.clear()
 
     for ln in sorted(lines, key=lambda l: (l.y0, l.x0)):
-        if ln.cls == "F":
+        if ln.cls == "F" and ln.in_figure:
+            # 表格/插图里横跨栏沟的格子不是正文的通栏行，不能当分隔：否则右栏顶上的标题被提到左栏表格之前、右栏其余的行又落到整个左栏之后
+            left.append(ln)
+        elif ln.cls == "F":
             flush()
             ordered.append(ln)
+        elif ln.cls == "S":
+            side.append(ln)
+        elif ln.cls == "W":
+            wide.append(ln)
         elif ln.cls == "L":
             left.append(ln)
         else:
@@ -577,21 +849,70 @@ def reading_order(lines: list[Line]) -> list[Line]:
 
 
 # ---------------------------------------------------------------- 分段
+# 本篇文档里专门用来排小节标题的字体（PLOS ONE 的标题只比正文大 1 磅、字体名是混淆过的 AdvP41461E，字体标志位里也没有“粗体”）。
+# 由 pdf_parser 在解析开始前设置、结束后清空（解析是串行的）
+HEADING_FONTS: frozenset[str] = frozenset()
+
+
+def line_font(ln: Line) -> str:
+    counts: dict[str, int] = {}
+    for sp in ln.spans:
+        n = len(sp.text.strip())
+        if n:
+            counts[sp.font] = counts.get(sp.font, 0) + n
+    return max(counts, key=counts.get) if counts else ""
+
+
+def detect_heading_fonts(lines: list[Line], body: float) -> frozenset[str]:
+    """找出“用来排标题”的字体：不是正文字体、字号不小于正文，这个字体里有至少 4 行是“孤立的短行”——
+    单行、不超过 12 个词、首字母大写、不带句末标点，并且上一行或下一行（同一栏里紧挨着的）换成了别的字体（标题夹在正文中间）。
+    斜体的整段文字、图注里的零散词，行与行之间字体不变，不算孤立。"""
+    use = [l for l in lines if not l.in_figure and l.text.strip()]
+    fonts = {id(l): line_font(l) for l in use}
+    by_font: dict[str, int] = {}
+    for l in use:
+        by_font[fonts[id(l)]] = by_font.get(fonts[id(l)], 0) + len(l.text)
+    if not by_font:
+        return frozenset()
+    body_font = max(by_font, key=by_font.get)
+    iso: dict[str, int] = {}
+    for cls in {l.cls for l in use}:
+        col = sorted((l for l in use if l.cls == cls), key=lambda l: l.y0)
+        for i, l in enumerate(col):
+            f = fonts[id(l)]
+            if f == body_font or l.size < 0.97 * body:
+                continue
+            t = l.text.strip()
+            if not (3 <= len(t) <= 90 and t[:1].isupper() and not t.endswith((".", ",", ";", ":")) and len(t.split()) <= 12 and l.math < 0.3):
+                continue
+            prev_f = fonts[id(col[i - 1])] if i > 0 and l.y0 - col[i - 1].y1 < 2.0 * l.size else None
+            next_f = fonts[id(col[i + 1])] if i + 1 < len(col) and col[i + 1].y0 - l.y1 < 2.0 * l.size else None
+            if (prev_f is not None and prev_f != f) or (next_f is not None and next_f != f):
+                iso[f] = iso.get(f, 0) + 1
+    return frozenset(f for f, n in iso.items() if n >= 4)
+
+
 def _is_heading_line(ln: Line, col_width: float, body: float, prev: "Line | None" = None) -> bool:
     t = ln.text
     if not (2 <= len(t) <= 110):
         return False
     if CAPTION_START_RE.match(t):
         return False
-    if any(c in MATH_CHARS or c in "∗=≜" for c in t):
-        return False  # 含数学符号的行是公式碎片，不是标题
+    numbered_bold = bool(NUMBERED_HEAD_RE.match(t)) and ln.bold >= 0.85 and len(re.findall(r"[A-Za-z]{3,}", t)) >= 2
+    if not numbered_bold and any(c in MATH_CHARS or c in "∗=≜" for c in t):
+        return False  # 含数学符号的行是公式碎片，不是标题（带编号的整行粗体小节标题除外：“4.1 Global Optimality of pg = pdata”）
     core = re.sub(r"^\s*(?:\d{1,2}(?:\.\d{1,2}){0,3}\.?|[IVX]{1,5}\.|[A-Z]\.)\s+", "", t)  # 编号（“3.3.1 ”）不算进“字母占比”，否则短标题会被当成图内数字
+    if not re.search(r"[A-Za-z]{3,}", core) and not re.search(r"[一-鿿]{2,}", core):
+        return False  # 一个 3 个字母以上的词都没有（“2 S s T s 2”）：公式碎片
     letters = sum(c.isalpha() for c in core)
     if letters < 0.6 * len(re.sub(r"\s", "", core)) or t[:1].islower():
         return False  # 图内数字/坐标刻度，或上一行的续行
     if prev is not None and prev.bold >= 0.85 and ln.bold >= 0.85 and prev.width >= 0.9 * col_width and abs(prev.size - ln.size) < 0.6:
         return False  # 粗体整宽段落（如摘要）的最后一行
-    short = ln.width <= 0.78 * col_width
+    # 明显大于正文的粗体行（有的模板把标题拉满整栏，字间距撑得很大，宽度接近栏宽）也算短标题
+    short = ln.width <= 0.78 * col_width or (ln.size >= body * 1.3 and ln.bold >= 0.85 and len(t) <= 70)
+    if HEADING_FONTS and short and line_font(ln) in HEADING_FONTS and not t.endswith((".", ",", ";")) and "," not in t and not re.match(r"(?i)\s*(?:key\s*words?|index terms|abbreviations?)\b", t):
+        return True  # 标题字体里的短行；关键词行（带逗号）不是标题
     # 参考文献一节常常整节排成小字号（Springer 的 7.5pt），标题也跟着变小：名字对得上、又是粗体，就是标题
     if ln.bold >= 0.85 and short and re.match(r"(?i)^(?:\d+\.?\s*)?(?:references|bibliography|literature cited|参考文献)\s*$", t):
         return True
@@ -603,6 +924,12 @@ def _is_heading_line(ln: Line, col_width: float, body: float, prev: "Line | None
     if ln.size >= body * 1.18 and short and not t.endswith((".", ",")):
         return True
     if NUMBERED_HEAD_RE.match(t) and short and not t.endswith(TERMINAL) and len(t) <= 80:
+        return True
+    # 整行粗体、带编号的小节标题，用小写词写的长标题（“5.1 Alternate layer weighting schemes”“5.3 What … representations?”）
+    if (
+        NUMBERED_HEAD_RE.match(t) and ln.bold >= 0.85 and ln.size >= body * 0.97 and ln.width <= 0.96 * col_width
+        and len(t) <= 90 and not t.endswith((".", ",", ";", ":"))
+    ):
         return True
     # 带编号、整行都是斜体/粗体、每个实词首字母大写的小节标题，可以更长（占到栏宽的 96%）
     if NUMBERED_HEAD_RE.match(t) and ln.width <= 0.96 * col_width and not t.endswith(TERMINAL) and len(t) <= 90 and max(ln.italic, ln.bold) >= 0.85:
@@ -629,6 +956,9 @@ def _leading_for(table: dict[float, float], size: float) -> float:
     return 1.2 * size
 
 
+_CAPS_RUN_IN_RE = re.compile(r"^(?:\d{1,2}\.?\s+)?([A-Z][A-Z0-9 ,\-:&']{10,78}[A-Z0-9])\s+(?=[A-Z][a-z])")
+
+
 def _run_in(first: Line) -> tuple[str | None, int]:
     """行首的粗体前导（行内小标题）。返回 (标题文字, 标题所占字符数)。"""
     spans = sorted(first.spans, key=lambda s: s.x0)
@@ -641,8 +971,14 @@ def _run_in(first: Line) -> tuple[str | None, int]:
         consumed += len(s.text)
     lead_clean = lead.strip()
     rest = first.text[len(lead_clean):].strip() if first.text.startswith(lead_clean) else ""
-    if 3 <= len(lead_clean) <= 80 and rest and lead_clean.rstrip().endswith((".", ":")) and not CAPTION_START_RE.match(lead_clean):
+    if 3 <= len(lead_clean) <= 80 and rest and (lead_clean.rstrip().endswith((".", ":")) or NUMBERED_HEAD_RE.match(lead_clean)) and not CAPTION_START_RE.match(lead_clean):  # 带编号的粗体小标题（“A.2 Importance of γ in Eqn. (1)”）后面直接接正文，可以不带句号
         return lead_clean.rstrip(" .:"), len(lead_clean)
+    # 全大写的小标题直接接着正文、不加句号（Nature 系列：“MATERIALS THAT SHOULD NOT EXIST More than 70 years ago …”），字体可能加粗也可能不加粗
+    m = _CAPS_RUN_IN_RE.match(first.text)
+    if m:
+        cand = m.group(1).strip()
+        if len(cand.split()) >= 2 and max(len(w) for w in cand.split()) >= 4 and not CAPTION_START_RE.match(cand):
+            return cand, len(m.group(1))
     return None, 0
 
 
@@ -682,13 +1018,25 @@ def _equation_blocks(lines: list[Line], page_no: int, body: float) -> tuple[list
     return [l for l in lines if id(l) not in taken], blocks
 
 
+_ENDS_WITH_LOCATOR = re.compile(r"(?:doi:\s*\S+|https?://\S+|\d{1,5}\s*[–-]\s*\d{1,5})$", re.I)  # 条目以 DOI、网址、页码结尾（Frontiers 的参考文献不以句号收尾）
+
+
+def _next_word_fits(prev: Line, ln: Line, right: float) -> bool:
+    """下一行的第一个词能不能放进上一行剩下的空白里（按平均字宽估算）。"""
+    words = ln.text.split()
+    if not words or not prev.text:
+        return True
+    avg = prev.width / max(1, len(prev.text))
+    return prev.x1 + (len(words[0]) + 1) * avg <= right + 1.0
+
+
 def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_references: bool = False) -> list[Block]:
     """按阅读顺序排好的行切段落。公式行成组为 formula；标题行独立；图注独立。"""
     if not lines:
         return []
     lines, eq_blocks = _equation_blocks(lines, page_no, body)
     col_extent: dict[str, tuple[float, float]] = {}
-    for cls in ("F", "L", "R"):
+    for cls in ("F", "L", "R", "S", "W"):
         grp = [l for l in lines if l.cls == cls and not l.in_figure]
         if grp:
             col_extent[cls] = (min(l.x0 for l in grp), max(l.x1 for l in grp))
@@ -705,9 +1053,22 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
         if not cur:
             return
         blk = _make_block(cur, page_no, body)
-        if len(cur) == 1 and blk.kind == "paragraph" and _is_heading_line(cur[0], col_w_of.get(id(cur[0]), 1e9), body):
-            blk.heading_hint = True
+        if blk.role == "heading" and blk.kind == "paragraph" and len(cur) <= 3 and len(blk.text) <= 160:
+            blk.heading_hint = True  # 视觉划分说这是小节标题（哪怕字体、大小规则认不出来）
             blk.run_in = None
+        elif blk.role in ("caption", "figure", "table", "formula"):
+            pass  # 视觉划分说这不是标题：规则不再猜
+        elif len(cur) == 1 and blk.kind == "paragraph" and _is_heading_line(cur[0], col_w_of.get(id(cur[0]), 1e9), body):
+            h = cur[0]
+            # 表头的各个格子（粗体大写的短词）和别的格子排在同一条基线上：真正的标题独占一行
+            side_by_side = any(
+                o is not h and o.region == h.region and abs(o.baseline - h.baseline) < 0.35 * h.size and (o.x0 > h.x1 + 3 or o.x1 < h.x0 - 3)
+                and ((o.cls == h.cls and not o.in_figure) or (o.in_figure and o.cls in (h.cls, "F") and o.bold >= 0.85 and o.width <= 0.4 * page_text_w))
+                for o in lines
+            )
+            if not side_by_side:
+                blk.heading_hint = True
+                blk.run_in = None
         blocks.append(blk)
         cur = []
 
@@ -728,7 +1089,11 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
             dy = ln.baseline - prev.baseline
             lead = _leading_for(leading_tab, ln.size)
             is_math, prev_math = ln.math >= 0.45 and not _prosey(ln), prev.math >= 0.45 and not _prosey(prev)
-            if ln.cls != prev.cls:
+            if ln.region != prev.region:
+                brk = True  # 视觉划分里不同的区域永远是不同的块
+            elif ln.region >= 0 and ln.role == "formula":
+                brk = False  # 一个公式区域（分子、分母、上下限各占一行）整块是一个公式
+            elif ln.cls != prev.cls:
                 brk = True
             elif abs(dy) < 0.3 * lead and ln.x0 > prev.x1 + 1:
                 brk = True  # 同一基线上并排的两段文字（页眉左右两个标签、并排的图注），不是同一段落的续行
@@ -742,6 +1107,11 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
                 # 编号的参考文献（[1] … / 1. …）：只有以编号开头的行才是新条目，其余都是上一条折下来的续行
                 # （“Proc. IEEE Int.” 换行后 “Conf. Robot. Automat.” 以大写开头、上一行以句号结尾，按普通段落规则会被切开）
                 brk = bool(REF_START_RE.match(ln.text)) or dy > 2.6 * lead
+            elif (
+                in_references and AUTHOR_START_RE.match(ln.text) and (prev.text.rstrip().endswith(".") or _ENDS_WITH_LOCATOR.search(prev.text.rstrip()) or prev.x0 - ln.x0 > 0.5 * ln.size)
+                and _YEAR_IN_ENTRY.search(" ".join(l.text for l in cur))
+            ):
+                brk = True  # 没有悬挂缩进的作者-年份条目：上一条已经写到句号、里面出现过年份，这一行又以“姓, 缩写.”开头，就是新的一条
             elif is_math != prev_math:
                 brk = True
             elif is_math and prev_math:
@@ -757,8 +1127,13 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
             elif ln.x0 - min(l.x0 for l in cur) > 0.8 * ln.size and (prev.text.endswith(TERMINAL) or prev.x1 < max(l.x1 for l in cur) - 3 * prev.size):
                 # 首行缩进：以“这一段自己的左边”为基准，不是整页最左边——比正文缩进一块的摘要、引文块不能每一行都算新段落
                 brk = True
-            elif prev.x1 < right - 4.5 * prev.size and prev.text.endswith(TERMINAL) and ln.text[:1].isupper():
-                brk = True  # 上一行明显未写满且句末
+            elif prev.x1 < right - 4.5 * prev.size and prev.text.endswith(TERMINAL) and ln.text[:1].isupper() and _next_word_fits(prev, ln, right):
+                brk = True  # 上一行明显未写满且句末（下一行的第一个词放得下，没放上来才说明是段尾；右边不齐的文字里，放不下的词只好折到下一行）
+            elif (
+                (prev.x1 - prev.x0) < 0.72 * (ln.x1 - ln.x0) and (ln.x1 - ln.x0) > 150
+                and abs((prev.x0 + prev.x1) / 2 - (ln.x0 + ln.x1) / 2) < 8 and prev.x0 - ln.x0 > 0.06 * (ln.x1 - ln.x0)
+            ):
+                brk = True  # 居中的短行（单位、收稿日期）后面接着一整段通栏文字（摘要）：不是同一段。段落内部的短行是靠左的末行，中心对不上
         if brk:
             finish()
         cur.append(ln)
@@ -839,6 +1214,9 @@ def split_side_captions(lines: list[Line], page_no: int, body: float) -> tuple[l
     return out, blocks
 
 
+SOFT_HYPHEN = ""  # 行尾折行的标记：待定“去掉连字符”还是“保留连字符”
+
+
 def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
     text_parts: list[str] = []
     for ln in lines:
@@ -848,7 +1226,9 @@ def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
         elif text_parts[-1].endswith("-") and len(text_parts[-1]) > 1 and text_parts[-1][-2].isalpha() and t[:1].islower():
             last = text_parts[-1].split(" ")[-1]
             # 行尾的 “chain-of-” 本身已经是带连字符的复合词：连字符是词的一部分，保留；“param-” 这种断词才去掉
-            text_parts[-1] = text_parts[-1] + t if "-" in last[:-1] else text_parts[-1][:-1] + t
+            # 断词还是复合词，行尾的连字符本身分不出来（task-/specific 是复合词，classi-/fication 是断词）：先放一个软连字符，
+            # 整篇解析完以后再按全文的用词决定（pdf_parser._resolve_soft_hyphens）
+            text_parts[-1] = text_parts[-1] + t if "-" in last[:-1] else text_parts[-1][:-1] + SOFT_HYPHEN + t
         elif is_cjk(text_parts[-1][-1:]) and is_cjk(t[:1]):
             text_parts[-1] += t
         else:
@@ -860,9 +1240,16 @@ def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
     math = sum(l.math * len(l.text) for l in lines) / chars
     blk = Block(
         page_no, min(l.x0 for l in lines), min(l.y0 for l in lines), max(l.x1 for l in lines), max(l.y1 for l in lines),
-        text, size, bold, len(lines), lines[0].cls, lines=lines,
+        text, size, bold, len(lines), lines[0].cls, lines=lines, role=lines[0].role,
     )
-    if math >= 0.45 and not (len(lines) == 1 and _prosey(lines[0])):
+    if lines[0].role == "formula" and len(text) <= 500:
+        blk.kind = "formula"  # 视觉划分说这是一个公式区域：整块当公式，不管字体判断
+        m = EQ_NUMBER_RE.search(text)
+        if m:
+            blk.eq_number = m.group(1)
+    elif lines[0].role == "caption":
+        blk.kind = "caption"
+    elif math >= 0.45 and not (len(lines) == 1 and _prosey(lines[0])):
         blk.kind = "formula"
         m = EQ_NUMBER_RE.search(text)
         if m:
@@ -871,6 +1258,12 @@ def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
         blk.kind = "caption"
     if blk.kind == "paragraph":
         lead, n = _run_in(lines[0])
+        t0 = lines[0].text.strip()
+        if (
+            not lead and len(lines) >= 2 and t0.isupper() and 10 <= len(t0) <= 80 and len(t0.split()) >= 2
+            and not t0.endswith((".", ",", ";", ":")) and not CAPTION_START_RE.match(t0) and lines[1].text[:1].isupper()
+        ):
+            lead, n = t0, len(lines[0].text.rstrip())  # 全大写的小标题独占段落的第一行，正文接在下一行（Nature Materials 预印本）
         if lead:
             blk.run_in = lead
             rest = lines[0].text[n:].strip()

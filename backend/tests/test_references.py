@@ -414,3 +414,34 @@ def test_ieee_quoted_titles_et_al_and_trailing_year_paren():
     assert e1.venue.startswith("IEEE Robot. Automat. Lett.") and e1.year == 2017
     assert e2.title == "Differentiable collision-free parametric corridors" and e2.venue.startswith("in Proc.")
     assert e3.authors[-1] == "et al." and e3.title == "Do as i can, not as i say: Grounding language in robotic affordances"
+
+
+def test_add_to_library_picks_a_safe_identifier_or_builds_the_record_from_the_reference(imported):
+    api, pid = imported
+    _setup(api, pid)
+    # 匹配可信：用匹配到的 DOI，走标准导入
+    _net(api, openalex=lambda r: {"results": [_oa_work("Cascade Failure in Layered Networks", 2009, "10.1103/physreve.80.041")]})
+    assert api.post(f"/papers/{pid}/references/1/add", {}).json() == {"via": "doi", "doi": "10.1103/physreve.80.041"}
+    # 匹配可信度低（可能是别的论文）：绝不拿那个 DOI，直接用参考文献自己的题录建一条
+    _net(api, openalex=lambda r: {"results": [_oa_work("Quantum dots for efficient solar cells", 2010, "10.1/qd", ["Quantum"], "Wei Zhang")]})
+    got = api.post(f"/papers/{pid}/references/2/add", {}).json()
+    assert got["via"] == "metadata"
+    d = api.get(f"/papers/{got['paper_id']}").json()
+    assert d["status"] == "metadata_only" and d["doi"] is None and d["title"] == got["title"] and "Quantum" not in d["title"]
+    # 再加一次：已经在文库里，不重复建
+    again = api.post(f"/papers/{pid}/references/2/add", {}).json()
+    assert again["via"] == "library" and again["paper_id"] == got["paper_id"]
+
+
+def test_title_with_question_mark_keeps_its_subtitle_but_journal_names_stay_venues():
+    from paperdesk.references.parse import RefEntry, parse_fields
+
+    def parse(raw):
+        e = RefEntry(1, 1, 1, [1], raw)
+        parse_fields(e, "author-year")
+        return e.title, e.venue
+
+    assert parse("Mor Geva, Daniel Khashabi, and Jonathan Berant. 2021. Did aristotle use a laptop? A question answering benchmark with implicit reasoning strategies. TACL.") == (
+        "Did aristotle use a laptop? A question answering benchmark with implicit reasoning strategies", "TACL")
+    assert parse("Jane Smith and John Lee. 2020. Do LLMs reason? Nature Machine Intelligence.") == ("Do LLMs reason?", "Nature Machine Intelligence")
+    assert parse("Jane Smith and John Lee. 2020. Is attention all you need? In Proceedings of ACL.") == ("Is attention all you need?", "In Proceedings of ACL")

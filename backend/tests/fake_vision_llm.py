@@ -35,6 +35,8 @@ class VisionFakeLLM(FakeLLM):
         self.qa_reply: dict | None = None
         self.json_garbage_first = False     # 视觉模型第一次输出不是 JSON
         self._garbage_sent = False
+        self.layout_reply: str | None = None  # 版面划分的回复；None = 模型不按格式回答（返回一句普通的话）
+        self.layout_calls = 0
 
     def handler(self, request):
         """fail_formula_call=N：第 N 次起的公式转写请求都返回 HTTP 400（模拟第二次交叉核对调用失败）。"""
@@ -91,6 +93,9 @@ class VisionFakeLLM(FakeLLM):
             if marker in system:
                 self.override_queue.pop(i)
                 return text
+        if "论文 PDF 的版面分析器" in system:  # 每页视觉划分：按 layout_reply 作答；没设就模拟“不按格式回答”
+            self.layout_calls += 1
+            return self.layout_reply if self.layout_reply is not None else "这一页看起来是论文的一页。"
         if "行内的一小段公式" in system:  # 行内公式兜底：按“图 k（提取出的文字：…）”逐项作答；提示里含 BAD 的故意答错
             self.inline_calls = getattr(self, "inline_calls", 0) + 1
             items = []

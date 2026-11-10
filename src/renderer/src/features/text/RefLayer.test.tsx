@@ -70,7 +70,7 @@ describe('reference layer', () => {
     expect(screen.getByRole('menuitem', { name: '读摘要' })).toBeTruthy()
     expect(screen.getByRole('menuitem', { name: '让 AI 概括它做了什么' })).toBeTruthy()
     expect((screen.getByRole('menuitem', { name: /打开 DOI .{1} 链接/ }) as HTMLButtonElement).disabled).toBe(true) // 没有链接
-    expect((screen.getByRole('menuitem', { name: /加入文库/ }) as HTMLButtonElement).disabled).toBe(true) // 没有 DOI
+    expect((screen.getByRole('menuitem', { name: /加入文库/ }) as HTMLButtonElement).disabled).toBe(false) // 没有 DOI 也能加：后端用题录建一条
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(screen.queryByRole('menu')).toBeNull()
     fireEvent.keyDown(screen.getByRole('button', { name: '参考文献 1' }), { key: 'F10', shiftKey: true })

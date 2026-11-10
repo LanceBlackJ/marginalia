@@ -6,14 +6,16 @@ import { Markdown } from '@/components/Markdown'
 import { shouldOfferTranslate } from '@/components/selectTranslateModel'
 import { useReaderStore } from '@/features/reader/readerStore'
 import { openPaperBrowser } from '@/lib/native'
-import { addToLibrary, copyText, linkFor } from './RefMenu'
+import { addToLibrary, copyText } from './RefMenu'
 import { bibtex, matchLabel, plainCitation } from './refModel'
+import { useJobsStore } from '@/stores/jobsStore'
 import { useRefStore } from './refStore'
 
 /** 参考文献详情抽屉：原文、题录、匹配可信度、摘要全文、AI 概括、本文引用处。 */
 export function RefDrawer() {
   const index = useRefStore((s) => s.drawer)
   const item = useRefStore((s) => (s.drawer !== null ? s.byIndex.get(s.drawer) : undefined))
+  const paperId = useRefStore((s) => s.paperId)
   const resState = useRefStore((s) => (s.drawer !== null ? s.resolutions[s.drawer] : undefined))
   const sum = useRefStore((s) => (s.drawer !== null ? s.summaries[s.drawer] : undefined))
   const ctxs = useRefStore((s) => (s.drawer !== null ? s.contexts[s.drawer] : undefined))
@@ -22,6 +24,12 @@ export function RefDrawer() {
   const resolve = useRefStore((s) => s.resolve)
   const summarize = useRefStore((s) => s.summarize)
   const navigate = useNavigate()
+  const refreshInLibrary = useRefStore((s) => s.refreshInLibrary)
+  // 导入任务结束（成功或失败）后，按钮要跟着变：已经在文库里就显示“在文库中打开”
+  const finishedTick = useJobsStore((s) => s.finishedTick)
+  useEffect(() => {
+    if (index !== null && finishedTick > 0) void refreshInLibrary(index)
+  }, [finishedTick, index, refreshInLibrary])
 
   useEffect(() => {
     if (index === null) return
@@ -36,8 +44,6 @@ export function RefDrawer() {
   if (index === null || !item) return null
   const res = resState?.data
   const match = res?.match
-  const doi = (res?.found && res.doi) || item.doi
-  const link = linkFor(item, res)
   const abstract = res?.found ? res.abstract : undefined
   const close = (): void => useRefStore.setState({ drawer: null })
 
@@ -238,15 +244,12 @@ export function RefDrawer() {
         </section>
       </div>
       <footer className="pd-refdrawer-foot">
-        <Button size="sm" disabled={!link} onClick={() => void openPaperBrowser(link)}>
-          打开链接（可登录下载）
-        </Button>
         {res?.in_library ? (
           <Button size="sm" onClick={() => navigate(`/paper/${res.in_library!.paper_id}`)}>
             在文库中打开
           </Button>
         ) : (
-          <Button size="sm" disabled={!doi} title={doi ? '只保存元数据，不下载 PDF' : '没有 DOI，无法加入文库'} onClick={() => void addToLibrary(doi)}>
+          <Button size="sm" variant="primary" title="加入文库，并自动下载全文；需要登录或没有开放获取的版本时会提示你手动下载" disabled={!paperId} onClick={() => paperId && void addToLibrary(paperId, index)}>
             加入文库
           </Button>
         )}

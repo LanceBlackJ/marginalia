@@ -165,3 +165,20 @@ def test_fraction_with_an_unreadable_half_gives_up_instead_of_guessing():
     frac.frac = ([sp("h", 30, "CMMI7", size=5.6, base=BASE - 3.0)], [sp("中", 30, "CMMI7", size=5.6, base=BASE + 4.0)])
     spans = [sp("t", 10, "CMMI10", italic=True), sp("=", 16, "CMR10"), frac]
     assert tex_of(spans) is None
+
+
+def test_subscript_only_one_point_below_the_baseline_is_still_a_subscript():
+    """ACM 版式（CMMI）：下标只比基线低 1 磅、字号 6/9。以前判成正文，ŷ_{ui} 变成 “ŷui”。"""
+    spans = [sp("y", 10, "CMMI9", size=BODY, base=BASE, italic=True), sp("ui", 16, "CMMI6", size=5.2, base=BASE + 1.0, italic=True)]
+    assert tex_of(spans) == "y_{ui}"
+
+
+def test_sum_with_only_an_upper_limit_is_not_given_a_wrong_formula():
+    """下限和下标跑到别的行去了：求和号只剩上限，不能给出一个缺了东西的式子，交给视觉模型。"""
+    spans = [
+        sp("q", 10, "CMMI10", italic=True), sp("=", 16, "CMR10"),
+        sp("P", 24, "TeX_CM_Maths_Extension", base=BASE - 6),
+        sp("d", 34, "CMMI7", size=5.6, base=BASE - 7.5, italic=True), sp("k", 38, "CMMI5", size=4.0, base=BASE - 6, italic=True),
+        sp("q", 44, "CMMI10", italic=True),
+    ]
+    assert tex_of(spans) is None

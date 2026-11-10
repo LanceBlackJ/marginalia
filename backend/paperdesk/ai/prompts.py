@@ -1,6 +1,7 @@
 """提示词模板。输出格式约定：固定二级标题 + [P序号] 引用，便于后端解析与核实。"""
 from __future__ import annotations
 
+from . import citeguard
 from .retrieval import ContextPack
 from .router import TaskType
 
@@ -142,10 +143,11 @@ TRANSLATE_SYSTEM = """你是学术论文翻译助手。把用户给出的英文�
 - 保持原文的段落与句子顺序，不要增删内容。"""
 
 
-def build_translate_messages(text: str, section_title: str | None, paper_title: str) -> list[dict]:
+def build_translate_messages(text: str, section_title: str | None, paper_title: str, *, cites: bool = False) -> list[dict]:
+    """cites=True：文本里的文献引用已换成 ⟦n⟧ 占位符（见 citeguard），要求模型原样保留。"""
     ctx = f"（论文：{paper_title}" + (f"；章节：{section_title}" if section_title else "") + "。上下文仅供理解术语，不要翻译这一行。）"
     return [
-        {"role": "system", "content": TRANSLATE_SYSTEM},
+        {"role": "system", "content": TRANSLATE_SYSTEM + (citeguard.NOTE if cites else "")},
         {"role": "user", "content": f"{ctx}\n\n待翻译文本：\n{text}"},
     ]
 

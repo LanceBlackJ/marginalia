@@ -15,7 +15,7 @@ from ..context import AppContext
 from ..materials import grants as supp_grants
 from ..materials import retrieval as supp_retrieval
 from ..util import ApiError, utcnow
-from . import attachments as attach_mod, cards, embeddings, evidence, prompts, retrieval, textcache, usage as usage_log, websearch
+from . import attachments as attach_mod, cards, citeguard, embeddings, evidence, prompts, retrieval, textcache, usage as usage_log, websearch
 from .providers import LLMError, LLMProvider, Usage, build_provider, estimate_messages_tokens, estimate_tokens
 from .router import TaskType, can_escalate, choose_model, classify
 from .settings import SECRET_NAME, load_settings
@@ -155,7 +155,8 @@ class AIService:
                 section_title = retrieval.reader.get_passage(self.app, paper_id, passage_ord)["section_title"]
             elif matches:
                 section_title = matches[0]["section_title"]
-            messages = prompts.build_translate_messages(text, section_title, paper["title"])
+            masked, cmap = citeguard.mask(text)  # 文献引用不翻译：先换成占位符，译完再放回去
+            messages = prompts.build_translate_messages(masked, section_title, paper["title"], cites=bool(cmap))
             usage_log.record_request(
                 self.app, task_type=TaskType.TRANSLATE.value, model=choice.model, paper_id=paper_id, passage_ords=[],
                 chars_sent=len(text), includes={"question": False, "selection": True, "notes": False, "supplements": False, "code": False},
@@ -163,9 +164,18 @@ class AIService:
             )
             yield "meta", {"model": choice.model, "cached": False}
             acc = {"text": "", "usage": Usage()}
+            restorer = citeguard.StreamRestore(cmap)
             async for ev in self._stream(provider, choice.model, messages, cfg, acc):
+                if cmap and ev[0] == "delta":
+                    shown = restorer.feed(ev[1]["text"])
+                    if shown:
+                        yield "delta", {"text": shown}
+                    continue
                 yield ev
-            out = acc["text"].strip()
+            tail = restorer.flush() if cmap else ""
+            if tail:
+                yield "delta", {"text": tail}
+            out = citeguard.restore(acc["text"].strip(), cmap)
             if not out:
                 raise LLMError("provider_error", "模型没有返回译文，请重试。")
             u = self._log_usage(TaskType.TRANSLATE, choice.model, acc["usage"], messages, out, paper_id)

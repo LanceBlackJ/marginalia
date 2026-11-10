@@ -4,6 +4,7 @@ import { toast } from '@/components/ui'
 import { errorMessage } from '@/lib/api'
 import { referencesApi } from '@/lib/api.references'
 import { openPaperBrowser } from '@/lib/native'
+import { importDois, importUrl } from '@/features/importing/importActions'
 import type { RefItem, RefResolution } from '@/lib/types.references'
 import { bibtex, plainCitation } from './refModel'
 import { useRefStore } from './refStore'
@@ -17,14 +18,25 @@ export async function copyText(text: string, what: string): Promise<void> {
   }
 }
 
-/** 加入文库：只保存元数据，不下载 PDF。 */
-export async function addToLibrary(doi: string): Promise<void> {
+/**
+ * 加入文库：和别处加论文一样，能直接加就直接加。
+ * 有 DOI / arXiv 走标准导入（自动找开放获取的全文，找不到再提示手动补）；没有可靠标识符就用参考文献本身的题录建一条。
+ */
+export async function addToLibrary(paperId: string, index: number): Promise<void> {
   try {
-    await referencesApi.importMetadata(doi)
-    toast.success('已开始导入元数据', '只保存题录，不下载 PDF；进度在任务页。')
+    const t = await referencesApi.addTarget(paperId, index)
+    if (t.via === 'doi') await importDois([t.doi])
+    else if (t.via === 'arxiv') await importUrl(`https://arxiv.org/abs/${t.arxiv}`)
+    else if (t.via === 'library') toast.info('已经在文库里了', t.title, { label: '打开', onClick: () => void openPaper(t.paper_id) })
+    else toast.success('已加入文库', '没有找到可靠的全文来源，先保存了这条参考文献的题录；之后可以在论文页面补全文。', { label: '打开', onClick: () => void openPaper(t.paper_id) })
+    void useRefStore.getState().refreshInLibrary(index)
   } catch (err) {
     toast.error('无法加入文库', errorMessage(err))
   }
+}
+
+function openPaper(id: string): void {
+  window.location.hash = `#/paper/${id}`
 }
 
 export function linkFor(ref: RefItem, res?: RefResolution | null): string {
@@ -43,6 +55,7 @@ interface Item {
 export function RefMenu() {
   const menu = useRefStore((s) => s.menu)
   const byIndex = useRefStore((s) => s.byIndex)
+  const paperId = useRefStore((s) => s.paperId)
   const resolutions = useRefStore((s) => s.resolutions)
   const openDrawer = useRefStore((s) => s.openDrawer)
   const summarize = useRefStore((s) => s.summarize)
@@ -82,7 +95,6 @@ export function RefMenu() {
   const item = byIndex.get(index)
   if (!item) return null
   const res = resolutions[index]?.data
-  const doi = (res?.found && res.doi) || item.doi
   const link = linkFor(item, res)
   const lib = res?.in_library
   const items: Item[] = [
@@ -99,7 +111,7 @@ export function RefMenu() {
     { key: 'open', label: '打开 DOI / 链接并下载（可登录）', disabled: !link, title: link ? link : '这条参考文献没有可用的链接', run: () => void openPaperBrowser(link) },
     lib
       ? { key: 'lib', label: '在文库中打开', run: () => navigate(`/paper/${lib.paper_id}`) }
-      : { key: 'lib', label: '仅把元数据加入文库', disabled: !doi, title: doi ? undefined : '没有 DOI，无法加入文库', run: () => void addToLibrary(doi) },
+      : { key: 'lib', label: '加入文库', disabled: !paperId, run: () => paperId && void addToLibrary(paperId, index) },
     { key: 'cite', label: '复制引文', run: () => void copyText(plainCitation(item, res), '引文已复制') },
     { key: 'bib', label: '复制 BibTeX', run: () => void copyText(bibtex(item, res), 'BibTeX 已复制') }
   ]

@@ -94,6 +94,6 @@ def test_chinese_paper_metadata_and_structure(chinese_pdf):
     assert doc.metadata.title == "基于双重注意力的级联失效恢复方法研究"
     assert doc.metadata.authors == ["张三", "李四", "王五"]
     assert doc.metadata.abstract and doc.metadata.abstract.startswith("级联失效是网络化基础设施")
-    assert [s.title for s in doc.sections if s.title not in ("首部信息", "Abstract")] == ["1 引言", "2 方法"]
+    assert [s.title for s in doc.sections if s.title not in ("首部信息", "Abstract", "摘要")] == ["1 引言", "2 方法"]
     method = next(p for p in doc.passages if "拓扑注意力模块" in p.text)
     assert doc.sections[method.section_ord].title == "2 方法"

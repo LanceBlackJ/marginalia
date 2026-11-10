@@ -48,7 +48,7 @@ def _maybe_auto_analyze(ctx: JobContext, paper_id: str, outcome: ImportOutcome) 
         from . import processing
 
         try:
-            processing.start_auto(app, paper_id)
+            processing.start_auto(app, paper_id, fresh=True)
         except ApiError:
             pass
 

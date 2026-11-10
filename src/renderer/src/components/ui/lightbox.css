@@ -28,6 +28,15 @@
   -webkit-user-drag: none;
   will-change: transform;
 }
+/* 矢量图：宽高由脚本按放大后的尺寸直接设置（浏览器重新绘制矢量，不糊），用绝对定位以窗口中心为准，不受 max-width 限制 */
+.pd-lb-img--vec {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  max-width: none;
+  max-height: none;
+  will-change: auto;
+}
 .pd-lb-wait {
   width: min(560px, 80vw);
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { BarChart3, Compass, Library, Download, FileText, FolderInput, FolderOpen, LayoutGrid, Link2, List, ListFilter, MoreHorizontal, Plus, Quote, RefreshCw, X } from 'lucide-react'
+import { BarChart3, Library, Download, FileText, FolderInput, FolderOpen, LayoutGrid, Link2, List, ListFilter, MoreHorizontal, Plus, Quote, RefreshCw, X } from 'lucide-react'
 import { Button, Dialog, EmptyState, IconButton, Menu, Segmented, Select, Skeleton, toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { libraryApi } from '@/lib/api.library'
@@ -388,9 +388,6 @@ export function LibraryPage() {
             <p className="pd-page-subtitle">管理和探索你的研究资料。</p>
           </div>
           <div className="pd-lib-head-actions">
-            <Button icon={<BarChart3 size={15} />} onClick={() => navigate('/stats')}>
-              统计
-            </Button>
             <ImportMenuButton />
             <Menu
               align="end"
@@ -398,8 +395,8 @@ export function LibraryPage() {
                 <IconButton icon={<MoreHorizontal size={17} />} label="更多" selected={open} onClick={toggle} aria-haspopup="menu" aria-expanded={open} />
               )}
               items={[
-                { key: 'discover', label: '发现论文', icon: <Compass size={15} />, onSelect: () => navigate('/discover') },
-                { key: 'export', label: '导出引文与阅读笔记…', icon: <Download size={15} />, disabled: list.total === 0, onSelect: openExport }
+                { key: 'export', label: '导出引文与阅读笔记…', icon: <Download size={15} />, disabled: list.total === 0, onSelect: openExport },
+                { key: 'stats', label: '文献库统计', icon: <BarChart3 size={15} />, onSelect: () => navigate('/stats') }
               ]}
             />
           </div>

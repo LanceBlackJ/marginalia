@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from ..context import AppContext
 from ..jobs import JobCancelled, JobContext, JobManager
 from ..parsing import ocr
@@ -67,6 +69,7 @@ def handle_ocr_paper(ctx: JobContext) -> dict:
                 "UPDATE papers SET language = ?, parse_error = ?, abstract = COALESCE(abstract, ?) WHERE id = ?",
                 (parsed.language, warning, parsed.metadata.abstract, paper_id),
             )
+            _fill_metadata_from_ocr(conn, paper_id, parsed)
         _after_text_ready(ctx, paper_id)
         return {"pages": len(pages), "chars": chars}
     except JobCancelled:
@@ -77,6 +80,20 @@ def handle_ocr_paper(ctx: JobContext) -> dict:
     except Exception as exc:  # noqa: BLE001
         _set_note(app, paper_id, f"扫描页文字识别没有完成：{exc}。可在任务页重试。")
         raise
+
+
+def _fill_metadata_from_ocr(conn, paper_id: str, parsed) -> None:
+    """扫描版导入时没有文字层，标题只能拿文件名顶替、作者年份是空的；识别出文字后把它们补上。
+    只补空缺和“文件名顶替的标题”，Crossref 的题录或用户自己改过的值不动。"""
+    from .reparse import _refill_metadata
+
+    _refill_metadata(conn, paper_id, parsed)
+    row = conn.execute("SELECT title, original_path, metadata_source FROM papers WHERE id = ?", (paper_id,)).fetchone()
+    title = parsed.metadata.title
+    if row and row["metadata_source"] == "pdf" and title and row["original_path"]:
+        stem = Path(row["original_path"]).stem.strip()
+        if stem and (row["title"] or "").strip() == stem and title.strip() != stem:
+            conn.execute("UPDATE papers SET title = ? WHERE id = ?", (title.strip(), paper_id))
 
 
 def _after_text_ready(ctx: JobContext, paper_id: str) -> None:

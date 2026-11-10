@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from ..util import DOI_RE, normalize_doi
 
 AFFIL_WORDS = re.compile(
-    r"universit|institut|department|laborator|school|college|academy|inc\.|corp|ltd|@|"
+    r"universit|institut|department|laborator|school|college|academy|inc\.|corp|ltd|@|\blab\b|\bcentre\b|\bcenter\b|"
     r"大学|学院|研究所|研究院|实验室|公司|学校|系\b",
     re.I,
 )
@@ -79,6 +79,7 @@ def _is_subsequence(small: list[str], big: list[str]) -> bool:
 
 
 def split_authors(text: str) -> list[str]:
+    text = re.sub(r"\bet\s+al\b\.?", " ", text)  # “B. P. Abbott et al.”：合作组论文只写第一作者
     text = re.sub(r"[∗*†‡§¶♯#\d⋆★☯✉+]+", " ", text)
     text = re.sub(r"\s+(and|&)\s+", ",", text)
     out: list[str] = []
@@ -89,6 +90,10 @@ def split_authors(text: str) -> list[str]:
         if not name:
             continue
         words = name.split()
+        if re.match(r"The\s", name) and not re.search(r"(?i)collaboration|consortium|group|team", name):
+            continue  # “The Swiss AI Lab” 这类单位名不是人名
+        if re.fullmatch(r"[A-Z]{2,}(?:\s*-\s*[A-Z]*)+", name):
+            continue  # 报告编号（“CERN-PH-EP-2012-218” 去掉数字后剩下的 “CERN-PH-EP- -”），不是名字
         if re.fullmatch(r"[一-鿿]{2,4}", name):
             if not NOT_NAME_ZH.search(name):
                 out.append(name)
@@ -101,24 +106,37 @@ def split_authors(text: str) -> list[str]:
     return out[:25]
 
 
+def _names_in_block(t: str) -> list[str]:
+    lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    if AFFIL_WORDS.search(t) and len(lines) == 1:
+        # 作者和单位排在同一行（“Gao Huang  Zhuang Liu  Cornell University  Tsinghua University”）：取单位之前的名字
+        m = AFFIL_WORDS.search(lines[0])
+        head = lines[0][: m.start()].split()
+        return split_authors(" ".join(head[:-1]))
+    if AFFIL_WORDS.search(t):
+        # 作者网格：每位作者一块，“姓名 / 单位 / 邮箱”分行排。单位行和邮箱行不要，第一行当姓名
+        if len(lines) >= 2 and not AFFIL_WORDS.search(lines[0]):
+            return split_authors(lines[0])
+        return []
+    return split_authors(t)
+
+
 def guess_authors(author_texts: list[str]) -> list[str]:
     authors: list[str] = []
     for t in author_texts:
         if len(t) > 2500 or "abstract" in t.lower():
             continue
-        lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
-        if AFFIL_WORDS.search(t) and len(lines) == 1:
-            # 作者和单位排在同一行（“Gao Huang  Zhuang Liu  Cornell University  Tsinghua University”）：取单位之前的名字
-            m = AFFIL_WORDS.search(lines[0])
-            head = lines[0][: m.start()].split()
-            authors.extend(split_authors(" ".join(head[:-1])))
-            continue
-        if AFFIL_WORDS.search(t):
-            # 作者网格：每位作者一块，“姓名 / 单位 / 邮箱”分行排。单位行和邮箱行不要，第一行当姓名
-            if len(lines) >= 2 and not AFFIL_WORDS.search(lines[0]):
-                authors.extend(split_authors(lines[0]))
-            continue
-        authors.extend(split_authors(t))
+        got = _names_in_block(t)
+        # 作者名后面紧跟 ∗ † ‡（共同第一作者、通讯作者）的几位并排：名字、单位、邮箱各占一行，被拼成一段
+        # （“Ashish Vaswani∗ Noam Shazeer∗ Niki Parmar∗ Jakob Uszkoreit∗ Google Brain Google Brain …”）：标记就是名字的结束。
+        # 只在上面的办法没有把这些带标记的名字都认出来的时候才用，认全了就保持原结果（还能带上没有标记的作者）
+        starred = re.findall(r"((?:[A-ZÀ-ÞŁŠ-Ž][\w.'’\-]*\s+){1,3}[A-ZÀ-ÞŁŠ-Ž][\w.'’\-]+)\s*[∗*†‡§¶+]", t)
+        if len(starred) >= 2 and not any(AFFIL_WORDS.search(n) for n in starred) and not all(n in got for n in starred):
+            got = starred
+        authors.extend(got)
+    # 报告编号（“CERN-PH-EP/2012-220”“CMS-HIG-12-028”）、日期不是人名：带斜杠、数字，或字母不到六成的都丢掉
+    authors = [a.strip("() ") for a in authors]
+    authors = [a for a in authors if a and not re.search(r"[/\@\d]", a) and sum(c.isalpha() for c in a) >= 0.7 * len(a.replace(" ", ""))]
     seen = set()
     uniq = []
     for a in authors:

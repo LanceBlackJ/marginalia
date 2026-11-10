@@ -140,3 +140,19 @@ SSE：`stage` → `latex`（转写结果）→ `meta` → `delta*` → `done{car
 - `steps`：`analysis`、`formulas`、`tables`、`index`，各有 `state`（done/running/pending/failed/skipped）、`done`/`total`、`reason`、`attention`。没配置视觉模型时公式步骤是 `skipped`，原因写“未配置视觉模型，公式仍是截图”。
 - 文库列表 `GET /papers` 的每项带 `processing`（轻量版本：设置读一次、计数每类一条 SQL、不做表格检测）；单篇详情做完整的表格检测。
 - `POST` 启动还没做的步骤（公式批量识别、表格还原、语义索引），幂等；导入后自动触发（受“自动分析”设置控制）。
+
+
+## 每页视觉划分版面（`vision/layout_ai.py`）
+
+导入一篇论文后（已配置视觉模型、开着自动分析），先让视觉模型**逐页**看整页截图，把页面划成区域（title / authors / affiliation / abstract / heading / paragraph / caption / figure / table / formula / reference / footnote / sidebar / header / footer / other）并给出阅读顺序，再用这个划分重新解析。公式、表格、语义索引等其他自动步骤等它做完再启动。
+
+- 模型只给区域框（0–1000 网格）和角色；文字、字体、坐标仍取自 PDF 文字层。解析时按文字片段中心点归属区域，归不进任何区域的片段超过 8% 的页整页不采用、退回规则解析；`figure/table` 框里其实是成段句子的也不当图。模型出错最多是这一页退回规则。
+- 每页的划分缓存在 `page_layout` 表（按提示词版本）；已有结论的页不重复问。完成后自动启动一次“重新解析”（笔记、标注按位置重映射，可一键撤销），并记下 `papers.layout_ai = 1`。
+- 只在**刚导入**时自动启动；打开旧论文不会自动做（避免悄悄花钱、重新解析已读的论文），要做就用下面的接口。没有配置视觉模型时完全不启用。
+- 发送的整页截图进隐私日志（`task_type=vision_layout`，`includes.images=true`）并计入用量。
+
+### `GET /papers/{id}/layout-ai`
+`{pages_total, pages_ok, pages_failed, applied, active_job_id}`；只读缓存，不调用模型。
+
+### `POST /papers/{id}/layout-ai?force=false`
+后台逐页划分，完成后自动重新解析。返回 `{job_id}`；每页都已有结论且没有 `force` 时 `job_id=null`。页数超过 150 的论文不做。

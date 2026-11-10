@@ -657,8 +657,11 @@ def _parse_for(ctx: JobContext, paper_id: str, base: float, span: float, force: 
         old_n = conn.execute("SELECT COUNT(*) FROM passages WHERE paper_id = ?", (paper_id,)).fetchone()[0]
         old_ocr = conn.execute("SELECT COUNT(*) FROM passages WHERE paper_id = ? AND source = 'ocr'", (paper_id,)).fetchone()[0]
     ctx.progress(base + 0.05 * span, "解析 PDF …")
+    from ..vision import layout_ai
+
+    hints = layout_ai.load_hints(app, paper_id)  # 视觉模型对每页的版面划分（没有就走规则）
     try:
-        parsed = parse_pdf(path)
+        parsed = parse_pdf(path, layout_hints=hints)
     except PdfError as exc:
         raise ApiError("parse_failed", f"重新解析失败，原有数据保持不变：{exc}") from exc
     if parsed.needs_ocr:
@@ -671,7 +674,7 @@ def _parse_for(ctx: JobContext, paper_id: str, base: float, span: float, force: 
                 ctx.check_cancelled()
                 spans[pno] = ocr.ocr_page(path, pno)
                 ctx.progress(base + (0.05 + 0.75 * i / len(parsed.needs_ocr)) * span, f"识别扫描页 {i}/{len(parsed.needs_ocr)}")
-            parsed = parse_pdf(path, ocr_pages=spans)
+            parsed = parse_pdf(path, ocr_pages=spans, layout_hints=hints)
     if old_n and not parsed.passages:
         raise ApiError("parse_failed", "新的解析没有得到任何文字，原有数据保持不变。")
     if not force and old_n >= 20 and len(parsed.passages) < 0.4 * old_n:
@@ -679,7 +682,7 @@ def _parse_for(ctx: JobContext, paper_id: str, base: float, span: float, force: 
             "parse_suspicious",
             f"新的解析只得到 {len(parsed.passages)} 个段落（原来 {old_n} 个），差别太大，原有数据保持不变。确认要替换请用 force 重试。",
         )
-    return parsed, {"old": old_n, "new": len(parsed.passages)}
+    return parsed, {"old": old_n, "new": len(parsed.passages), "layout_pages": len(hints)}
 
 
 def _after(app: AppContext, ids: list[str], reparsed: bool = True) -> None:
@@ -721,6 +724,8 @@ def handle_reparse(ctx: JobContext) -> dict:
             ctx.check_cancelled()
             ctx.progress(base + 0.85 * span, "替换解析结果并重映射笔记、卡片等数据 …")
             stats = _apply(app, pid, parsed)
+            with app.db.session() as conn:  # 记下这次解析用了视觉划分：打开论文时不会再重复触发
+                conn.execute("UPDATE papers SET layout_ai = ? WHERE id = ?", (1 if counts.get("layout_pages") else 0, pid))
             with app.db.session() as conn:
                 title = conn.execute("SELECT title FROM papers WHERE id = ?", (pid,)).fetchone()["title"]
             items.append({"paper_id": pid, "title": title, **counts, "stats": stats})

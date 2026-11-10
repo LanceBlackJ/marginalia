@@ -208,11 +208,38 @@ def attach_summaries(app: AppContext, items: list[dict]) -> list[dict]:
     return items
 
 
-def start_auto(app: AppContext, paper_id: str) -> dict:
+def _layout_pending(app: AppContext, paper_id: str, fresh: bool = False) -> bool:
+    """这篇论文还没做过视觉划分、解析结果也还是规则解析的（做过但失败的不再挡住别的步骤）。"""
+    from ..vision import layout_ai
+
+    with app.db.session() as conn:
+        row = conn.execute("SELECT has_pdf, layout_ai, role, page_count FROM papers WHERE id = ?", (paper_id,)).fetchone()
+    if row is None or not row["has_pdf"] or row["layout_ai"] or (row["page_count"] or 0) > layout_ai.MAX_PAGES:
+        return False
+    with app.db.session() as conn:
+        if not conn.execute("SELECT 1 FROM passages WHERE paper_id = ? LIMIT 1", (paper_id,)).fetchone():
+            return False  # 还没有文字（扫描版等 OCR 完成之前）：没东西可划分
+    if layout_ai.active(app, paper_id):
+        return True
+    # 只有刚导入的论文才自动做：旧论文打开时不会悄悄花钱划分、再重新解析（要做就用接口，或在设置好以后点“重新解析”）
+    return fresh and not layout_ai.attempted(app, paper_id)
+
+
+def start_auto(app: AppContext, paper_id: str, fresh: bool = False, layout: bool = True) -> dict:
     """导入后/打开论文时：启动还没做的自动步骤（公式识别、表格还原、语义索引）。幂等；没配置的步骤不启动，状态里如实写明。"""
     cfg = ai_settings.public_settings(app)
     started: dict[str, str | None] = {}
     if _vision_ready(cfg):
+        # 先让视觉模型逐页划分版面、按它重新解析：公式、表格、索引都要等解析结果定下来再做，不然做完又要重映射、重做
+        from ..vision import layout_ai
+
+        if layout and _layout_pending(app, paper_id, fresh):
+            try:
+                started["layout"] = layout_ai.enqueue(app, paper_id)
+            except ApiError:
+                started["layout"] = None
+            if started["layout"]:
+                return started
         from ..vision import formula_batch, inline_math_ai, table_batch
 
         for name, fn in (("formulas", lambda: formula_batch.enqueue(app, paper_id)), ("tables", lambda: table_batch.start(app, paper_id)),

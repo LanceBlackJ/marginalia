@@ -403,15 +403,22 @@ export function PaperProfilePage() {
           {` · 加入于 ${formatRelativeTime(paper.imported_at)}`}
         </p>
 
-        <div className="pd-pp-stats">
-          <Stat n={profile?.pages ?? paper.page_count ?? '—'} label="页" />
-          <Stat n={profile ? profile.figures.length : '—'} label="图" />
-          <Stat n={profile ? profile.tables.length : '—'} label="表" />
-          <Stat n={profile ? profile.equations : '—'} label="公式" />
-          <Stat n={profile?.references ?? '—'} label="参考文献" />
-          <Stat n={profile ? profile.notes : '—'} label="笔记" />
-          <Stat n={profile ? profile.annotations : '—'} label="标注" />
-        </div>
+        {/* 只列有用的：页数、参考文献；笔记和标注是我自己的内容，有了才显示。图、表、公式的数量进阅读器一眼就能看到，这里不重复 */}
+        {(() => {
+          const pages = profile?.pages ?? paper.page_count
+          const stats: Array<{ n: number; label: string }> = []
+          if (pages) stats.push({ n: pages, label: '页' })
+          if (profile?.references) stats.push({ n: profile.references, label: '参考文献' })
+          if (profile?.notes) stats.push({ n: profile.notes, label: '笔记' })
+          if (profile?.annotations) stats.push({ n: profile.annotations, label: '标注' })
+          return stats.length > 0 ? (
+            <div className="pd-pp-stats">
+              {stats.map((s) => (
+                <Stat key={s.label} n={s.n} label={s.label} />
+              ))}
+            </div>
+          ) : null
+        })()}
 
         <section className="pd-pp-sec">
           <h2>我的笔记</h2>

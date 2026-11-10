@@ -34,6 +34,20 @@ def is_numeric_dense(text: str) -> bool:
     return len(toks) >= MIN_TOKENS and numeric_ratio(text) >= 0.6
 
 
+def is_data_mixture(text: str) -> bool:
+    """数字加上反复出现的行名/列名（“Flickr 5.98 5.78 … HDA CI MinSum BPD CoreHD …”）：每个词不是数字就是反复出现的标签，
+    数字占比单独不到 0.6、标签占比也不够，合起来是典型的数据网格。"""
+    toks = tokens(text)
+    if len(toks) < MIN_TOKENS or SENTENCE_END_RE.search(text):
+        return False
+    from collections import Counter
+
+    nums = [t for t in toks if NUM_TOKEN_RE.fullmatch(t)]
+    words = Counter(t.lower() for t in toks if not NUM_TOKEN_RE.fullmatch(t))
+    repeated = sum(c for w, c in words.items() if c >= 2 and len(w) <= 12)
+    return len(nums) >= 6 and (len(nums) + repeated) / len(toks) >= 0.8
+
+
 def is_label_soup(text: str) -> bool:
     """同一组很短的词反复出现（图例：HDA CI RatioCut FINDER HDA CI RatioCut FINDER …），没有句子成分。"""
     toks = tokens(text)
@@ -122,7 +136,7 @@ def data_reason(text: str, in_zone: bool) -> str | None:
     """这段文字为什么应当归入“图内文字”；None 表示保持正文。"""
     if looks_like_sentence(text):
         return None
-    if is_numeric_dense(text):
+    if is_numeric_dense(text) or is_data_mixture(text):
         return "数字密集"
     if is_label_soup(text):
         return "图例或标签堆砌"

@@ -121,7 +121,9 @@ def _rule_tables(page: pymupdf.Page, drawings: list, native_w: float) -> list[Re
     caps = sorted((b[1], b[3], b[0], b[2], bool(TABLE_CAPTION_RE.match(b[4]))) for b in blocks if ANY_CAPTION_RE.match(b[4]))
     if not any(c[4] for c in caps):
         return []
-    rules = _rule_rows(drawings, native_w)
+    page_h = page.rect.height
+    # 页眉、页脚的横线（Frontiers 每页顶上一条、底下一条整栏宽的细线）不是表线：否则“最后一条同宽的横线”一路找到页脚，整页正文都成了表格
+    rules = [r for r in _rule_rows(drawings, native_w) if 0.07 * page_h < r[0] < 0.93 * page_h]
     out: list[Region] = []
     for i, (cy0, cy1, cx0, cx1, is_table) in enumerate(caps):
         if not is_table:

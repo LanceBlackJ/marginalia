@@ -12,7 +12,7 @@ from ..context import AppContext
 from ..jobs import JobManager
 from ..library import repo
 from ..util import ApiError
-from ..vision import explain, figure_qa, figures, formula, formula_batch, inline_math_ai, table_batch
+from ..vision import explain, figure_qa, figures, formula, formula_batch, inline_math_ai, layout_ai, table_batch
 from .deps import get_ctx
 
 router = APIRouter(tags=["vision"])
@@ -22,12 +22,28 @@ def register_jobs(manager: JobManager) -> None:
     figures.register(manager)
     formula_batch.register(manager)
     inline_math_ai.register(manager)
+    layout_ai.register(manager)
     table_batch.register(manager)
 
 
 def _ensure_paper(ctx: AppContext, paper_id: str) -> None:
     with ctx.db.session() as conn:
         repo.get_row(conn, paper_id)
+
+
+# ---- 版面（每页视觉划分） ----
+@router.get("/papers/{paper_id}/layout-ai")
+def layout_ai_status(paper_id: str, ctx: AppContext = Depends(get_ctx)):
+    """视觉划分版面的进度：{pages_total, pages_ok, pages_failed, applied（解析结果是否已用它重建）, active_job_id}。"""
+    _ensure_paper(ctx, paper_id)
+    return layout_ai.status(ctx, paper_id)
+
+
+@router.post("/papers/{paper_id}/layout-ai")
+def start_layout_ai(paper_id: str, force: bool = Query(False), ctx: AppContext = Depends(get_ctx)):
+    """后台让视觉模型逐页划分版面，完成后自动重新解析（整页截图发给视觉模型，记入隐私日志）。force=true 把已有的划分全部重做。"""
+    _ensure_paper(ctx, paper_id)
+    return {"job_id": layout_ai.enqueue(ctx, paper_id, force=force)}
 
 
 # ---- 公式 ----

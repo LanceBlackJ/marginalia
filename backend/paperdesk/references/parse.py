@@ -109,7 +109,7 @@ def _parse_acl(e: "RefEntry") -> bool:
     e.authors = [_full_name_to_surname_initials(n) if len(n.split()) >= 2 else n for n in names]
     e.year = int(m.group(2))
     rest = m.group(3).strip()
-    end = _title_end(rest)
+    end = _title_end_with_subtitle(rest)
     if end >= 0:
         title = rest[: end + (1 if rest[end] in "?!" else 0)].strip(" .")
         if len(title) >= 8:
@@ -260,6 +260,33 @@ def _title_end(rest: str) -> int:
     return -1
 
 
+_VENUE_START = re.compile(
+    r"(?:in|proceedings|journal|transactions|trans\.|conference|arxiv|preprint|nature|science|ieee|acm|advances|annual|workshop|symposium|"
+    r"international|findings|biorxiv|technical report|ph\.?d|thesis|book|chapter|vol\.?)\b", re.I)
+_FUNCTION_WORDS = frozenset("a an the of for and in on with to via at by from as or is are".split())
+
+
+def _title_end_with_subtitle(rest: str) -> int:
+    """_title_end 的升级版：标题以问号/感叹号结尾、后面紧跟一句像副标题的话时（“Did Aristotle Use a Laptop? A question answering
+    benchmark with implicit reasoning strategies. TACL.”），标题要带上副标题，否则副标题会被当成出处、拿去检索就配错论文。
+    副标题的特征：句子式（至少两个小写的实词）、不以 In / Proceedings / Journal 之类的出处词开头；期刊名是首字母大写的几个词，不会满足。"""
+    end = _title_end(rest)
+    if end < 0 or rest[end] not in "?!":
+        return end
+    after = rest[end + 1:]
+    tail = after.lstrip()
+    if not tail[:1].isupper() or _VENUE_START.match(tail):
+        return end
+    e2 = _title_end(tail)
+    if e2 < 0 or tail[e2] != ".":
+        return end
+    words = tail[:e2].split()
+    content = [w for w in words[1:] if w[:1].islower() and w.lower() not in _FUNCTION_WORDS]
+    if len(words) >= 4 and len(content) >= 2:
+        return end + 1 + (len(after) - len(tail)) + e2
+    return end
+
+
 def parse_fields(e: RefEntry, style: str) -> None:
     raw = e.raw
     m = _DOI.search(raw.replace("doi.org/ ", "doi.org/"))
@@ -309,7 +336,7 @@ def parse_fields(e: RefEntry, style: str) -> None:
         e.venue = qm.group(2).strip(" .,;")
         e.messy = e.merged
         return
-    end = _title_end(rest)
+    end = _title_end_with_subtitle(rest)
     if end < 0:
         return
     title = rest[: end + (1 if rest[end] in "?!" else 0)].strip(" .")

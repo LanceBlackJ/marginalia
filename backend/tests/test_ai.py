@@ -982,3 +982,41 @@ async def test_context_length_limit_applies_to_that_request_only():
     assert res.text == "ok" and seen == [64000, 32768 - 2000 - 64]
     assert ("https://x.test/v1", "ctx-model") not in providers.OUTPUT_CAPS  # 短提示词下它其实能给更多，不能永久压低
     providers.OUTPUT_CAPS.clear()
+
+
+# ---------------- 翻译时保护文献引用 ----------------
+def test_citation_masking_round_trip_and_what_is_protected():
+    from paperdesk.ai import citeguard as cg
+
+    text = ("Prior best numbers are from CSQA (Talmor et al., 2019) and StrategyQA (Geva et al., 2021) (single-model only, as of May 5, 2022). "
+            "Wei et al. (2022) and Smith and Lee (2020) show this [12], also [3, 4] and (Chen & Wu, 2019; Li et al., 2020a).")
+    masked, found = cg.mask(text)
+    assert found == ["(Talmor et al., 2019)", "(Geva et al., 2021)", "Wei et al. (2022)", "Smith and Lee (2020)", "[12]", "[3, 4]", "(Chen & Wu, 2019; Li et al., 2020a)"]
+    assert "(single-model only, as of May 5, 2022)" in masked  # 不是文献引用，要翻译
+    assert cg.restore(masked, found) == text
+    assert cg.mask("没有引用的句子 (see Figure 3).")[1] == []
+    # 模型多写一个编号或丢掉一个，都不会乱填
+    assert cg.restore("见 ⟦9⟧ 和 ⟦1⟧", ["[1]"]) == "见 ⟦9⟧ 和 [1]"
+
+
+def test_stream_restore_handles_placeholders_split_across_chunks():
+    from paperdesk.ai import citeguard as cg
+
+    found = ["(Talmor et al., 2019)", "[12]"]
+    r = cg.StreamRestore(found)
+    out = "".join(r.feed(c) for c in ["先前最优来自 ⟦", "1", "⟧ 和", " ⟦2⟧。结束 ⟦", "3"]) + r.flush()
+    assert out == "先前最优来自 (Talmor et al., 2019) 和 [12]。结束 ⟦3"  # 没写完的占位符原样吐出，不吞字
+
+
+def test_translation_keeps_citations_verbatim_even_if_the_model_would_translate_them(imported):
+    api, pid = imported
+    src = "Prior numbers are from StrategyQA (Geva et al., 2021) and CSQA (Talmor et al., 2019)."
+    ev = api.sse("/ai/translate", {"paper_id": pid, "text": src})
+    done = [d for n, d in ev if n == "done"]
+    assert done, ev[-1]
+    tr = done[0]["translation"]
+    assert "(Geva et al., 2021)" in tr and "(Talmor et al., 2019)" in tr and "⟦" not in tr
+    streamed = "".join(d["text"] for n, d in ev if n == "delta")
+    assert "⟦" not in streamed and "(Geva et al., 2021)" in streamed
+    sent = [r["body"]["messages"][-1]["content"] for r in api.fake.requests if "待翻译文本" in str(r["body"].get("messages", [""])[-1].get("content", ""))]
+    assert sent and "Geva" not in sent[-1] and "⟦1⟧" in sent[-1]  # 发给模型的文本里引用已经换成占位符

@@ -2,6 +2,12 @@
 import { apiPostSSE, apiRequest } from './api'
 import type { Citations, RefContext, RefResolution, References } from './types.references'
 
+export type AddTarget =
+  | { via: 'doi'; doi: string }
+  | { via: 'arxiv'; arxiv: string }
+  | { via: 'library'; paper_id: string; title: string }
+  | { via: 'metadata'; paper_id: string; title: string }
+
 const get = <T>(path: string): Promise<T> => apiRequest<T>('GET', path, {})
 
 export const referencesApi = {
@@ -14,6 +20,7 @@ export const referencesApi = {
   /** AI 概括：依据摘要和本文引用句；没有摘要时 done 事件里 summary 为 null。 */
   summarize: (paperId: string, index: number, onEvent: (event: string, data: unknown) => void, signal?: AbortSignal) =>
     apiPostSSE('/api/ai/summarize-reference', { paper_id: paperId, index }, onEvent, signal),
-  /** 加入文库：只保存元数据，不下载 PDF。 */
-  importMetadata: (doi: string) => apiRequest<{ job_id: string }>('POST', '/api/import/doi', { body: { dois: [doi], metadata_only: true } })
+  /** 加入文库该走哪条路（后端挑标识符；可信度低的匹配不用）：doi / arxiv 走标准导入，library 已在文库，metadata 已用参考文献本身的题录建好。 */
+  addTarget: (paperId: string, index: number) =>
+    apiRequest<AddTarget>('POST', `/api/papers/${paperId}/references/${index}/add`, { body: {} })
 }

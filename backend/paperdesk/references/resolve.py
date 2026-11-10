@@ -13,7 +13,7 @@ from urllib.parse import quote
 import httpx
 
 from ..context import AppContext
-from ..util import utcnow
+from ..util import ApiError, utcnow
 from . import store
 from .parse import first_author_surname
 
@@ -367,3 +367,38 @@ def _in_library(app: AppContext, res: dict) -> dict | None:
                 if norm_title(r["title"]) == title:
                     return {"paper_id": r["id"], "title": r["title"]}
     return None
+
+
+async def add_target(app: AppContext, paper_id: str, index: int) -> dict:
+    """“加入文库”该用哪个标识符：能加就直接加，不要求用户先确认匹配。
+
+    顺序：原文自带的 DOI → 原文自带的 arXiv 编号 → 联网匹配到的、可信度高/中的 DOI → 文库里已经有 → 都没有就用参考文献本身的题录建一条。
+    可信度低的匹配（可能是别的论文）不用，免得把不相干的论文加进文库。返回 {via: doi|arxiv|library|metadata, ...}。"""
+    ref = store.get_reference(app, paper_id, index)
+    if ref.get("doi"):
+        return {"via": "doi", "doi": ref["doi"]}
+    if ref.get("arxiv"):
+        return {"via": "arxiv", "arxiv": ref["arxiv"]}
+    res = await resolve(app, paper_id, index)
+    if res.get("in_library"):
+        return {"via": "library", "paper_id": res["in_library"]["paper_id"], "title": res["in_library"]["title"]}
+    level = (res.get("match") or {}).get("level")
+    if res.get("found") and level in ("high", "medium") and res.get("doi"):
+        return {"via": "doi", "doi": res["doi"]}
+    from ..library.importer import create_metadata_only
+
+    title = (ref.get("title") or "").strip() or (ref.get("raw") or "").strip()[:160]
+    if not title:
+        raise ApiError("bad_request", "这条参考文献没有可用的题录信息")
+    nt = norm_title(title)
+    with app.db.session() as conn:
+        for r in conn.execute("SELECT id, title FROM papers WHERE parent_id IS NULL"):
+            if norm_title(r["title"]) == nt:
+                return {"via": "library", "paper_id": r["id"], "title": r["title"]}
+    pid = create_metadata_only(
+        app, doi=None, arxiv_id=None,
+        metadata={"title": title, "authors": ref.get("authors") or [], "year": ref.get("year"), "venue": ref.get("venue") or None},
+        access_info=[{"label": "参考文献里的链接", "url": ref["url"]}] if ref.get("url") else [],
+        source="reference", source_url=ref.get("url") or None,
+    )
+    return {"via": "metadata", "paper_id": pid, "title": title}

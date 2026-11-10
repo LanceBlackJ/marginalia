@@ -72,6 +72,8 @@ interface RefState {
   openDrawer: (index: number) => void
   closeAll: () => void
   resolve: (index: number, force?: boolean) => Promise<void>
+  /** 加入文库之后刷新“是否已在文库里”（读后端缓存的查询结果，不联网重查）：抽屉里的按钮据此变成“在文库中打开” */
+  refreshInLibrary: (index: number) => Promise<void>
   loadContexts: (index: number) => Promise<void>
   summarize: (index: number) => Promise<void>
 }
@@ -204,6 +206,18 @@ export const useRefStore = create<RefState>((set, get) => ({
       set((s) => ({ resolutions: { ...s.resolutions, [index]: { status: 'ready', data } } }))
     } catch (err) {
       if (get().paperId === paperId) set((s) => ({ resolutions: { ...s.resolutions, [index]: { status: 'error', error: errorMessage(err) } } }))
+    }
+  },
+
+  refreshInLibrary: async (index) => {
+    const paperId = get().paperId
+    const cur = get().resolutions[index]
+    if (!paperId || !cur || cur.status !== 'ready') return
+    try {
+      const data = await referencesApi.resolve(paperId, index, false)
+      if (get().paperId === paperId) set((s) => ({ resolutions: { ...s.resolutions, [index]: { status: 'ready', data } } }))
+    } catch {
+      /* 刷新不了就保持原样 */
     }
   },
 

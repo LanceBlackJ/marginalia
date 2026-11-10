@@ -15,7 +15,7 @@ from .. import reader
 from ..context import AppContext
 from ..jobs import JobContext, JobManager
 from ..util import ApiError, utcnow
-from . import prompts
+from . import citeguard, prompts
 from . import usage as usage_log
 from .providers import LLMError
 from .router import TaskType, choose_model
@@ -291,11 +291,12 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
     for batch in _batches(todo):
         ctx.check_cancelled()
         body = "\n\n".join(f"###{i}###\n{p['text']}" for i, p in enumerate(batch, 1))
-        messages = prompts.build_translate_messages(body, None, title)
+        body, cmap = citeguard.mask(body)  # 文献引用不翻译：先换成占位符，译完再放回去
+        messages = prompts.build_translate_messages(body, None, title, cites=bool(cmap))
         messages[0] = {"role": "system", "content": messages[0]["content"] + BATCH_NOTE}
         got: dict[int, str] = {}
         try:
-            got = _parse(await call(messages), len(batch))
+            got = _parse(citeguard.restore(await call(messages), cmap), len(batch))
         except LLMError as err:
             if not err.retriable and err.code in ("auth_failed", "no_api_key"):
                 raise ApiError(err.code, err.message) from err
@@ -303,7 +304,8 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
             out = got.get(i)
             if not out:
                 try:
-                    out = (await call(prompts.build_translate_messages(p["text"], None, title))).strip()
+                    one, one_map = citeguard.mask(p["text"])
+                    out = citeguard.restore((await call(prompts.build_translate_messages(one, None, title, cites=bool(one_map)))).strip(), one_map)
                 except LLMError:
                     out = ""
             if out:

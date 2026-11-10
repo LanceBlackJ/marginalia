@@ -209,6 +209,12 @@ def _level(s, base_size: float, base_line: float) -> str:
             return "sub"
         if d < -0.18 * base_size:
             return "sup"
+        if s.size <= 0.75 * base_size:
+            # 有的版式（ACM 的 CMMI）下标只比基线低 1 磅：字号明显更小（≤75%）又有一点偏移，就是上下标，不是正文
+            if d > 0.04 * base_size:
+                return "sub"
+            if d < -0.08 * base_size:
+                return "sup"
     return "n"
 
 
@@ -234,6 +240,8 @@ def build_tex(spans: list, base_size: float, base_line: float, *, numeric_ok: bo
         # 上下标前面必须是一个可以带上下标的东西；前面是运算符或什么都没有，说明是分式这类多层结构
         if not prev or _NEEDS_BASE.search(prev):
             bad = True
+        if hi and not lo and re.search(r"\\(?:sum|prod)\s*$", prev):
+            bad = True  # 求和、连乘只认到了上限、没认到下限（下限常在另一行）：不完整，交给视觉模型，不能给一个错的式子
         if lo:
             parts.append("_{" + lo + "}")
         if hi:

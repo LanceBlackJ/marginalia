@@ -36,6 +36,13 @@ async def resolve_reference(paper_id: str, index: int, body: ResolveBody | None 
     return await resolver.resolve(ctx, paper_id, index, force=bool(body and body.force))
 
 
+@router.post("/papers/{paper_id}/references/{index}/add")
+async def add_reference_to_library(paper_id: str, index: int, ctx: AppContext = Depends(get_ctx)):
+    """“加入文库”该走哪条路：{via: "doi", doi} / {via: "arxiv", arxiv}（前端用标准导入，自动找开放获取全文）/ {via: "library", paper_id}（已经在文库里）/
+    {via: "metadata", paper_id}（没有可靠标识符，已用参考文献本身的题录建了一条）。"""
+    return await resolver.add_target(ctx, paper_id, index)
+
+
 @router.get("/papers/{paper_id}/references/{index}/contexts")
 def reference_contexts(paper_id: str, index: int, ctx: AppContext = Depends(get_ctx)):
     """本文里引用这条参考文献的句子：{items:[{ord, page, sentence}]}。"""

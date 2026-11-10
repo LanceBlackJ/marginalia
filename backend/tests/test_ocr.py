@@ -149,3 +149,36 @@ def test_real_engine_reads_a_rendered_page(scan_pdf):
     for word in ("cascading", "failures", "infrastructure", "percolation", "resilience", "introduction"):
         assert word in got, (word, got[:200])
     assert all(0 <= s.x0 < s.x1 <= 595.5 and 0 <= s.y0 < s.y1 <= 842.5 for s in spans)
+
+
+def test_ocr_fills_title_and_authors_that_a_scan_could_not_have_at_import(api):
+    """扫描版导入时没有文字层：标题只能拿文件名顶替。识别出文字后要补上；用户改过的标题不动。"""
+    from types import SimpleNamespace
+
+    from paperdesk.library.ocr_jobs import _fill_metadata_from_ocr
+    from paperdesk.util import new_id
+
+    md = SimpleNamespace(title="基于注意力机制的级联失效恢复方法研究", authors=["张三", "李四"], year=2021, venue=None, doi=None, abstract=None)
+    parsed = SimpleNamespace(metadata=md)
+
+    def add(title, source="pdf"):
+        pid = new_id()
+        with api.ctx.db.session() as conn:
+            conn.execute(
+                "INSERT INTO papers(id, title, authors_json, status, imported_at, metadata_source, original_path) VALUES (?,?,?,?,?,?,?)",
+                (pid, title, "[]", "ready", "2026-01-01T00:00:00Z", source, "E:/scans/scan.pdf"),
+            )
+        return pid
+
+    def get(pid):
+        with api.ctx.db.session() as conn:
+            r = conn.execute("SELECT title, authors_json, year FROM papers WHERE id = ?", (pid,)).fetchone()
+        return r["title"], r["authors_json"], r["year"]
+
+    a, b, c = add("scan"), add("我自己起的名字"), add("scan", source="crossref")
+    with api.ctx.db.session() as conn:
+        for pid in (a, b, c):
+            _fill_metadata_from_ocr(conn, pid, parsed)
+    assert get(a)[0] == "基于注意力机制的级联失效恢复方法研究" and "张三" in get(a)[1] and get(a)[2] == 2021
+    assert get(b)[0] == "我自己起的名字"  # 用户改过的标题不动
+    assert get(c)[0] == "scan"  # 来自 Crossref 的题录不动
