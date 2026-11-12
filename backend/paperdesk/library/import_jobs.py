@@ -43,8 +43,11 @@ def _maybe_auto_analyze(ctx: JobContext, paper_id: str, outcome: ImportOutcome) 
             enqueue_analysis(app, paper_id)
         except ApiError:
             pass
-    if cfg["auto_analyze"] and cfg["configured"]:
-        # 公式和表格也在导入后自动处理（不等用户打开页面）：没处理好之前，界面不会说“已完成”
+    from ..vision import math_local
+
+    if cfg["auto_analyze"] and (cfg["configured"] or math_local.available()):
+        # 公式和表格也在导入后自动处理（不等用户打开页面）：没处理好之前，界面不会说“已完成”；
+        # 没配 AI 但装了本地公式模型时，行内公式照样自动识别
         from . import processing
 
         try:

@@ -19,3 +19,4 @@ tree-sitter-go>=0.23
 tree-sitter-rust>=0.23
 tree-sitter-bash>=0.23
 rapidocr-onnxruntime>=1.2.3
+# 版面检测模型（parsing/layout_model.py）用 onnxruntime + opencv + numpy，它们随 rapidocr-onnxruntime 一起安装；模型文件（约 75 MB）首次用到时自动下载到数据目录

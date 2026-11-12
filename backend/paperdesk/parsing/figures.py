@@ -133,7 +133,8 @@ def _rule_tables(page: pymupdf.Page, drawings: list, native_w: float) -> list[Re
             continue
         limit = caps[i + 1][0] if i + 1 < len(caps) else float("inf")
         width = top[2] - top[1]
-        same = [r for r in rules if top[0] <= r[0] < limit and min(r[2], top[2]) - max(r[1], top[1]) >= 0.6 * width]
+        same = [r for r in rules if top[0] <= r[0] < limit and min(r[2], top[2]) - max(r[1], top[1]) >= 0.6 * width
+                and 0.7 * width <= (r[2] - r[1]) <= 1.35 * width]  # 表线和表头线宽度相近，整页宽的页脚线不是表尾线
         if len(same) < 2:
             continue
         out.append(Region(min(r[1] for r in same), top[0] - 1, max(r[2] for r in same), same[-1][0] + 1, "vector", table=True))

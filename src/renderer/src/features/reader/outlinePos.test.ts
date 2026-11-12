@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { activeOutlineIndex, activeSectionAt, ordAtPdfPoint, sectionStarts, type PosItem } from './outlinePos'
+import { activeOutlineIndex, activeSectionAt, activeSectionOnScroll, ordAtPdfPoint, sectionStarts, type PosItem } from './outlinePos'
 
 const mk = (ord: number, page: number, y1: number, section: string | null): PosItem => ({ ord, page, section_title: section, bbox: [0, y1 - 20, 100, y1] })
 // 第 3 页上依次开始了 3 / 3.1 / 3.2 三个小节
@@ -63,5 +63,27 @@ describe('按正文里标题的实际位置判断当前小节', () => {
     expect(activeOutlineIndex(outline, items, null, 1, '3.1 Encoder')).toBe(2)
     expect(activeOutlineIndex(outline, items, 21, 3, '目录里没有的标题')).toBe(1)
     expect(activeOutlineIndex(outline, items, 21, 3, null)).toBe(1)
+  })
+})
+
+describe('activeSectionOnScroll', () => {
+  const tops = [
+    { title: '7 Conclusion', top: -122 },
+    { title: 'Acknowledgements', top: 198 },
+    { title: 'References', top: 503 }
+  ]
+  it('is the normal reading-line section when not at the bottom', () => {
+    expect(activeSectionOnScroll(tops, 100, false, null, 714)).toBe('7 Conclusion')
+  })
+  it('takes the last section at the very bottom, where its heading can never reach the reading line', () => {
+    expect(activeSectionOnScroll(tops, 100, true, null, 714)).toBe('References')
+  })
+  it('prefers the section just clicked in the outline when its heading is still on screen', () => {
+    expect(activeSectionOnScroll(tops, 100, true, 'Acknowledgements', 714)).toBe('Acknowledgements')
+    expect(activeSectionOnScroll(tops, 100, true, 'References', 714)).toBe('References')
+  })
+  it('ignores a clicked section whose heading is off screen or missing', () => {
+    expect(activeSectionOnScroll(tops, 100, true, '7 Conclusion', 400)).toBe('References')
+    expect(activeSectionOnScroll(tops, 100, true, 'Nope', 714)).toBe('References')
   })
 })

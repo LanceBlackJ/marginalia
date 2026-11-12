@@ -1265,6 +1265,27 @@ def test_inline_math_candidates_are_recognised_applied_and_cached(journal):
     n = api.fake.inline_calls
     assert ima.enqueue(api.ctx, pid) is None and api.fake.inline_calls == n  # 已有结论（含被拒绝的）：不再调用模型
 
+
+def test_a_whole_formula_candidate_with_fallback_parts_shows_the_parts_until_it_is_recognised(journal):
+    """整条认不全的公式记成候选，认得全的小簇放在 parts 里：识别出来之前读取方看到小簇，识别出来后换成整条并去掉 parts。"""
+    from paperdesk.parsing.inline_math import flatten_runs
+    from paperdesk.vision import inline_math_ai as ima
+
+    api, pid, _eq, _fig = journal
+    whole = {"src": "T = {t0, . . . , tK}", "tex": None, "page": 1, "bbox": [72, 100, 200, 112],
+             "parts": [{"src": "T", "tex": "T"}, {"src": "t0", "tex": "t_{0}"}]}
+    with api.ctx.db.session() as conn:
+        row = conn.execute("SELECT ord FROM passages WHERE paper_id = ? ORDER BY ord LIMIT 1", (pid,)).fetchone()
+        conn.execute("UPDATE passages SET math_json = ? WHERE paper_id = ? AND ord = ?", (json.dumps([whole], ensure_ascii=False), pid, row["ord"]))
+    assert [r["src"] for r in flatten_runs([whole])] == ["T", "t0"]
+    job = api.wait_job(ima.enqueue(api.ctx, pid))
+    assert job["status"] == "completed" and job["result"]["applied"] == 1, job
+    with api.ctx.db.session() as conn:
+        arr = json.loads(conn.execute("SELECT math_json FROM passages WHERE paper_id = ? AND ord = ?", (pid, row["ord"])).fetchone()["math_json"])
+    assert len(arr) == 1 and arr[0]["tex"] and arr[0]["ai"] is True and "parts" not in arr[0]
+    assert flatten_runs(arr) == arr
+
+
 def test_inline_math_reply_parser_survives_merged_objects_and_escapes():
     from paperdesk.vision.inline_math_ai import _parse_items
 
@@ -1273,14 +1294,16 @@ def test_inline_math_reply_parser_survives_merged_objects_and_escapes():
     got = _parse_items(bad)
     assert got[1] == chr(92) + "mathcal{T}^* = " + chr(92) + "{t_0," + chr(92) + "ldots,t_{K-1}" + chr(92) + "}," and got[2] == "p_k^2"
     assert _parse_items('{"items":[{"n":1,"latex":""},{"n":2,"latex":"x_1"}]}') == {1: "", 2: "x_1"}  # 正常格式照常
-    assert _parse_items("抱歉，我看不清") == {}
+    assert _parse_items("抱歉，我看不清") == {}
+
 
 def test_inline_math_trailing_sentence_punctuation_is_not_part_of_the_formula():
     from paperdesk.vision.inline_math_ai import tidy
 
     assert tidy("T = \{t_0\},", "T = {t0, tK}").replace(chr(92), "") == "T = {t_0}"  # 句末的逗号在公式之外
     assert tidy("\eta(\alpha,", "η(α,").endswith(",")  # 原文自己以逗号结尾：保留
-    assert tidy("Y = x.", "Y = x") == "Y = x"
+    assert tidy("Y = x.", "Y = x") == "Y = x"
+
 
 def test_inline_math_two_models_agree_or_get_arbitrated(monkeypatch):
     import asyncio
@@ -1319,3 +1342,148 @@ def test_inline_math_job_asks_both_vision_models_in_parallel(journal):
     assert api.fake.inline_calls == 2  # 两个模型各问一次（回答一致，不需要裁决）
     logged = [i for i in api.get("/privacy/requests").json()["items"] if i["task_type"] == "vision_inline_math"]
     assert {i["model"] for i in logged} == {"vis-a", "vis-b"}
+
+
+# ---------------- 本地公式模型（整行图 → 公式片段 → 对应回候选） ----------------
+def test_local_math_segments_are_split_out_of_the_line_transcription():
+    from paperdesk.vision import math_local
+
+    text = r"Here $\mu$ is the momentum and $$E[x_{l}^{2}]=1$$ plus \(a_{i}\)."
+    assert math_local.segments(text) == [r"\mu", r"E[x_{l}^{2}]=1", r"a_{i}"]
+    assert math_local.segments("没有公式") == []
+
+
+def test_match_segment_picks_the_formula_that_fits_the_text_layer_and_rejects_the_rest():
+    from paperdesk.vision.inline_math_ai import match_segment
+
+    segs = [r"\mu", r"E[x_{l}^{2}]", r"a_{i}", r"\begin{array}{c} a_i \ b \end{array}"]
+    assert match_segment("a i", segs) == "a_{i}"  # 骨架 ai 最像
+    assert match_segment("E[x l 2]", segs) == "E[x_{l}^{2}]"
+    assert match_segment("q 9 z", segs) is None  # 没有一个对得上：不采用
+    assert match_segment("a i", [r"\begin{array}{c} a_i \ b \end{array}"]) is None  # 多行数组不是行内公式
+    assert match_segment("η(α,", [r"\eta(\alpha,"]) == r"\eta(\alpha,"  # 原文自己以逗号结尾：保留
+
+
+def _set_candidates(api, pid, cands):
+    with api.ctx.db.session() as conn:
+        row = conn.execute("SELECT ord FROM passages WHERE paper_id = ? ORDER BY ord LIMIT 1", (pid,)).fetchone()
+        conn.execute("UPDATE passages SET math_json = ? WHERE paper_id = ? AND ord = ?", (json.dumps(cands, ensure_ascii=False), pid, row["ord"]))
+    return row["ord"]
+
+
+def test_local_engine_recognises_candidates_from_whole_line_images_without_calling_the_vision_model(journal):
+    from paperdesk.vision import inline_math_ai as ima
+    from paperdesk.vision import math_local
+
+    api, pid, _eq, _fig = journal
+    seen: list[int] = []
+
+    def engine(pngs):
+        seen.append(len(pngs))
+        assert all(p[:4] == b"\x89PNG" for p in pngs)  # 送进去的是整行的 PNG
+        return [r"We update $a_{i}$ with $E[x_{l}^{2}]$ at each step." for _ in pngs]
+
+    math_local.set_engine(engine)
+    ord_ = _set_candidates(api, pid, [
+        {"src": "a i", "tex": None, "page": 1, "bbox": [90, 100, 100, 112], "line": [72, 98, 500, 114]},
+        {"src": "E[x l 2]", "tex": None, "page": 1, "bbox": [200, 100, 240, 112], "line": [72, 98, 500, 114]},  # 同一行：只识别一次
+        {"src": "zz 99", "tex": None, "page": 1, "bbox": [300, 100, 320, 112], "line": [72, 98, 500, 114]},  # 对不上
+    ])
+    calls_before = getattr(api.fake, "inline_calls", 0)
+    job = api.wait_job(ima.enqueue(api.ctx, pid))
+    assert job["status"] == "completed" and job["result"]["local"] == 2, job
+    assert seen == [1]  # 同一行的三个候选共用一张整行图
+    with api.ctx.db.session() as conn:
+        arr = json.loads(conn.execute("SELECT math_json FROM passages WHERE paper_id = ? AND ord = ?", (pid, ord_)).fetchone()["math_json"])
+        model = conn.execute("SELECT DISTINCT model FROM inline_math_ai WHERE paper_id = ?", (pid,)).fetchall()
+    assert arr[0]["tex"] == "a_{i}" and arr[1]["tex"] == "E[x_{l}^{2}]" and arr[0]["ai"] is True
+    models = {r["model"] for r in model}
+    assert "texify" in models and len(models) == 2  # 前两个是本地认出来的；第三个本地对不上，视觉模型配好了所以再让它试了一次
+    with api.ctx.db.session() as conn:
+        third = conn.execute("SELECT model FROM inline_math_ai WHERE paper_id = ? AND model != 'texify'", (pid,)).fetchall()
+    assert len(third) == 1 and getattr(api.fake, "inline_calls", 0) > calls_before
+
+
+def test_local_engine_failure_falls_back_to_the_vision_model(journal):
+    from paperdesk.vision import inline_math_ai as ima
+    from paperdesk.vision import math_local
+
+    api, pid, _eq, _fig = journal
+
+    def boom(pngs):
+        raise RuntimeError("model exploded")
+
+    math_local.set_engine(boom)
+    _set_candidates(api, pid, [{"src": "T = {t0, . . . , tK}", "tex": None, "page": 1, "bbox": [72, 100, 200, 112], "line": [72, 98, 500, 114]}])
+    job = api.wait_job(ima.enqueue(api.ctx, pid))
+    assert job["status"] == "completed" and job["result"]["recognized"] == 1 and job["result"]["local"] == 0, job
+
+
+def test_local_only_mode_works_without_any_api_key_and_retries_with_the_vision_model_once_configured(tmp_path):
+    from paperdesk.vision import inline_math_ai as ima
+    from paperdesk.vision import math_local
+
+    from conftest import make_api
+
+    api, fake = make_api(tmp_path)
+    api.fake = fake
+    with api.c:
+        import pdfgen
+
+        pid = api.import_pdf(pdfgen.build_paper(tmp_path / "p.pdf"))["paper_id"]
+        math_local.set_engine(lambda pngs: [r"only $a_{i}$ here" for _ in pngs])
+        ord_ = _set_candidates(api, pid, [{"src": "a i", "tex": None, "page": 1, "bbox": [90, 100, 100, 112], "line": [72, 98, 500, 114]},
+                                           {"src": "zz 99", "tex": None, "page": 1, "bbox": [300, 100, 320, 112], "line": [72, 98, 500, 114]}])
+        job = api.wait_job(ima.enqueue(api.ctx, pid))  # 没有 Key、没有视觉模型
+        assert job["status"] == "completed" and job["result"]["local"] == 1, job
+        assert ima.enqueue(api.ctx, pid) is None  # 没认出来的第二个也没有别的引擎可试：不重复跑
+        api.configure_ai(vision_model="vis-a")
+        assert ima.pending(api.ctx, pid) == 1  # 配好视觉模型之后，本地没认出来的那个会再试一次
+        assert ima.enqueue(api.ctx, pid) is not None
+
+
+def test_import_candidates_carry_the_whole_line_position(tmp_path):
+    """解析时记下候选公式所在的整行（本地模型要整行才认得准）。"""
+    import pdfgen
+
+    from paperdesk.parsing.pdf_parser import parse_pdf
+
+    d = parse_pdf(pdfgen.build_paper(tmp_path / "p.pdf"))
+    cands = [m for p in d.passages for m in p.math if not m.get("tex")]
+    assert all(len(m["line"]) == 4 and m["line"][0] <= m["bbox"][0] and m["line"][2] >= m["bbox"][2] - 1 for m in cands if m.get("line"))
+
+
+def test_import_starts_local_inline_math_recognition_even_without_any_ai_configuration(tmp_path):
+    """回归：导入后的自动步骤原来要求“AI 已配置”，纯本地模式（没填 Key）里行内公式识别永远不会自己启动。"""
+    import time
+
+    import pdfgen
+    from conftest import make_api
+    from paperdesk.vision import math_local
+
+    calls = []
+    math_local.set_engine(lambda pngs: (calls.append(len(pngs)), [r"$a_{i}$" for _ in pngs])[1])
+    api, _fake = make_api(tmp_path)
+    with api.c:
+        pid = api.import_pdf(pdfgen.build_paper(tmp_path / "p.pdf"))["paper_id"]
+        deadline = time.time() + 10
+        while time.time() < deadline and not any(j["type"] == "inline_math_ai" for j in api.get("/jobs").json()["items"]):
+            # 论文里没有行内公式候选时本来就不会有这个任务：这里只验证“没配 AI 也走到了 start_auto”，所以主动补一个候选再触发
+            with api.ctx.db.session() as conn:
+                row = conn.execute("SELECT ord FROM passages WHERE paper_id = ? ORDER BY ord LIMIT 1", (pid,)).fetchone()
+                conn.execute("UPDATE passages SET math_json = ? WHERE paper_id = ? AND ord = ?",
+                             (json.dumps([{"src": "a i", "tex": None, "page": 1, "bbox": [90, 100, 100, 112], "line": [72, 98, 500, 114]}]), pid, row["ord"]))
+            assert api.post(f"/papers/{pid}/processing").status_code == 200
+            time.sleep(0.3)
+        jobs = [j for j in api.get("/jobs").json()["items"] if j["type"] == "inline_math_ai"]
+        assert jobs, "没配 AI、装了本地公式模型：行内公式识别应该自己启动"
+        assert api.wait_job(jobs[0]["id"])["status"] == "completed" and calls
+
+
+def test_local_math_a_line_that_is_one_bare_formula_counts_as_a_segment():
+    from paperdesk.vision import math_local
+
+    assert math_local.segments(r"\eta(\alpha,0)=\tau_{1}(\alpha),\ \forall\alpha\in[0,1]") == [r"\eta(\alpha,0)=\tau_{1}(\alpha),\ \forall\alpha\in[0,1]"]
+    assert math_local.segments("**Y = {y_0, ..., y_M}**") == ["Y = {y_0, ..., y_M}"]
+    assert math_local.segments("This is an ordinary English sentence with no formula at all.") == []  # 普通句子不是公式
+    assert math_local.segments("Here we have plain words and an equation x=1 inside") == []  # 英文单词太多：不当整行公式

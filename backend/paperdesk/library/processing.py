@@ -68,6 +68,12 @@ def facts_for(app: AppContext, ids: list[str]) -> dict[str, dict]:
     return facts
 
 
+def _local_math_ready(app: AppContext) -> bool:
+    from ..vision import math_local
+
+    return math_local.available()
+
+
 def _vision_ready(cfg: dict) -> bool:
     return bool(cfg.get("has_api_key") and cfg.get("vision_model"))
 
@@ -222,7 +228,9 @@ def _layout_pending(app: AppContext, paper_id: str, fresh: bool = False) -> bool
     if layout_ai.active(app, paper_id):
         return True
     # 只有刚导入的论文才自动做：旧论文打开时不会悄悄花钱划分、再重新解析（要做就用接口，或在设置好以后点“重新解析”）
-    return fresh and not layout_ai.attempted(app, paper_id)
+    # 默认不自动做：用校园网关的 Qwen3-VL-32B / Qwen2-VL-72B 实测，视觉划分在干净的论文上比规则解析更差
+    #（32B 给出等距切片的框，把段落切成碎片；72B 把参考文献页标成图内文字、还会漏词），要做用接口手动触发
+    return layout_ai.AUTO_ON_IMPORT and fresh and not layout_ai.attempted(app, paper_id)
 
 
 def start_auto(app: AppContext, paper_id: str, fresh: bool = False, layout: bool = True) -> dict:
@@ -248,6 +256,14 @@ def start_auto(app: AppContext, paper_id: str, fresh: bool = False, layout: bool
                 started[name] = fn()
             except ApiError:
                 started[name] = None
+    elif _local_math_ready(app):
+        # 没配视觉模型，但装了本地公式模型：行内公式照样能识别（本地跑，不联网、不花钱）
+        from ..vision import inline_math_ai
+
+        try:
+            started["inline_math"] = inline_math_ai.enqueue(app, paper_id)
+        except ApiError:
+            started["inline_math"] = None
     if cfg.get("configured"):
         try:
             started["index"] = embeddings.enqueue_embedding(app, paper_id)

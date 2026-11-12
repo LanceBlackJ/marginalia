@@ -13,9 +13,15 @@ from .parsing.pdf_parser import LIGATURES
 from .util import ApiError, loads
 
 PASSAGE_SQL = """
-SELECT p.ord, p.page, p.kind, p.text, p.x0, p.y0, p.x1, p.y1, p.source, p.bold_json, p.math_json, s.title AS section_title
+SELECT p.ord, p.page, p.kind, p.text, p.x0, p.y0, p.x1, p.y1, p.source, p.bold_json, p.math_json, p.italic_json, s.title AS section_title, s.id AS section_id
 FROM passages p LEFT JOIN sections s ON s.id = p.section_id
 """
+
+
+def _sec_id(row: sqlite3.Row) -> str | None:
+    """所属章节的 id（和 /outline 里目录项的 id 一致）：同名小节（两个 Results）靠它区分，不能只靠标题。"""
+    v = row["section_id"] if "section_id" in row.keys() else None
+    return None if v is None else str(v)
 
 
 def passage_dict(row: sqlite3.Row, *, with_text: bool = True) -> dict:
@@ -24,23 +30,27 @@ def passage_dict(row: sqlite3.Row, *, with_text: bool = True) -> dict:
         "page": row["page"],
         "kind": row["kind"],
         "section_title": row["section_title"],
+        "section_id": _sec_id(row),
         "source": row["source"] if "source" in row.keys() else "text",
         "bbox": [row["x0"], row["y0"], row["x1"], row["y1"]],
     }
     if with_text:
         d["text"] = row["text"]
         d["bold"] = _bold_of(row)
+        d["italic"] = _bold_of(row, "italic_json")
         d["math"] = _math_of(row)
     return d
 
 
 def _math_of(row: sqlite3.Row) -> list[dict]:
     raw = row["math_json"] if "math_json" in row.keys() else None
-    return loads(raw, []) if raw else []
+    from .parsing.inline_math import flatten_runs
+
+    return flatten_runs(loads(raw, [])) if raw else []
 
 
-def _bold_of(row: sqlite3.Row) -> list[str]:
-    raw = row["bold_json"] if "bold_json" in row.keys() else None
+def _bold_of(row: sqlite3.Row, col: str = "bold_json") -> list[str]:
+    raw = row[col] if col in row.keys() else None
     return loads(raw, []) if raw else []
 
 
@@ -84,8 +94,8 @@ def full_text(app: AppContext, paper_id: str) -> dict:
         _ensure_paper(conn, paper_id)
         rows = conn.execute(PASSAGE_SQL + " WHERE p.paper_id = ? ORDER BY p.ord", (paper_id,)).fetchall()
     items = [
-        {"ord": r["ord"], "page": r["page"], "kind": r["kind"], "section_title": r["section_title"], "source": r["source"], "text": r["text"],
-         "bbox": [r["x0"], r["y0"], r["x1"], r["y1"]], "bold": _bold_of(r), "math": _math_of(r)}
+        {"ord": r["ord"], "page": r["page"], "kind": r["kind"], "section_title": r["section_title"], "section_id": _sec_id(r), "source": r["source"], "text": r["text"],
+         "bbox": [r["x0"], r["y0"], r["x1"], r["y1"]], "bold": _bold_of(r), "italic": _bold_of(r, "italic_json"), "math": _math_of(r)}
         for r in rows
     ]
     return {"count": len(items), "chars": sum(len(i["text"]) for i in items), "items": items, "revision": revision(app, paper_id)}

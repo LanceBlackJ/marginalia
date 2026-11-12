@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { AlertCircle, Bookmark as BookmarkIcon, ChevronDown, ChevronRight, Compass, Languages, StickyNote } from 'lucide-react'
 import { toast, useContextMenu, type MenuItem } from '@/components/ui'
 import { Button, Dialog, EmptyState, ProgressBar, Skeleton } from '@/components/ui'
@@ -25,11 +25,11 @@ import { useTextStore, type EquationInfo } from './textStore'
 import { usePrefs } from '@/stores/prefsStore'
 import { muteSync, syncMuted } from '@/features/reader/splitSync'
 import { buildRegions, regionForOrd } from '@/features/reader/regions'
-import { applyBold, applyMath, applyTerms, termRegExp, blockText, boldRanges, mathRanges, buildDoc, findPassageByBBox, pageAtLine, segmentsFor, type AnnMark, type Block, type Seg, type TextView } from './textModel'
+import { applyBold, applyItalic, applyMath, applyTerms, termRegExp, blockText, boldRanges, mathRanges, buildDoc, findPassageByBBox, pageAtLine, secKey, segmentsFor, type AnnMark, type Block, type Seg, type TextView } from './textModel'
 import { buildVocab, cleanDisplay, parseCaption, parseCaptionZh, splitCitations, splitFirstSentence, splitFirstSentenceZh, splitTag, stripBroken, type Vocab } from './textClean'
 import { FrontBlock } from './FrontBlock'
 import { TocRail, type TocTable } from './TocRail'
-import { activeSectionAt } from '@/features/reader/outlinePos'
+import { activeSectionOnScroll } from '@/features/reader/outlinePos'
 import { onCtrlWheel } from '@/features/reader/ctrlWheel'
 import { FigureDataBlock } from './FigureDataBlock'
 import { FigLabelMenu } from './FigLabelMenu'
@@ -40,6 +40,7 @@ import { ZoomImage } from '@/components/ZoomImage'
 import { LinkAnchor, Linkified } from './Linkified'
 import { splitLinks } from './links'
 import { labelKey, splitFigRefs } from './figRefs'
+import { eqKey, splitEqRefs } from './eqRefs'
 import { useFigViewer, type FigTarget } from './figViewerStore'
 import { useTextPrefs } from './textPrefs'
 import { readTextSelection } from './textSelection'
@@ -115,22 +116,78 @@ function targetKeys(figs: Map<number, FigureRegion>, tables: Map<number, TableAn
 function FigText({ text, render }: { text: string; render: (t: string) => ReactElement[] | string }) {
   const figs = useTextStore((s) => s.figuresByCaption)
   const tables = useTextStore((s) => s.tablesByCaption)
+  const equations = useTextStore((s) => s.equationsByOrd)
   const keys = targetKeys(figs, tables)
-  if (keys.size === 0) return <>{render(text)}</>
-  const pieces = splitFigRefs(text, (k) => keys.has(k))
-  if (pieces.length === 1 && !('key' in pieces[0])) return <>{render(text)}</>
+  const eqs = equationTargets(equations)
+  if (keys.size === 0 && eqs.size === 0) return <>{render(text)}</>
+  const pieces = keys.size > 0 ? splitFigRefs(text, (k) => keys.has(k)) : [{ text }]
+  if (pieces.length === 1 && !('key' in pieces[0]) && eqs.size === 0) return <>{render(text)}</>
   return (
     <>
       {pieces.map((p, i) =>
         'key' in p ? (
-          <FigLabelMenu key={i} className="pd-tp-figref" target={{ kind: p.key.includes('table') ? 'table' : 'fig', key: p.key }}>
+          <button
+            key={i}
+            type="button"
+            className="pd-tp-figref"
+            title="点击查看"
+            onClick={() => useFigViewer.getState().open({ kind: p.key.includes('table') ? 'table' : 'fig', key: p.key })}
+          >
             {p.text}
-          </FigLabelMenu>
+          </button>
+        ) : (
+          <EqText key={i} text={p.text} eqs={eqs} render={render} />
+        )
+      )}
+    </>
+  )
+}
+
+/** 论文里有编号的公式：规范化后的编号 → 公式（id 与它所在段落的序号）。按 Map 的身份缓存。 */
+interface EqTarget {
+  id: number
+  ord: number
+}
+const eqCache = new WeakMap<object, Map<string, EqTarget>>()
+function equationTargets(eqs: Map<number, { id: number; number: string | null }>): Map<string, EqTarget> {
+  let hit = eqCache.get(eqs)
+  if (hit) return hit
+  hit = new Map()
+  for (const [ord, e] of eqs) {
+    const k = eqKey(e.number)
+    if (k && !hit.has(k)) hit.set(k, { id: e.id, ord })
+  }
+  eqCache.set(eqs, hit)
+  return hit
+}
+
+/** 一段普通文字里的“Eq. (3)”“constraint (5)”：论文里真有这个编号的公式就变成可点击的（看公式 / 跳到公式）。 */
+function EqText({ text, eqs, render }: { text: string; eqs: Map<string, EqTarget>; render: (t: string) => ReactElement[] | string }) {
+  if (eqs.size === 0) return <span>{render(text)}</span>
+  const pieces = splitEqRefs(text, (k) => eqs.has(k))
+  if (pieces.length === 1 && !('key' in pieces[0])) return <span>{render(text)}</span>
+  return (
+    <>
+      {pieces.map((p, i) =>
+        'key' in p ? (
+          <EqRefMenu key={i} target={eqs.get(p.key)!}>
+            {p.text}
+          </EqRefMenu>
         ) : (
           <span key={i}>{render(p.text)}</span>
         )
       )}
     </>
+  )
+}
+
+/** 点正文里的公式引用：直接打开这个公式（PDF 里的矢量图，放大不糊）。 */
+function EqRefMenu({ target, children }: { target: EqTarget; children: ReactNode }) {
+  const openEquation = useFigViewer((s) => s.openEquation)
+  return (
+    <button type="button" className="pd-tp-figref" title="点击查看这个公式" onClick={() => openEquation(target.id)}>
+      {children}
+    </button>
   )
 }
 
@@ -143,6 +200,8 @@ function FigViewer({ paperId }: { paperId: string }) {
   const tables = useTextStore((s) => s.tablesByCaption)
   const fig = target?.kind === 'fig' ? ([...figs.values()].find((f) => f.kind === 'figure' && labelKey(f.label) === target.key) ?? null) : null
   const table = target?.kind === 'table' ? ([...tables.values()].find((t) => t.kind !== 'figure_data' && labelKey(t.label) === target.key) ?? null) : null
+  const equationId = useFigViewer((s) => s.equationId)
+  const eqImg = useBlobUrl(equationId === null ? null : () => textApi.equationVector(paperId, equationId), [paperId, equationId])
   const asImage = fig !== null || (table !== null && table.status !== 'ready')
   const img = useBlobUrl(
     !target ? null : fig ? () => textApi.regionVector(paperId, fig.page, fig.bbox, 220) : table && table.status !== 'ready' ? () => textApi.tableVector(paperId, table.caption_ord, 200) : null,
@@ -158,6 +217,7 @@ function FigViewer({ paperId }: { paperId: string }) {
         </Dialog>
       )}
       <Lightbox open={Boolean(target) && asImage} onClose={close} src={img.url} alt={fig?.label ?? table?.label ?? ''} />
+      <Lightbox open={equationId !== null} onClose={close} src={eqImg.url} alt="公式" />
       {table && table.status === 'ready' && (
         <Dialog open onClose={close} title={table.label} width={980}>
           <TableBlock paperId={paperId} t={table} running={false} runError={null} onRetry={() => undefined} />
@@ -229,12 +289,19 @@ function plainPieces(text: string, vocab: Vocab | null, key: number, refs: ParaR
 function renderSegs(segs: Seg[], vocab: Vocab | null, refs: ParaRefs | null = null): ReactElement[] {
   return segs.map((s, i) => {
     const el = renderSeg(s, i, vocab, refs)
-    return s.bold ? (
-      <strong key={i} className="pd-tp-b">
+    const styled = s.italic ? (
+      <em key={i} className="pd-tp-i">
         {el}
-      </strong>
+      </em>
     ) : (
       el
+    )
+    return s.bold ? (
+      <strong key={i} className="pd-tp-b">
+        {styled}
+      </strong>
+    ) : (
+      styled
     )
   })
 }
@@ -643,8 +710,9 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
   const capTarget: FigTarget | null = cap?.label && capKey ? { kind: fig?.kind === 'figure' ? 'fig' : 'table', key: capKey } : null
   // 原文自带加粗时按原文来；没有加粗的段落才可以选“首句加粗”
   const bold = useMemo(() => boldRanges(text, parts.flatMap((p) => p.bold ?? [])), [text, parts])
+  const ital = useMemo(() => boldRanges(text, parts.flatMap((p) => p.italic ?? [])), [text, parts])
   const maths = useMemo(() => mathRanges(text, parts.flatMap((p) => p.math ?? [])), [text, parts])
-  const first = vocab && boldFirst && item.kind === 'paragraph' && plain && bold.length === 0 && maths.length === 0 ? splitFirstSentence(text) : null
+  const first = vocab && boldFirst && item.kind === 'paragraph' && plain && bold.length === 0 && ital.length === 0 && maths.length === 0 ? splitFirstSentence(text) : null
   const cls = [
     'pd-tp',
     isCaption ? 'pd-tp--caption' : '',
@@ -727,7 +795,7 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
                 {renderSegs([{ text: first.rest }], vocab, refs)}
               </p>
             ) : (
-              <p className="pd-tp-p">{renderSegs(applyTerms(applyMath(applyBold(segmentsFor(text, marks, query), bold), maths), glossTerms ?? []), vocab, refs)}</p>
+              <p className="pd-tp-p">{renderSegs(applyTerms(applyMath(applyItalic(applyBold(segmentsFor(text, marks, query), bold), ital), maths), glossTerms ?? []), vocab, refs)}</p>
             ))}
           {showTr &&
             trText !== undefined &&
@@ -850,6 +918,7 @@ export function TextReader() {
   const containerRef = useRef<HTMLDivElement>(null)
   const handledJump = useRef(0)
   const guardUntil = useRef(0)
+  const jumpSec = useRef<string | null>(null) // 刚从目录点过来的章节：滚到最底部时，它的标题还看得见就优先高亮它
   const rafId = useRef(0)
 
   const raw = prefs.raw
@@ -905,10 +974,14 @@ export function TextReader() {
     const j = useReaderStore.getState().jump
     if (!el || !j) return true
     if (j.from === 'text') return true // 这次跳转就是文字栏自己发起的（并排视图）：不再滚动自己
+    jumpSec.current = j.ord === undefined || j.ord === null ? (j.sectionKey ?? j.section ?? null) : null
     if (j.from === 'pdf') muteSync()
     const ord = j.ord ?? (j.bbox || j.flash ? findPassageByBBox(items, j.page, j.bbox) : null)
     let target: HTMLElement | null = ord !== null && ord !== undefined ? el.querySelector<HTMLElement>(`[data-ord="${ord}"], [data-ords~="${ord}"]`) : null
-    if (!target && j.section) target = Array.from(el.querySelectorAll<HTMLElement>('[data-sec]')).find((h) => h.dataset.sec === j.section) ?? null
+    // 先按章节键（同名小节靠它区分），旧数据没有键时再按标题
+    const secEls = j.sectionKey || j.section ? Array.from(el.querySelectorAll<HTMLElement>('[data-sec]')) : []
+    if (!target && j.sectionKey) target = secEls.find((h) => h.dataset.secKey === j.sectionKey) ?? null
+    if (!target && j.section) target = secEls.find((h) => h.dataset.sec === j.section) ?? null
     if (!target && ord !== null && ord !== undefined && doc.references.some((r) => r.ord === ord)) {
       setRefsOpen(true) // 引用的是参考文献：先展开再定位
       return false
@@ -970,6 +1043,7 @@ export function TextReader() {
       if (!el) return
       const top = el.getBoundingClientRect().top
       if (performance.now() >= guardUntil.current) {
+        jumpSec.current = null // 用户自己在滚：不再偏向刚点过的章节
         const tops = Array.from(el.querySelectorAll<HTMLElement>('[data-page]')).map((p) => ({ page: Number(p.dataset.page), top: p.getBoundingClientRect().top - top }))
         if (tops.length) {
           const st0 = useReaderStore.getState()
@@ -981,8 +1055,10 @@ export function TextReader() {
         }
       }
       // 当前小节：按正文里标题的实际位置算（阅读线上方最近的标题），左边目录据此高亮——小节在大章节标题之后，所以停在小节里就是小节
-      const secs = Array.from(el.querySelectorAll<HTMLElement>('[data-sec]')).map((h) => ({ title: h.dataset.sec ?? '', top: h.getBoundingClientRect().top - top }))
-      useReaderStore.getState().setActiveSectionTitle(activeSectionAt(secs, READ_LINE + 40))
+      const secs = Array.from(el.querySelectorAll<HTMLElement>('[data-sec]')).map((h) => ({ title: h.dataset.secKey ?? h.dataset.sec ?? '', top: h.getBoundingClientRect().top - top }))
+      // 滚到最底部时，最后一节（参考文献等）的标题不可能再顶到阅读线上：直接算最后一节，不然点“参考文献”高亮会停在上一节
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 4 && el.scrollTop > 0
+      useReaderStore.getState().setActiveSectionTitle(activeSectionOnScroll(secs, READ_LINE + 40, atBottom, jumpSec.current, el.clientHeight))
       // 阅读位置记忆：记下阅读线上方最近的段落（重开论文回到这里）
       if (performance.now() >= guardUntil.current) {
         const line = top + READ_LINE
@@ -1119,6 +1195,15 @@ export function TextReader() {
   const showBanner = translating || needTr || eqRunning || eqPending || !!eqError || tblRunning || tblPending || !!tblError
   const showToc = prefs.toc && width >= TOC_MIN_WIDTH && tocTables.length > 0
   const abstractText = doc.abstract
+  // 目录里“首部信息 / Abstract / References”这几节在正文里没有标题节点：给它们各打一个同名的标记，
+  // 目录高亮（阅读线上方最近的标记）和点目录跳转才对得上
+  const frontItem = doc.front ? items.find((i) => doc.front?.ords.has(i.ord)) : undefined
+  const frontSec = frontItem?.section_title ?? null
+  const abstractSec = abstractText[0]?.section_title ?? null
+  const refsSec = doc.references[0]?.section_title ?? null
+  const frontKey = secKey(frontItem?.section_id)
+  const abstractKey = secKey(abstractText[0]?.section_id)
+  const refsKey = secKey(doc.references[0]?.section_id)
 
   const renderPassage = (parts: TextItem[], pageNo: number | null): ReactElement => {
     const it = parts[0]
@@ -1161,7 +1246,7 @@ export function TextReader() {
     if (b.type === 'heading') {
       const H = b.level <= 1 ? 'h2' : b.level === 2 ? 'h3' : 'h4'
       return (
-        <H key={b.key} className={`pd-tp-h pd-tp-h${Math.min(b.level, 3)}`} data-sec={b.title} data-page={b.page}>
+        <H key={b.key} className={`pd-tp-h pd-tp-h${Math.min(b.level, 3)}`} data-sec={b.title} data-sec-key={b.secKey} data-page={b.page}>
           {prefs.pages && (
             <span className="pd-tp-pg" aria-hidden="true">
               {b.page}
@@ -1284,9 +1369,10 @@ export function TextReader() {
               </label>
             )}
           </div>
+          {doc.front && frontSec && <span data-sec={frontSec} data-sec-key={frontKey} aria-hidden="true" style={{ display: 'block', height: 0 }} />}
           {doc.front && <FrontBlock title={paperTitle} front={doc.front} titleZh={headingTr[paperTitle]} view={view} />}
           {abstractText.length > 0 && (
-            <section className="pd-abstract" data-page={abstractText[0].page}>
+            <section className="pd-abstract" data-page={abstractText[0].page} data-sec={abstractSec ?? undefined} data-sec-key={abstractKey}>
               <div className="pd-abstract-label">摘要</div>
               {abstractText.map((it) => renderPassage([it], null))}
             </section>
@@ -1297,7 +1383,7 @@ export function TextReader() {
             </div>
           ))}
           {doc.references.length > 0 && (
-            <section className="pd-tpage--refs" data-page={doc.references[0].page}>
+            <section className="pd-tpage--refs" data-page={doc.references[0].page} data-sec={refsSec ?? undefined} data-sec-key={refsKey}>
               <button type="button" className="pd-tp-refhead" onClick={() => setRefsOpen((v) => !v)} aria-expanded={refsOpen}>
                 {refsOpen ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                 参考文献 {doc.references.length}

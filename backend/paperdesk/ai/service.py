@@ -14,6 +14,7 @@ from typing import AsyncIterator
 from ..context import AppContext
 from ..materials import grants as supp_grants
 from ..materials import retrieval as supp_retrieval
+from ..parsing import inline_math
 from ..util import ApiError, utcnow
 from . import attachments as attach_mod, cards, citeguard, embeddings, evidence, prompts, retrieval, textcache, usage as usage_log, websearch
 from .providers import LLMError, LLMProvider, Usage, build_provider, estimate_messages_tokens, estimate_tokens
@@ -117,7 +118,7 @@ class AIService:
 
     # ---- 翻译 ----
     async def translate_events(self, paper_id: str | None, text: str, page: int | None, passage_ord: int | None,
-                               force: bool = False, context_title: str | None = None) -> AsyncIterator[Event]:
+                               force: bool = False, context_title: str | None = None, math: list[dict] | None = None) -> AsyncIterator[Event]:
         try:
             # 论文在文献库里：照常（带缓存、按位置找章节）；不在（发现页里的摘要）：只翻译这段文字，不缓存、不关联论文
             paper = self._paper(paper_id) if paper_id else {"title": (context_title or "").strip()}
@@ -155,7 +156,13 @@ class AIService:
                 section_title = retrieval.reader.get_passage(self.app, paper_id, passage_ord)["section_title"]
             elif matches:
                 section_title = matches[0]["section_title"]
-            masked, cmap = citeguard.mask(text)  # 文献引用不翻译：先换成占位符，译完再放回去
+            if math is None and paper_id and passage_ord is not None:  # 前端没带公式列表：用这一段解析时还原出的行内公式
+                with self.app.db.session() as conn:
+                    row = conn.execute("SELECT math_json FROM passages WHERE paper_id = ? AND ord = ?", (paper_id, passage_ord)).fetchone()
+                math = inline_math.flatten_runs(json.loads(row["math_json"])) if row and row["math_json"] else None
+            fslots: set[int] = set()
+            # 文献引用、行内公式不翻译：先换成占位符，译完再放回去（公式放回的是原来的文字，前端靠它把译文里的公式也渲染出来）
+            masked, cmap = citeguard.mask(text, math, None, fslots)
             messages = prompts.build_translate_messages(masked, section_title, paper["title"], cites=bool(cmap))
             usage_log.record_request(
                 self.app, task_type=TaskType.TRANSLATE.value, model=choice.model, paper_id=paper_id, passage_ords=[],
@@ -175,9 +182,11 @@ class AIService:
             tail = restorer.flush() if cmap else ""
             if tail:
                 yield "delta", {"text": tail}
-            out = citeguard.restore(acc["text"].strip(), cmap)
+            used: set[int] = set()
+            out = citeguard.restore(acc["text"].strip(), cmap, used)
             if not out:
                 raise LLMError("provider_error", "模型没有返回译文，请重试。")
+            out = citeguard.append_missing(out, cmap, used, fslots)  # 模型丢了的公式补在末尾，不让公式悄悄消失
             u = self._log_usage(TaskType.TRANSLATE, choice.model, acc["usage"], messages, out, paper_id)
             if paper_id:
                 with self.app.db.session() as conn:

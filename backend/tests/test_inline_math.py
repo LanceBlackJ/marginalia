@@ -182,3 +182,84 @@ def test_sum_with_only_an_upper_limit_is_not_given_a_wrong_formula():
         sp("q", 44, "CMMI10", italic=True),
     ]
     assert tex_of(spans) is None
+
+
+# ---------------------------------------------------------------- 正文不是 CM 字体的页面：CMR / CMBX 片段是公式的一部分
+TIMES = "NimbusRomNo9L-Regu"
+CMMI = "CMMI10"
+
+
+def _times_page(extra=()):
+    return [sp("the learned results show that both positive", 0, TIMES), *extra]
+
+
+def _block_of(spans):
+    from paperdesk.parsing import layout
+
+    ln = layout._line_from(spans)
+    return layout.Block(page=1, x0=0, y0=0, x1=200, y1=10, text=ln.text, size=BODY, bold=0, nlines=1, lines=[ln])
+
+
+def test_non_cm_body_is_decided_by_the_font_with_most_letters():
+    assert im.non_cm_body(_times_page()) is True
+    assert im.non_cm_body([sp("the learned results show that both positive", 0, "CMR10")]) is False  # 默认 LaTeX：CMR 就是正文，分不出来
+    assert im.non_cm_body([]) is False and im.non_cm_body(None) is False
+
+
+def test_roman_and_bold_computer_modern_glue_joins_one_formula_on_a_times_page():
+    """“x_l = f(y)”：粗体向量 x y、括号、等号是 CMBX / CMR，变量是 CMMI；以前在括号处被切成几簇，左边的 x 掉在簇外。"""
+    from paperdesk.parsing.pdf_parser import math_runs
+
+    spans = [sp("have", 0, TIMES), sp("x", 30, "CMBX10"), sp("l", 35, "CMMI7", size=5.6, base=BASE + 2.3, italic=True),
+             sp("=", 42, "CMR10"), sp("f", 50, CMMI, italic=True), sp("(", 56, "CMR10"), sp("y", 60, "CMBX10"), sp(")", 66, "CMR10"),
+             sp("where", 75, TIMES)]
+    page = _times_page(spans)
+    assert len(im.line_clusters(spans, BODY, BASE, True)) == 1
+    assert "x" not in {s.text for c in im.line_clusters(spans, BODY, BASE, False) for s in c}  # 以前粗体的 x 落在簇外
+    runs = math_runs(_block_of(spans), page)
+    assert len(runs) == 1 and runs[0]["tex"].replace(" ", "") == r"\mathbf{x}_{l}=f(\mathbf{y})", runs
+    assert runs[0]["src"].replace(" ", "").startswith("xl=f(y)"), runs
+
+
+def test_function_names_in_roman_are_written_as_commands():
+    spans = [sp("y", 10, CMMI, italic=True), sp("= max(", 18, "CMR10"), sp("x", 40, CMMI, italic=True), sp(")", 46, "CMR10")]
+    cl = im.line_clusters(spans, BODY, BASE, True)
+    assert len(cl) == 1 and im.build_tex(cl[0], BODY, BASE).replace(" ", "") == r"y=\max(x)"
+
+
+def test_bold_prose_words_are_not_formula_glue():
+    spans = [sp("Figure", 10, "CMBX10"), sp("x", 40, CMMI, italic=True)]
+    assert [[s.text for s in c] for c in im.line_clusters(spans, BODY, BASE, True)] == [["x"]]
+
+
+def test_digits_and_brackets_alone_are_not_a_formula_candidate_on_a_times_page():
+    from paperdesk.parsing.pdf_parser import math_runs
+
+    spans = [sp("range of", 0, TIMES), sp("[256", 30, "CMR10"), sp(",", 42, CMMI, italic=True), sp("512]", 46, "CMR10")]
+    assert math_runs(_block_of(spans), _times_page(spans)) == []
+
+
+def test_a_cluster_that_cannot_be_read_whole_keeps_its_small_pieces_as_a_fallback():
+    """整簇里夹着不认识的字符 → 整簇记成候选（等本地 / 视觉模型整条识别），认得全的小簇放在 parts 里：没识别出来时正文仍显示它们。"""
+    from paperdesk.parsing.pdf_parser import math_runs
+
+    spans = [sp("so", 0, TIMES), sp("x", 20, CMMI, italic=True), sp("= §", 28, "CMR10"), sp("y", 44, CMMI, italic=True), sp("end", 60, TIMES)]
+    runs = math_runs(_block_of(spans), _times_page(spans))
+    assert len(runs) == 1 and runs[0]["tex"] is None and runs[0]["src"].replace(" ", "") == "x=§y", runs
+    assert [p["tex"] for p in runs[0]["parts"]] == ["x", "y"]
+    assert [r["src"] for r in im.flatten_runs(runs)] == ["x", "y"]  # 读取方看到的是小簇
+    done = [{**runs[0], "tex": "x = y"}]
+    assert im.flatten_runs(done) == done  # 整条识别出来后用整条
+
+
+def test_gaps_between_side_by_side_quantities_are_kept_but_not_after_operators_or_sum_limits():
+    zero = [sp("[", 10, "CMR10"), sp("0", 14, "CMR10"), sp("0", 24, "CMR10"), sp("f", 34, CMMI, italic=True)]
+    assert im.build_tex(zero, BODY, BASE) == r"[0\ 0\ f"
+    tight = [sp("a", 10, CMMI, italic=True), sp("b", 15, CMMI, italic=True)]
+    assert im.build_tex(tight, BODY, BASE) == "ab"
+
+
+def test_increment_sign_is_delta():
+    spans = [sp("∆", 10, "CMR10"), sp("x", 14.5, CMMI, italic=True)]
+    cl = im.line_clusters(spans, BODY, BASE, True)
+    assert len(cl) == 1 and im.build_tex(cl[0], BODY, BASE).replace(" ", "") == r"\Deltax"

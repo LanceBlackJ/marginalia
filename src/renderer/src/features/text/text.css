@@ -600,6 +600,11 @@
   font-weight: 700;
 }
 
+/* 原文里斜体的文字 */
+.pd-tp-p em.pd-tp-i {
+  font-style: italic;
+}
+
 /* 正文里可点击的图、表引用 */
 .pd-tp-figref {
   padding: 0;

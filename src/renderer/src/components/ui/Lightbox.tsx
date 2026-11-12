@@ -6,12 +6,16 @@ import './lightbox.css'
 
 export const LB_MIN = 1
 export const LB_MAX = 8
-/** 矢量图默认显示的宽度：占页面（视口）水平宽度的比例 */
+/** 矢量图可以缩到默认大小的多少倍（位图默认就是最小，不能再缩） */
+export const VECTOR_MIN = 0.15
+/** 矢量图默认宽度的上限：占页面（视口）水平宽度的比例；高图还要同时塞进窗口高度，整张图一眼看全 */
 export const VECTOR_FIT = 0.99
+/** 矢量图默认高度的上限：占窗口高度的比例（上下留一点边） */
+export const VECTOR_FIT_H = 0.96
 
-/** 缩放倍数限制在 [LB_MIN, LB_MAX]。 */
-export function clampScale(s: number): number {
-  return Math.min(LB_MAX, Math.max(LB_MIN, s))
+/** 缩放倍数限制在 [min, LB_MAX]（位图 min = LB_MIN，矢量图 min = VECTOR_MIN）。 */
+export function clampScale(s: number, min: number = LB_MIN): number {
+  return Math.min(LB_MAX, Math.max(min, s))
 }
 
 /**
@@ -25,7 +29,7 @@ export function zoomAround(
   d: { x: number; y: number },
   home: { x: number; y: number } = { x: 0, y: 0 }
 ): { x: number; y: number } {
-  if (to <= LB_MIN) return home
+  if (to === 1) return home
   const k = to / from
   return { x: d.x - (d.x - t.x) * k, y: d.y - (d.y - t.y) * k }
 }
@@ -82,9 +86,14 @@ export function Lightbox({ open, onClose, src, alt, loadingLarge = false }: Ligh
   const [vector, setVector] = useState(false)
   const [nat, setNat] = useState<{ w: number; h: number } | null>(null)
   const [stage, setStage] = useState({ w: 0, h: 0 })
-  const base = vector && nat && stage.w > 0 && nat.w > 0 ? { w: stage.w * VECTOR_FIT, h: (stage.w * VECTOR_FIT * nat.h) / nat.w } : null
-  // 默认位置：图比窗口高时顶边对齐窗口（先看到图的上部，往下拖动再看），否则居中
-  const home = base ? { x: 0, y: Math.max(0, (base.h - stage.h) / 2) } : { x: 0, y: 0 }
+  // 默认大小：宽度最多占窗口宽的 0.99、高度最多占窗口高的 0.96，整张图在窗口里看全（高图按高度缩，宽图按宽度）；再用滚轮放大看细节、缩小看全貌
+  const fit =
+    vector && nat && stage.w > 0 && stage.h > 0 && nat.w > 0 && nat.h > 0
+      ? Math.min((stage.w * VECTOR_FIT) / nat.w, (stage.h * VECTOR_FIT_H) / nat.h)
+      : 0
+  const base = fit > 0 && nat ? { w: nat.w * fit, h: nat.h * fit } : null
+  const minScale = vector ? VECTOR_MIN : LB_MIN
+  const home = { x: 0, y: 0 }
   const homeRef = useRef(home)
   homeRef.current = home
   const moved = useRef(false)
@@ -111,13 +120,13 @@ export function Lightbox({ open, onClose, src, alt, loadingLarge = false }: Ligh
   const zoomTo = useCallback(
     (next: number, cx?: number, cy?: number) => {
       const from = state.current.scale
-      const to = clampScale(next)
+      const to = clampScale(next, vector ? VECTOR_MIN : LB_MIN)
       if (to === from) return
       moved.current = true
       setTr(zoomAround(state.current.tr, from, to, offsetOf(cx, cy), homeRef.current))
       setScale(to)
     },
-    [offsetOf]
+    [offsetOf, vector]
   )
 
   // 是不是矢量图：看这个 blob 的类型（本地对象地址，读取不联网）
@@ -209,7 +218,7 @@ export function Lightbox({ open, onClose, src, alt, loadingLarge = false }: Ligh
 
   if (!open) return null
 
-  const canPan = scale > 1 || Boolean(base) // 矢量图默认就比窗口大（宽度 99%，高度可能超出），放大前也要能拖
+  const canPan = scale !== 1 // 放大后拖动平移；缩小到比窗口小时也可以拖到想放的位置
   const onPointerDown = (e: ReactPointerEvent<HTMLImageElement>): void => {
     if (!canPan) return
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -257,7 +266,7 @@ export function Lightbox({ open, onClose, src, alt, loadingLarge = false }: Ligh
                     width: base.w * scale,
                     height: base.h * scale,
                     transform: `translate(calc(-50% + ${pos.x}px), calc(-50% + ${pos.y}px))`,
-                    cursor: drag.current ? 'grabbing' : 'grab'
+                    cursor: scale === 1 ? 'zoom-in' : drag.current ? 'grabbing' : 'grab'
                   }
                 : { transform: `translate(${tr.x}px, ${tr.y}px) scale(${scale})`, cursor: scale > 1 ? (drag.current ? 'grabbing' : 'grab') : 'zoom-in' }
             }
@@ -265,7 +274,7 @@ export function Lightbox({ open, onClose, src, alt, loadingLarge = false }: Ligh
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp}
-            onDoubleClick={(e) => (scale > 1 ? reset() : zoomTo(2.5, e.clientX, e.clientY))}
+            onDoubleClick={(e) => (scale !== 1 ? reset() : zoomTo(2.5, e.clientX, e.clientY))}
           />
         ) : (
           <div className="pd-lb-wait">
@@ -277,7 +286,7 @@ export function Lightbox({ open, onClose, src, alt, loadingLarge = false }: Ligh
         <X size={18} />
       </button>
       <div className="pd-lb-bar">
-        <button type="button" className="pd-lb-btn" onClick={() => zoomTo(scale / 1.25)} disabled={scale <= LB_MIN} aria-label="缩小" title="缩小">
+        <button type="button" className="pd-lb-btn" onClick={() => zoomTo(scale / 1.25)} disabled={scale <= minScale} aria-label="缩小" title="缩小">
           <Minus size={16} />
         </button>
         <span className="pd-lb-pct" aria-live="polite">
@@ -289,7 +298,7 @@ export function Lightbox({ open, onClose, src, alt, loadingLarge = false }: Ligh
         <button type="button" className="pd-lb-btn" onClick={reset} disabled={scale === 1 && pos.x === home.x && pos.y === home.y} aria-label="适应窗口" title="适应窗口">
           <Maximize size={16} />
         </button>
-        <span className="pd-lb-hint">{loadingLarge ? '正在加载清晰版本…' : base ? '矢量图，放大不糊；滚轮缩放，双击放大，拖动平移' : '滚轮缩放，双击放大，拖动平移'}</span>
+        <span className="pd-lb-hint">{loadingLarge ? '正在加载清晰版本…' : base ? '矢量图，放大不糊；滚轮放大缩小，双击放大，拖动平移' : '滚轮缩放，双击放大，拖动平移'}</span>
       </div>
     </div>,
     document.body

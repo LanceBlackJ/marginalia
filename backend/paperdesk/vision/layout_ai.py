@@ -12,6 +12,10 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
+
+AUTO_ON_IMPORT = False  # 导入新论文时是否自动做视觉划分；换成更会定位的视觉模型并验证过再打开
 
 from ..ai import usage as usage_log
 from ..ai.providers import LLMError, image_part
@@ -128,8 +132,21 @@ def parse_reply(text: str) -> list[dict]:
     try:
         data = extract_json(text)
     except ValueError:
-        return []
+        data = _salvage(text)
+        if not data:
+            return []
     return layout_hints.normalize_regions(data)
+
+
+_REGION_OBJ = re.compile(r'\{\s*"role"\s*:\s*"([a-z_]+)"\s*,\s*"box"\s*:\s*\[\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\]\s*\}')
+
+
+def _salvage(text: str) -> list[dict]:
+    """回答被截断（页面很满、区域很多）时，把已经写完整的区域捞出来；最后一个写到一半的丢掉。"""
+    out = []
+    for m in _REGION_OBJ.finditer(text or ""):
+        out.append({"role": m.group(1), "box": [float(m.group(i)) for i in range(2, 6)]})
+    return out
 
 
 async def _ask_page(service: AIService, provider, model: str, png: bytes, page: int, paper_id: str, app: AppContext) -> list[dict] | None:
@@ -145,13 +162,16 @@ async def _ask_page(service: AIService, provider, model: str, png: bytes, page: 
                 "模型只给出区域框，文字仍取自 PDF 文字层，对不上的页不采用",
     )
     try:
-        res = await provider.complete(model, messages, temperature=0, max_tokens=3000)
+        res = await provider.complete(model, messages, temperature=0, max_tokens=6000)
     except LLMError as err:
         if err.code in ("auth_failed", "no_api_key", "not_configured"):
             raise ApiError(err.code, err.message) from err
+        logging.getLogger(__name__).warning("第 %s 页版面划分请求失败：%s %s", page, err.code, err.message)
         return None
     service._log_usage(TaskType.VISION, model, res.usage, messages, res.text, paper_id)
     regions = parse_reply(res.text)
+    if not regions:
+        logging.getLogger(__name__).warning("第 %s 页版面划分回答无法解析（%d 字）：%s", page, len(res.text or ""), (res.text or "")[:300].replace("\n", " "))
     return regions or None
 
 

@@ -8,12 +8,15 @@
 """
 from __future__ import annotations
 
+import json
+
 import hashlib
 import re
 
 from .. import reader
 from ..context import AppContext
 from ..jobs import JobContext, JobManager
+from ..parsing import inline_math
 from ..util import ApiError, utcnow
 from . import citeguard, prompts
 from . import usage as usage_log
@@ -66,7 +69,7 @@ def skip_reason(text: str, kind: str, center: tuple[float, float] | None, region
 def _eligible(app: AppContext, paper_id: str, with_skipped: bool = False):
     with app.db.session() as conn:
         rows = conn.execute(
-            f"SELECT ord, page, kind, text, x0, y0, x1, y1 FROM passages WHERE paper_id = ? AND kind IN ({','.join('?' * len(TRANSLATE_KINDS))}) ORDER BY ord",
+            f"SELECT ord, page, kind, text, x0, y0, x1, y1, math_json FROM passages WHERE paper_id = ? AND kind IN ({','.join('?' * len(TRANSLATE_KINDS))}) ORDER BY ord",
             (paper_id, *TRANSLATE_KINDS),
         ).fetchall()
         figs = conn.execute("SELECT page, x0, y0, x1, y1 FROM figures WHERE paper_id = ? AND kind = 'figure'", (paper_id,)).fetchall()
@@ -79,7 +82,8 @@ def _eligible(app: AppContext, paper_id: str, with_skipped: bool = False):
         if skip_reason(r["text"], r["kind"], center, by_page.get(r["page"], [])):
             skipped += 1
             continue
-        out.append({"ord": r["ord"], "page": r["page"], "text": r["text"], "digest": _digest(r["text"])})
+        out.append({"ord": r["ord"], "page": r["page"], "text": r["text"], "digest": _digest(r["text"]),
+                    "math": inline_math.flatten_runs(json.loads(r["math_json"])) if r["math_json"] else None})
     return (out, skipped) if with_skipped else out
 
 
@@ -290,22 +294,37 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
     done = failed = 0
     for batch in _batches(todo):
         ctx.check_cancelled()
-        body = "\n\n".join(f"###{i}###\n{p['text']}" for i, p in enumerate(batch, 1))
-        body, cmap = citeguard.mask(body)  # 文献引用不翻译：先换成占位符，译完再放回去
+        # 文献引用、行内公式不翻译：先换成占位符（编号全批唯一），译完再放回去
+        cmap: list[str] = []
+        fslots: set[int] = set()
+        slots_of: dict[int, set[int]] = {}
+        parts: list[str] = []
+        for i, p in enumerate(batch, 1):
+            before = len(cmap)
+            masked, _ = citeguard.mask(p["text"], p.get("math"), cmap, fslots)
+            slots_of[i] = set(range(before + 1, len(cmap) + 1)) & fslots
+            parts.append(f"###{i}###\n{masked}")
+        body = "\n\n".join(parts)
         messages = prompts.build_translate_messages(body, None, title, cites=bool(cmap))
         messages[0] = {"role": "system", "content": messages[0]["content"] + BATCH_NOTE}
         got: dict[int, str] = {}
+        used: set[int] = set()
         try:
-            got = _parse(citeguard.restore(await call(messages), cmap), len(batch))
+            got = _parse(citeguard.restore(await call(messages), cmap, used), len(batch))
         except LLMError as err:
             if not err.retriable and err.code in ("auth_failed", "no_api_key"):
                 raise ApiError(err.code, err.message) from err
         for i, p in enumerate(batch, 1):  # 漏段/串段：缺的单独重译
             out = got.get(i)
-            if not out:
+            if out:
+                out = citeguard.append_missing(out, cmap, used, fslots, slots_of[i])  # 这一段里丢了占位符的公式补在末尾
+            else:
                 try:
-                    one, one_map = citeguard.mask(p["text"])
-                    out = citeguard.restore((await call(prompts.build_translate_messages(one, None, title, cites=bool(one_map)))).strip(), one_map)
+                    one_slots: set[int] = set()
+                    one, one_map = citeguard.mask(p["text"], p.get("math"), None, one_slots)
+                    one_used: set[int] = set()
+                    out = citeguard.restore((await call(prompts.build_translate_messages(one, None, title, cites=bool(one_map)))).strip(), one_map, one_used)
+                    out = citeguard.append_missing(out, one_map, one_used, one_slots)
                 except LLMError:
                     out = ""
             if out:

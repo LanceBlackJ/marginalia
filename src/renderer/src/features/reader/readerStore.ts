@@ -20,6 +20,8 @@ export interface JumpRequest {
   ord?: number | null
   /** 目录点击：要定位到的章节标题（文字阅读器直接滚到这个标题，PDF 阅读器只用页码） */
   section?: string | null
+  /** 目录项的章节键（#id）：同名小节（两个 “Results”）靠它定位到正确的那个 */
+  sectionKey?: string | null
   flash: boolean
   /** 这次跳转由哪一栏发起（并排视图里发起的那一栏不再跟着滚动） */
   from?: 'text' | 'pdf' | null
@@ -129,13 +131,15 @@ interface ReaderState {
   setAppearanceOpen: (v: boolean) => void
   setHelpOpen: (v: boolean) => void
   jumpToPage: (page: number, from?: 'text' | 'pdf' | null) => void
-  jumpToSection: (page: number, title: string) => void
+  jumpToSection: (page: number, title: string, id?: string) => void
   jumpToEvidence: (ev: Pick<Evidence, 'page' | 'bbox'> & { ord?: number | null; from?: 'text' | 'pdf' | null }) => void
   jumpToOrd: (ord: number, known?: Pick<Evidence, 'page' | 'bbox'>) => Promise<void>
   setSelection: (s: SelectionInfo | null) => void
   setContextSelection: (s: SelectionRef | null) => void
   focusComposer: () => void
   currentSectionTitle: () => string | null
+  /** 当前章节的键（#id）：同名小节也能唯一确定 */
+  currentSectionKey: () => string | null
 }
 
 let jumpSeq = 0
@@ -326,9 +330,9 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     set((s) => ({ backStack: p === s.currentPage ? s.backStack : rememberPlace(s, { page: p }), jump: { id: ++jumpSeq, page: p, flash: false, from: from ?? null } })) // 同一页的“跳转”（切换界面保持位置）不算跳走
   },
 
-  jumpToSection: (page, title) => {
+  jumpToSection: (page, title, id) => {
     const p = Math.max(1, Math.min(page, get().numPages || page))
-    set((s) => ({ backStack: rememberPlace(s), jump: { id: ++jumpSeq, page: p, section: title, flash: false } }))
+    set((s) => ({ backStack: rememberPlace(s), jump: { id: ++jumpSeq, page: p, section: title, sectionKey: id ? `#${id}` : null, flash: false } }))
   },
 
   jumpToEvidence: (ev) => {
@@ -371,6 +375,11 @@ export const useReaderStore = create<ReaderState>((set, get) => ({
     const { outline, currentPage, textAnchor, activeSectionTitle } = get()
     const idx = activeOutlineIndex(outline, useTextStore.getState().items, textAnchor, currentPage, activeSectionTitle)
     return idx >= 0 ? outline[idx].title : null
+  },
+  currentSectionKey: () => {
+    const { outline, currentPage, textAnchor, activeSectionTitle } = get()
+    const idx = activeOutlineIndex(outline, useTextStore.getState().items, textAnchor, currentPage, activeSectionTitle)
+    return idx >= 0 ? `#${outline[idx].id}` : null
   }
 }))
 

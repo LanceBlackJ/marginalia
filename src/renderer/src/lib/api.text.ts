@@ -7,10 +7,14 @@ export interface TextItem {
   page: number
   kind: 'paragraph' | 'front' | 'caption' | 'heading' | 'reference' | 'formula' | 'figure_text' | 'table'
   section_title: string | null
+  /** 所属章节的 id，和目录项的 id 一致；同名小节靠它区分（旧后端没有时退回按标题） */
+  section_id?: string | null
   text: string
   bbox: BBox
   /** 原文里加粗的文字片段，按出现顺序；旧版本解析的论文没有，重新解析后才有 */
   bold?: string[]
+  /** 原文里斜体的文字片段，同 bold */
+  italic?: string[]
   /** 正文里还原出的行内公式：src 是正文里的文字，tex 是 LaTeX；旧版本解析的论文没有 */
   math?: Array<{ src: string; tex: string }>
 }

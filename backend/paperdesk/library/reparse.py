@@ -659,11 +659,21 @@ def _parse_for(ctx: JobContext, paper_id: str, base: float, span: float, force: 
     ctx.progress(base + 0.05 * span, "解析 PDF …")
     from ..vision import layout_ai
 
+    from . import layout_boxes
+
+    from ..parsing.parse_best import parse_with_mineru
+
     hints = layout_ai.load_hints(app, paper_id)  # 视觉模型对每页的版面划分（没有就走规则）
     try:
-        parsed = parse_pdf(path, layout_hints=hints)
+        parsed = parse_with_mineru(path, lambda m: ctx.progress(base + 0.05 * span, m))  # MinerU 可用就用它，否则 None
     except PdfError as exc:
         raise ApiError("parse_failed", f"重新解析失败，原有数据保持不变：{exc}") from exc
+    if parsed is None:
+        model_boxes = layout_boxes.ensure(app, paper_id, path, lambda m: ctx.progress(base + 0.05 * span, m), ctx.check_cancelled)  # 本地版面模型：表格/图/公式的框
+        try:
+            parsed = parse_pdf(path, layout_hints=hints, model_boxes=model_boxes)
+        except PdfError as exc:
+            raise ApiError("parse_failed", f"重新解析失败，原有数据保持不变：{exc}") from exc
     if parsed.needs_ocr:
         if not ocr.available():
             if old_ocr:
@@ -674,7 +684,7 @@ def _parse_for(ctx: JobContext, paper_id: str, base: float, span: float, force: 
                 ctx.check_cancelled()
                 spans[pno] = ocr.ocr_page(path, pno)
                 ctx.progress(base + (0.05 + 0.75 * i / len(parsed.needs_ocr)) * span, f"识别扫描页 {i}/{len(parsed.needs_ocr)}")
-            parsed = parse_pdf(path, ocr_pages=spans, layout_hints=hints)
+            parsed = parse_pdf(path, ocr_pages=spans, layout_hints=hints, model_boxes=model_boxes)
     if old_n and not parsed.passages:
         raise ApiError("parse_failed", "新的解析没有得到任何文字，原有数据保持不变。")
     if not force and old_n >= 20 and len(parsed.passages) < 0.4 * old_n:

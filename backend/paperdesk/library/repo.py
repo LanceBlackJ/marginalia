@@ -200,6 +200,11 @@ def purge_paper_rows(conn: sqlite3.Connection, ids: tuple[str, ...] | list[str])
         conn.execute("UPDATE ai_usage SET paper_id = NULL WHERE paper_id = ?", (pid,))
         conn.execute("UPDATE ai_requests SET paper_id = NULL WHERE paper_id = ?", (pid,))
         conn.execute("DELETE FROM jobs WHERE paper_id = ?", (pid,))  # job_logs 随任务级联删除
+        for table in ("page_boxes", "page_layout"):  # 版面检测缓存 / 视觉划分缓存（没有外键）
+            try:
+                conn.execute(f"DELETE FROM {table} WHERE paper_id = ?", (pid,))
+            except sqlite3.OperationalError:
+                pass  # 表还没创建（旧库、模块没加载）
 
 
 def cancel_paper_jobs(app: AppContext, ids: tuple[str, ...] | list[str]) -> None:

@@ -19,6 +19,7 @@ GREEK = {
     "σ": "\\sigma", "τ": "\\tau", "υ": "\\upsilon", "φ": "\\phi", "ϕ": "\\phi", "χ": "\\chi", "ψ": "\\psi", "ω": "\\omega",
     "Γ": "\\Gamma", "Δ": "\\Delta", "Θ": "\\Theta", "Λ": "\\Lambda", "Ξ": "\\Xi", "Π": "\\Pi", "Σ": "\\Sigma", "Φ": "\\Phi",
     "Ψ": "\\Psi", "Ω": "\\Omega",
+    "∆": "\\Delta",  # U+2206（增量符号）：CMR 里的 Δ 提取出来是这个码位，不是希腊字母 Δ
 }
 # 正文字体里的常见数学符号（Unicode 写法）
 OPERATORS = {
@@ -46,7 +47,12 @@ _BODY_FONT = ("minionpro", "times", "helvetica", "whitney", "arial", "calibri", 
 _ITALIC_FONT = re.compile(r"italic|-it\d*$|oblique", re.I)
 _SCRIPT_TEXT = re.compile(r"^[A-Za-z0-9,;:=+\-−()  ]+$")  # 上下标里可以有的字符：字母数字、逗号、运算符、括号
 _PUNCT_ONLY = re.compile(r"^[\s,.;:=+\-−×·/|()\[\]<>≤≥≠≈…]+$|^\d{1,3}$")
-_FUNCS = {"log", "ln", "min", "max", "exp", "sin", "cos", "sup", "inf"}
+_FUNCS = {"log", "ln", "min", "max", "exp", "sin", "cos", "tan", "sup", "inf", "lim", "det", "arg", "dim", "sinh", "cosh", "tanh"}
+# Computer Modern 的正体 / 粗体 / 打字机字体：正文用别的字体（Times 等）的论文里，公式里的括号、等号、数字、max 这类函数名、粗体向量 x y 都是它排的。
+# 正文本身就是 CM（默认 LaTeX）的论文里它和正文字体一样，分不出来，所以只在“正文不是 CM”的页面上才当数学字体用（见 non_cm_body）。
+_CM_TEXT_FONT = re.compile(r"^(?:[a-z]{6}\+)?cm(?:r|bx|b|ti|sl|ss|tt|csc|bxti)\d", re.I)
+_CM_BOLD_FONT = re.compile(r"^(?:[a-z]{6}\+)?cm(?:bx|b|bxti)\d", re.I)
+_WORD2 = re.compile(r"[A-Za-z]{2,}")
 RADICAL = "\x00radical"  # 根号的占位：build_tex 把它和后面的被开方式一起写成 \sqrt{…}
 # 被开方式到这里结束：括号配平之后遇到的运算符、比较号、逗号
 _RADICAND_END = re.compile(r"\s*(?:[+\-=<>,;]|\\(?:cdot|times|pm|leq?|geq?|neq|approx|to|in)\b)")
@@ -62,6 +68,7 @@ def _is_italic(s) -> bool:
 # 变量头上的重音：PDF 里它是单独的一个小片段（点、双点、帽、波浪、横线），提取时和变量的先后顺序不定（“s˙(t)”“¨s(t)”）
 ACCENTS = {"˙": "\\dot", "¨": "\\ddot", "ˆ": "\\hat", "˜": "\\tilde",
            "¯": "\\bar", "ˉ": "\\bar", "‾": "\\bar"}
+ACCENTS.update({"...": "\\dddot", "…": "\\dddot"})  # s⃛（三阶导，PDF 里画成三个点）
 
 
 def attach_accents(spans: list, body: float) -> list:
@@ -70,7 +77,7 @@ def attach_accents(spans: list, body: float) -> list:
     out = list(spans)
     for a in spans:
         t = a.text.strip()
-        if t not in ACCENTS or len(a.text.strip()) != 1 or a.size > 1.05 * body:
+        if t not in ACCENTS or len(a.text.strip()) not in (1, 3) or a.size > 1.05 * body:
             continue
         cx = (a.x0 + a.x1) / 2
         best, best_d = None, None
@@ -161,9 +168,25 @@ def _decode_plain(s) -> str | None:
             return ""
         if word == "√":
             return RADICAL  # 被开方式有多长要看后面的片段，由 build_tex 决定在哪里收尾
-        return {"P": "\\sum ", "X": "\\sum ", "Q": "\\prod "}.get(word)  # 行内的求和、连乘；积分等别的大号符号不处理
+        return {"P": "\\sum ", "X": "\\sum ", "Q": "\\prod ", "∫": "\\int "}.get(word)  # 行内的求和、连乘、积分（layout 已把 CMEX 的 R / Z 改成 ∫）
     if "macopen" in low:
         return MACOPEN.get(t.strip())
+    if _CM_TEXT_FONT.match(s.font) and _WORD2.search(t):
+        # CM 正体里的函数名（“) = max(0”）：max 写成 \max；其余字符照常解码
+        out2: list[str] = []
+        for k, p in enumerate(re.split(r"([A-Za-z]{2,})", t)):
+            if k % 2:  # 奇数位是切出来的英文词
+                if p.lower() not in _FUNCS:
+                    return None
+                out2.append(f"\\{p.lower()} ")
+            elif p:
+                sub = _decode_plain(dataclasses.replace(s, text=p, font="Plain"))
+                if sub is None:
+                    return None
+                out2.append(sub)
+        return "".join(out2)
+    if _CM_BOLD_FONT.match(s.font) and t.strip().isascii() and t.strip().isalpha():
+        return "\\mathbf{" + t.strip() + "}"  # 粗体的向量 / 矩阵变量（x、W）
     for ch in t:
         if ch.isascii() and ch.isalnum():
             out.append(ch)
@@ -182,11 +205,77 @@ def _decode_plain(s) -> str | None:
 _SHORT_WORDS = frozenset("an as at be by do he if in is it me my no of on or so to up us we am go oh ok".split())
 
 
-def _mathish(s, body: float) -> bool:
-    """这个片段本身像数学（不含“夹在两个数学片段之间的标点”）。"""
+def non_cm_body(page_spans: list | None) -> bool:
+    """这一页的正文字体不是 Computer Modern（按字母最多的字体判断）。是的话，页面上的 CMR / CMBX 片段就一定是公式里的东西。"""
+    if not page_spans:
+        return False
+    key = id(page_spans)
+    hit = _BODY_CACHE.get(key)
+    if hit is not None and hit[0] is page_spans:
+        return hit[1]
+    count: dict[str, int] = {}
+    for s in page_spans:
+        if s.math or not s.text:
+            continue
+        n = sum(ch.isalpha() for ch in s.text)
+        if n >= 8:
+            count[s.font] = count.get(s.font, 0) + n
+    res = bool(count) and not _CM_TEXT_FONT.match(max(count, key=count.get))
+    if len(_BODY_CACHE) > 4:
+        _BODY_CACHE.clear()
+    _BODY_CACHE[key] = (page_spans, res)
+    return res
+
+
+_BODY_CACHE: dict[int, tuple[list, bool]] = {}
+
+
+_GREEK_TEX = {v.strip() for v in GREEK.values()}
+_TRAIL_CMD = re.compile(r"(\\[A-Za-z]+)\s*$")
+_BIGOP_TAIL = re.compile(r"\\(?:sum|prod|int)\s*(?:[_^]\{[^{}]*\})*\s*$")
+
+
+def _ends_with_base(tex: str) -> bool:
+    """已写出的 LaTeX 以一个“量”结尾（变量、数字、带上下标的变量、希腊字母），而不是运算符、函数名、求和号及其上下限。"""
+    t = tex.rstrip()
+    if not t or _BIGOP_TAIL.search(t):
+        return False
+    m = _TRAIL_CMD.search(t)
+    if m:
+        return m.group(1) in _GREEK_TEX
+    return t[-1].isalnum() or t[-1] == "}"
+
+
+def is_cm_text(s) -> bool:
+    """CM 正体 / 粗体 / 打字机字体的片段。"""
+    return bool(_CM_TEXT_FONT.match(s.font))
+
+
+def flatten_runs(runs: list[dict] | None) -> list[dict]:
+    """给读取方用的公式列表：还没识别出整条公式（tex 为空）但带着 parts（小簇的兜底结果）的，换成这些小簇；
+    其余原样（整条已识别的 parts 在写回时已经去掉）。"""
+    out: list[dict] = []
+    for r in runs or []:
+        if not r.get("tex") and r.get("parts"):
+            out.extend(r["parts"])
+        else:
+            out.append(r)
+    return out
+
+
+def _cm_text_math(s, t: str) -> bool:
+    """CM 正体 / 粗体片段能当公式的一部分：只含数字、括号、运算符、单个字母和函数名（max、log…）；
+    有别的英文单词（粗体的 “Figure”）就是正文。"""
+    return bool(_CM_TEXT_FONT.match(s.font)) and all(w.lower() in _FUNCS for w in _WORD2.findall(t))
+
+
+def _mathish(s, body: float, cm_text: bool = False) -> bool:
+    """这个片段本身像数学（不含“夹在两个数学片段之间的标点”）。cm_text：这一页正文不是 CM 字体，CMR / CMBX 片段算数学。"""
     t = s.text.strip()
     if not t or all(ch in "ﬀﬁﬂﬃﬄ" for ch in t):  # 连字（ﬁ ﬂ）常单独排在一个子集字体里，不是数学
         return False
+    if cm_text and _cm_text_math(s, t):
+        return True
     low = s.font.lower()
     if "tex_cm" in low:
         return True
@@ -229,6 +318,7 @@ def build_tex(spans: list, base_size: float, base_line: float, *, numeric_ok: bo
     rad_open = False  # 正在写根号里的被开方式
     rad_depth = 0  # 被开方式里还没配平的括号数
     rad_has = False  # 被开方式里已经有内容
+    prev_any = None  # 上一个片段（不管是不是上下标）
 
     def flush() -> None:
         nonlocal subs, sups, bad
@@ -248,6 +338,7 @@ def build_tex(spans: list, base_size: float, base_line: float, *, numeric_ok: bo
             parts.append("^{" + hi + "}")
 
     for s in spans:
+        before, prev_any = prev_any, s
         lv = _level(s, base_size, base_line)
         tex = decode(s)
         if tex is None:
@@ -258,6 +349,11 @@ def build_tex(spans: list, base_size: float, base_line: float, *, numeric_ok: bo
             (subs if lv == "sub" else sups).append(f"\\mathrm{{{word}}}" if plain_word else tex)  # 下标里的 cost、pair 这类正体单词
             continue
         flush()
+        if before is not None and s.x0 - before.x1 > 0.2 * s.size and parts:
+            # 两个并排的量之间 PDF 里有明显的空隙（“[0 0 f]”“[p² p³]”“30 m”）：不写出来会读成 00、p²p³
+            nxt = tex.strip()
+            if _ends_with_base("".join(parts)) and (nxt[:1].isalnum() or nxt in _GREEK_TEX):
+                parts.append("\\ ")
         if tex == RADICAL:
             if rad_open:
                 return None  # 根号套根号：不处理，交给视觉模型
@@ -287,10 +383,11 @@ def build_tex(spans: list, base_size: float, base_line: float, *, numeric_ok: bo
     return out
 
 
-def line_clusters(spans: list, body: float, base_line: float) -> list[list]:
-    """一行里连续的“数学片段”簇（片段已按 x 排序）。簇两端必须是数学片段；中间只允许标点、数字、运算符和上下标。"""
+def line_clusters(spans: list, body: float, base_line: float, cm_text: bool = False) -> list[list]:
+    """一行里连续的“数学片段”簇（片段已按 x 排序）。簇两端必须是数学片段；中间只允许标点、数字、运算符和上下标。
+    cm_text：这一页正文不是 CM 字体，CMR / CMBX 片段（公式里的括号、等号、max、粗体向量）也算数学片段。"""
     n = len(spans)
-    is_m = [_mathish(s, body) for s in spans]
+    is_m = [_mathish(s, body, cm_text) for s in spans]
     # 紧跟在数学片段后面、字号更小且偏离基线的短片段是它的上下标
     for i in range(1, n):
         s = spans[i]
@@ -323,4 +420,9 @@ def line_clusters(spans: list, body: float, base_line: float) -> list[list]:
         i += 1
     if cur:
         clusters.append(cur)
-    return [c for c in clusters if len(c) <= MAX_CLUSTER_SPANS]
+    clusters = [c for c in clusters if len(c) <= MAX_CLUSTER_SPANS]
+    if cm_text:
+        # CM 正体片段只是把公式连起来的“胶水”：一簇里全是数字、括号（“[256, 512]”“1/2”）、没有变量或符号的，不是公式，保持原样不动
+        strong = {id(s) for s in spans if _mathish(s, body, False)}
+        clusters = [c for c in clusters if any(id(s) in strong for s in c)]
+    return clusters

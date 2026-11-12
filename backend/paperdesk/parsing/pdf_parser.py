@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import collections
 import re
 import threading
 from collections import Counter
@@ -45,7 +46,24 @@ is_caption = layout.is_caption
 # 21 = 参考文献条数（图里的词、附录的标题行不再算条目；折到下一页/下一栏的续行并回上一条；Frontiers 两栏里被“伦理声明、基金”隔断的参考文献接着算；
 #      作者-年份体 DOI 折行后的新条目）、Frontiers 新版式（侧栏归入题录、没有 Abstract 字样的摘要）、PLOS ONE 只大 1 磅的标题（按标题字体识别）、
 #      附录里“A.2 标题”带数学符号的小标题
-PARSER_VERSION = 21
+# 22 = 每页视觉划分接入（有划分的页按它重建）、紧挨着的编号公式各自成块（(33)(34) 不再并成一个、丢掉前一个编号）、
+#      伪代码框每步一块、跨页的段落并成一段、c_a^{(j)} 这类压在下标上的上标并回正文行、s⃛ 三点重音、右栏公式把左栏几行串成一行、
+#      标题折行/全宽、PMLR/ACL/Springer/BMC/Copernicus/F1000/JOSS/MDPI 等版式的标题、作者、侧栏、摘要
+# 23 = 用户下载的各出版社论文（Nature/Cell/Elsevier/ACM/Oxford/Springer/IEEE）里发现的：GlosaMath 正文字体被当数学字体、作者名带单位编号/上标字母、
+#      ACM 的 CCS CONCEPTS/Reference Format 小节、分几段的摘要、整页宽页脚线把表格区域拉到页脚、Cell 图里的面板标签被当章节、HTML 实体、
+#      标题字体排的数字开头标题、定理/证明标签不当章节、侧栏较矮时的行交错
+# 25 = 第二轮多版式测试：表头（Method/Unit/Top-5）不再当章节、摘要首行粗体/斜体被误判为标题、被图隔开的摘要仍属摘要、折行标题的末词并回、
+#      中文“一、/（一）”编号章节与跨页续句、没有摘要的文档不把整页当首部信息、首页脚注/会议页脚归首部信息、
+#      扫描页的竖排页边戳记丢弃与标题字号、上下两行被小字号片段串成一行时按基线拆开
+# 26 = revtex 的 “I. INTRODUCTION” 不被当面板标签、PLOS 的 CRediT 角色不当小节、两位作者后面直接接单位、会议页脚/首页脚注/DOI 行归首部信息、
+#      行内的大号积分号换到旁边正文的基线（不再串行）、CMEX 的积分号写成 ∫
+# 27 = F1000Research 版式：参考文献后的超链接标签（Publisher Full Text …）不进正文、Vancouver 体（“Capobianco M, Pizzuto EA:”）的参考文献条目、
+#      文末说明夹在参考文献中间时接回参考文献、审稿意见里每位审稿人重复的问题不当章节
+# 28 = 目录里去掉没有任何段落的自动“正文”章节（点不到内容）
+# 29 = 本地版面模型（DocLayout-YOLO）补表格/图/显示公式的框：规则认不出的表格不再混进正文、没编号的显示公式整块当公式
+# 30 = 行内公式：正文不是 CM 字体（Times 等）的页面上，公式里 CMR / CMBX 排的括号、等号、max、粗体向量也算数学片段，
+#      一条公式不再在括号处被切成几半（x_l = f(y_{l-1}) 以前左边的 x 掉在外面）；整条认不全时记成候选并保留小簇兜底（parts）
+PARSER_VERSION = 32
 COVER_RE = re.compile(r"引用本文\s*[:：]|您可能感兴趣的其他文章|在线阅读\s*View online")
 
 
@@ -54,7 +72,7 @@ ROMAN_HEADING_RE = re.compile(r"^(?P<num>[IVX]{1,5})\.\s+[A-Z]")
 LETTER_HEADING_RE = re.compile(r"^(?P<num>[A-Z])\.\s+[A-Z]")
 APPX_NUM_HEADING_RE = re.compile(r"^(?P<num>[A-Z](?:\.\d{1,2})+)\.?\s+(?=[A-Z])")  # 附录里的“B.1 Training”“D.10 VTAB breakdown”
 KNOWN_SECTIONS = {
-    "abstract", "introduction", "background", "related work", "related works", "preliminaries",
+    "abstract", "summary", "introduction", "background", "related work", "related works", "preliminaries",
     "preliminary", "method", "methods", "methodology", "approach", "model", "framework",
     "experiments", "experiment", "experimental setup", "evaluation", "results", "results and discussion",
     "discussion", "analysis", "ablation study", "conclusion", "conclusions", "limitations",
@@ -113,6 +131,7 @@ class ParsedPassage:
     source: str = "text"  # text（PDF 文字层）| ocr（扫描页的本地 OCR，可能有识别错误）
     bold: list[str] = field(default_factory=list)  # 原文里加粗的文字片段（按出现顺序），文字视图据此还原加粗
     math: list[dict] = field(default_factory=list)  # 行内公式 [{src, tex}]：src 是正文里这段公式的文字，tex 是还原出的 LaTeX
+    italic: list[str] = field(default_factory=list)  # 原文里斜体的文字片段，同 bold
 
 
 @dataclass
@@ -132,6 +151,7 @@ class ParsedEquation:
     number: str | None
     text: str
     passage_ord: int
+    latex: str | None = None  # 解析器直接给出的 LaTeX（MinerU）；入库时写进 equation_latex 缓存
 
 
 @dataclass
@@ -177,8 +197,8 @@ def _to_display(rot: pymupdf.Matrix, bbox: tuple[float, float, float, float]) ->
     return (r.x0, r.y0, r.x1, r.y1)
 
 
-def bold_runs(b: Block) -> list[str]:
-    """块里原文加粗的文字片段，按出现顺序。相邻的加粗文字合成一段（含换行续接），数学符号不算。"""
+def bold_runs(b: Block, attr: str = "bold") -> list[str]:
+    """块里原文加粗（attr="italic" 时为斜体）的文字片段，按出现顺序。相邻的加粗文字合成一段（含换行续接），数学符号不算。"""
     runs: list[str] = []
     cur = ""
 
@@ -194,7 +214,7 @@ def bold_runs(b: Block) -> list[str]:
             t = s.text.strip()
             if not t:
                 continue
-            if s.bold and not s.math:
+            if getattr(s, attr) and not s.math:
                 if cur.endswith("-") and t[:1].islower():
                     cur = cur[:-1] + t
                 else:
@@ -207,6 +227,7 @@ def bold_runs(b: Block) -> list[str]:
 
 _CAND_PUNCT = re.compile(r"[\s,.;:()\[\]|/×·=+\-−<>…{}]")
 MAX_MATH_CANDIDATES = 80
+_NUMERIC_RUN = re.compile(r"[\d\s,.;:()\[\]|/×·=+\-−<>…{}%]*")
 
 
 _CAND_TAIL = re.compile(r"^[\s\d,.;:()\[\]{}|/×·=+\-−<>…≜]*$")
@@ -226,7 +247,7 @@ def _extend_tail(spans: list, cluster: list) -> list:
     return out
 
 
-def _math_candidate(b: Block, cluster: list, spans: list | None = None) -> dict | None:
+def _math_candidate(b: Block, cluster: list, spans: list | None = None, line=None) -> dict | None:
     """规则还原不了、但看起来是真公式（不只是逗号、×、/ 这类标点碎片）的簇：留下位置，交给视觉模型兜底。
     tex 为空；前端只替换有 tex 的条目，所以没识别之前正文仍显示原文字。"""
     if len(_CAND_PUNCT.sub("", layout._line_from(inline_math.expand_members(cluster)).text.strip())) < 2:
@@ -237,9 +258,15 @@ def _math_candidate(b: Block, cluster: list, spans: list | None = None) -> dict 
     src = layout._line_from(members).text.strip()
     if len(_CAND_PUNCT.sub("", src)) < 2:
         return None
+    if line is not None and _NUMERIC_RUN.fullmatch("".join(s.text for s in members)) and not any(
+            getattr(s, "frac", None) or inline_math._level(s, line.size, line.baseline) != "n" for s in members):
+        return None  # 只有数字和括号逗号（“[256, 512]”“2.0”“1/2”）：正文里原样显示就是对的，不用公式引擎；带上下标 / 分式的（10⁻³）不在此列
     x0, y0 = min(s.x0 for s in members), min(s.y0 for s in members)
     x1, y1 = max(s.x1 for s in members), max(s.y1 for s in members)
-    return {"src": src, "tex": None, "page": b.page, "bbox": [round(x0, 1), round(y0, 1), round(x1, 1), round(y1, 1)]}
+    cand = {"src": src, "tex": None, "page": b.page, "bbox": [round(x0, 1), round(y0, 1), round(x1, 1), round(y1, 1)]}
+    if line is not None:  # 公式所在的整行：本地公式模型要看整行（带上下文）才认得准，只给一小截它会乱写
+        cand["line"] = [round(line.x0, 1), round(line.y0, 1), round(line.x1, 1), round(line.y1, 1)]
+    return cand
 
 
 def _has_orphan_scripts(cluster: list, ln, page_spans: list | None) -> bool:
@@ -264,50 +291,73 @@ def math_runs(b: Block, page_spans: list | None = None) -> list[dict]:
     """块里的行内公式：[{src, tex}]，按出现顺序。每一簇都要由字体、字号、基线位置完整还原，认不全的不要；
     认不全但像真公式的另记一条 tex 为空的候选（含页码和位置），之后由视觉模型补上。"""
     out: list[dict] = []
+    cm_text = inline_math.non_cm_body(page_spans)
     for ln in b.lines or []:
         spans = inline_math.attach_accents(sorted(ln.spans, key=lambda x: x.x0), ln.size)
-        for cluster in inline_math.line_clusters(spans, ln.size, ln.baseline):
-            tex = inline_math.build_tex(cluster, ln.size, ln.baseline)
-            if tex is not None and _has_orphan_scripts(cluster, ln, page_spans):
-                tex = None
-            if tex is None:
-                cand = _math_candidate(b, cluster, spans)
-                if cand:
-                    out.append(cand)
-                continue
-            src = layout._line_from(inline_math.expand_members(cluster)).text.strip()
-            deficit = tex.count("(") - tex.count(")")
-            if deficit > 0:
-                # 右括号在后面那段正文里（“c(v_k) denotes”“y_r(s(t)).”里连着的 “))”）：缺几个就从后面紧跟的 “)” 里并几个进来
-                i = spans.index(cluster[-1])
-                if i + 1 < len(spans):
-                    nxt = spans[i + 1].text
-                    closers = len(nxt) - len(nxt.lstrip(")"))
-                    if closers >= deficit:
-                        head, _, rad = tex.rpartition("\\sqrt{")
-                        if "\\sqrt{" in tex and rad.endswith("}") and rad.count("(") > rad.count(")"):
-                            tex = head + "\\sqrt{" + rad[:-1] + ")" * deficit + "}"  # 缺的右括号属于根号里的被开方式，要写在根号收尾的大括号之前
-                        else:
-                            tex += ")" * deficit
-                        src += ")" * deficit
-            if len(src) <= 2:
-                # 单个字母的公式如果和前后的文字粘在一起（“i”后面紧跟“th”），正文里按词边界找不到它，
-                # 前端可能错配到后面别处的同一个字母：这种不收，保持原文字
+        clusters = inline_math.line_clusters(spans, ln.size, ln.baseline, cm_text)
+        if cm_text:
+            # 连上 CM 正体之后簇太长被丢掉的（超过 28 个片段），或被过滤掉的：那一段按以前的小簇照常处理，不能因此丢了原来认得出的公式
+            covered = {id(s) for c in clusters for s in c}
+            clusters += [c for c in inline_math.line_clusters(spans, ln.size, ln.baseline, False) if not any(id(s) in covered for s in c)]
+            clusters.sort(key=lambda c: c[0].x0)
+        for cluster in clusters:
+            entry = _one_cluster(b, ln, spans, cluster, page_spans)
+            if cm_text and (entry is None or not entry.get("tex")) and any(inline_math.is_cm_text(s) for s in cluster):
+                # 把 CM 正体片段连进来之后整簇认不全：退回只按数学字体切的小簇（以前的做法），小簇里认得全的先留着当兜底；
+                # 整簇记成候选（交给本地 / 视觉模型整条识别），识别成功就替换掉这些小簇，不成功正文仍显示小簇的结果。
                 i0, i1 = spans.index(cluster[0]), spans.index(cluster[-1])
-                before = spans[i0 - 1] if i0 > 0 else None
-                after = spans[i1 + 1] if i1 + 1 < len(spans) else None
-                size = max(cluster[0].size, 1.0)
-                if before is not None and before.text[-1:].isalnum() and cluster[0].x0 - before.x1 < 0.25 * size:
-                    continue
-                if after is not None and after.text[:1].isalnum() and after.x0 - cluster[-1].x1 < 0.25 * size:
-                    continue
-            if src and tex.count("(") == tex.count(")"):
-                out.append({"src": src, "tex": tex})
-            else:
-                cand = _math_candidate(b, cluster, spans)
-                if cand:
-                    out.append(cand)
+                parts: list[dict] = []
+                for sub in inline_math.line_clusters(spans[i0:i1 + 1], ln.size, ln.baseline, False):
+                    e = _one_cluster(b, ln, spans, sub, page_spans)
+                    if e and e.get("tex"):
+                        parts.append(e)
+                if entry is not None:
+                    if parts:
+                        entry["parts"] = [{"src": p["src"], "tex": p["tex"]} for p in parts]
+                    out.append(entry)
+                else:
+                    out.extend(parts)
+            elif entry is not None:
+                out.append(entry)
     return out
+
+
+def _one_cluster(b: Block, ln, spans: list, cluster: list, page_spans: list | None) -> dict | None:
+    """一簇公式：认得全且括号配平 → {src, tex}；认不全但像真公式 → 候选（tex 为空）；不是公式 → None。"""
+    tex = inline_math.build_tex(cluster, ln.size, ln.baseline)
+    if tex is not None and _has_orphan_scripts(cluster, ln, page_spans):
+        tex = None
+    if tex is None:
+        return _math_candidate(b, cluster, spans, ln)
+    src = layout._line_from(inline_math.expand_members(cluster)).text.strip()
+    deficit = tex.count("(") - tex.count(")")
+    if deficit > 0:
+        # 右括号在后面那段正文里（“c(v_k) denotes”“y_r(s(t)).”里连着的 “))”）：缺几个就从后面紧跟的 “)” 里并几个进来
+        i = spans.index(cluster[-1])
+        if i + 1 < len(spans):
+            nxt = spans[i + 1].text
+            closers = len(nxt) - len(nxt.lstrip(")"))
+            if closers >= deficit:
+                head, _, rad = tex.rpartition("\\sqrt{")
+                if "\\sqrt{" in tex and rad.endswith("}") and rad.count("(") > rad.count(")"):
+                    tex = head + "\\sqrt{" + rad[:-1] + ")" * deficit + "}"  # 缺的右括号属于根号里的被开方式，要写在根号收尾的大括号之前
+                else:
+                    tex += ")" * deficit
+                src += ")" * deficit
+    if len(src) <= 2:
+        # 单个字母的公式如果和前后的文字粘在一起（“i”后面紧跟“th”），正文里按词边界找不到它，
+        # 前端可能错配到后面别处的同一个字母：这种不收，保持原文字
+        i0, i1 = spans.index(cluster[0]), spans.index(cluster[-1])
+        before = spans[i0 - 1] if i0 > 0 else None
+        after = spans[i1 + 1] if i1 + 1 < len(spans) else None
+        size = max(cluster[0].size, 1.0)
+        if before is not None and before.text[-1:].isalnum() and cluster[0].x0 - before.x1 < 0.25 * size:
+            return None
+        if after is not None and after.text[:1].isalnum() and after.x0 - cluster[-1].x1 < 0.25 * size:
+            return None
+    if src and tex.count("(") == tex.count(")"):
+        return {"src": src, "tex": tex}
+    return _math_candidate(b, cluster, spans, ln)
 
 
 def _split_long(text: str, limit: int = 1600, target: int = 1000) -> list[str]:
@@ -360,8 +410,81 @@ def _segments(line: Line) -> list[tuple[str, float, float]]:
     return [(t, a, b) for t, a, b in segs]
 
 
+def _unrotated(pg: "_Page") -> bool:
+    return abs(pg.rot.b) < 1e-6 and abs(pg.rot.c) < 1e-6 and pg.rot.a > 0 and pg.rot.d > 0
+
+
+MODEL_CONF = 0.35
+MODEL_MAX_AREA = 0.55  # 一个框占了页面一半以上：多半是整页的误检，不用
+
+
+def _box_abs(pg: "_Page", box: list[float]) -> tuple[float, float, float, float]:
+    return box[0] * pg.native_w, box[1] * pg.native_h, box[2] * pg.native_w, box[3] * pg.native_h
+
+
+def _add_model_regions(pg: "_Page", boxes: list[dict]) -> None:
+    """本地版面模型框出的表格/图：规则没认出来的补成图区域（里面的文字之后是“图内文字”，不再混进正文段落）；
+    规则已经认出的（重叠过半）不重复加，只把“规则当成普通图、模型说是表”的标成表。框里其实是成段句子的不采用。"""
+    for b in boxes:
+        if b.get("kind") not in ("table", "figure") or b.get("conf", 0) < MODEL_CONF:
+            continue
+        x0, y0, x1, y1 = _box_abs(pg, b["box"])
+        area = (x1 - x0) * (y1 - y0)
+        if area <= 0 or area > MODEL_MAX_AREA * pg.native_w * pg.native_h:
+            continue
+        inside = [s for s in pg.spans if x0 <= (s.x0 + s.x1) / 2 <= x1 and y0 <= (s.y0 + s.y1) / 2 <= y1]
+        if layout_hints._is_prose_box(inside):
+            continue
+        hit = None
+        for e in pg.regions:
+            ix = max(0.0, min(x1, e.x1) - max(x0, e.x0))
+            iy = max(0.0, min(y1, e.y1) - max(y0, e.y0))
+            if ix * iy >= 0.5 * min(area, max(1.0, e.area)):
+                hit = e
+                break
+        if hit is not None:
+            if b["kind"] == "table" and hit.kind != "image":
+                hit.table = True
+            continue
+        pg.regions.append(Region(x0, y0, x1, y1, "vector", table=(b["kind"] == "table")))
+
+
+def _tag_model_formulas(pg: "_Page", boxes: list[dict]) -> None:
+    """本地版面模型框出的显示公式：框里的行整块当一个公式（规则靠编号和数学字体判断，没有编号的显示公式会漏）。
+    只处理主要落在框里的行；框里是成句的文字（模型把正文误标成公式）就不采用。"""
+    k = 0
+    for b in boxes:
+        if b.get("kind") != "formula" or b.get("conf", 0) < MODEL_CONF:
+            continue
+        x0, y0, x1, y1 = _box_abs(pg, b["box"])
+        if (y1 - y0) > 0.35 * pg.native_h:
+            continue
+        lines = []
+        for ln in pg.lines:
+            if ln.in_figure or ln.region >= 0 or not ln.text.strip():
+                continue
+            cy = (ln.y0 + ln.y1) / 2
+            if not (y0 - 1.0 <= cy <= y1 + 1.0):
+                continue
+            ix = max(0.0, min(x1, ln.x1) - max(x0, ln.x0))
+            if ix >= 0.6 * max(1.0, ln.x1 - ln.x0):
+                lines.append(ln)
+        if not lines:
+            continue
+        sentences = sum(1 for ln in lines if len(ln.text) >= 60 and len(ln.text.split()) >= 9 and ln.math < 0.25)
+        if sentences >= 2 or (len(lines) == 1 and layout.CAPTION_START_RE.match(lines[0].text)):
+            continue
+        k += 1
+        for ln in lines:
+            ln.role = "formula"
+            ln.region = 10_000 + k
+
+
 def layout_hints_apply(pg, hint: list[dict], body: float) -> bool:
     return layout_hints.apply_to_page(pg, hint, body, layout.detect_gutter)
+
+
+LINK_LABEL_RE = re.compile(r"(?i)(?:(?:pubmed abstract|publisher full text|free full text|reference source|data source|google scholar|crossref|pubmed|full text|pdf)\s*(?:\||·|/)?\s*)+")
 
 
 def _remove_furniture(pages: list[_Page], body: float = 0.0) -> None:
@@ -408,9 +531,11 @@ _PARSE_LOCK = threading.Lock()
 
 
 def parse_pdf(path: Path, ocr_pages: dict[int, list[layout.Span]] | None = None,
-              layout_hints: dict[int, list[dict]] | None = None) -> ParsedDoc:
+              layout_hints: dict[int, list[dict]] | None = None,
+              model_boxes: dict[int, list[dict]] | None = None) -> ParsedDoc:
     """解析 PDF。ocr_pages：{页码(1 起): OCR 得到的行级 Span}，这些页用 OCR 文字代替（空）文字层。
-    layout_hints：{页码: 视觉模型给出的区域划分 [{role, box(0–1)}]}（见 layout_hints.py），有的页按它划分，其余页走规则。"""
+    layout_hints：{页码: 视觉模型给出的区域划分 [{role, box(0–1)}]}（见 layout_hints.py），有的页按它划分，其余页走规则。
+    model_boxes：{页码: 本地版面模型框出的表格/图/显示公式 [{kind, conf, box(0–1)}]}（见 layout_model.py）：只补规则漏掉的对象，文字仍走规则。"""
     # PyMuPDF/MuPDF 不支持多线程并发使用；导入任务可能在多个线程里同时运行，因此解析必须串行。
     with _PARSE_LOCK:
         try:
@@ -422,7 +547,7 @@ def parse_pdf(path: Path, ocr_pages: dict[int, list[layout.Span]] | None = None,
                 raise PdfError("该 PDF 已加密，请先解除密码保护后再导入。")
             if doc.page_count == 0:
                 raise PdfError("该 PDF 没有任何页面。")
-            parsed = _parse_document(doc, ocr_pages, layout_hints)
+            parsed = _parse_document(doc, ocr_pages, layout_hints, model_boxes)
             _resolve_soft_hyphens(parsed)
             return parsed
         finally:
@@ -494,10 +619,12 @@ def _scan_pages(doc: pymupdf.Document, pages: list["_Page"], done: set[int]) -> 
 
 
 def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span]] | None = None,
-                    layout_hints: dict[int, list[dict]] | None = None) -> ParsedDoc:
+                    layout_hints: dict[int, list[dict]] | None = None,
+                    model_boxes: dict[int, list[dict]] | None = None) -> ParsedDoc:
     n = doc.page_count
     ocr_pages = ocr_pages or {}
     layout_hints = layout_hints or {}
+    model_boxes = model_boxes or {}
     pages: list[_Page] = []
     for i in range(n):
         page = doc[i]
@@ -529,12 +656,21 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
         # OCR 页整页就是一张扫描图，不能当作“图区域”（否则所有文字都会被判成图内文字）：改用密集短行聚类找图
         pg.regions = (regions_from_text_clusters(pg.spans, pg.native_w, pg.native_h) if pg.no in ocr_done
                       else detect_regions(doc[i], pg.native_w, pg.native_h))
+        if pg.no not in ocr_done and model_boxes.get(pg.no) and _unrotated(pg):
+            _add_model_regions(pg, model_boxes[pg.no])
 
     def outside_figures(pg: _Page) -> list:
         # 图里的坐标轴标签/图例横跨页面中线，会干扰栏检测
         return [s for s in pg.spans if not any(r.contains_point((s.x0 + s.x1) / 2, (s.y0 + s.y1) / 2) for r in pg.regions)]
 
     doc_gutter = layout.detect_gutter([s for p in pages for s in outside_figures(p)], pages[0].native_h)
+    prior_cols: list[list[tuple[float, float]]] = []  # 同一份文档里（严格）检测到的三栏页的栏沟，给文字很少的下半区当先验
+    for p_ in pages:
+        u_ = outside_figures(p_)
+        if len(u_) >= 30:
+            c_ = layout.detect_columns(u_, p_.native_h)
+            if len(c_) == 2:
+                prior_cols.append(c_)
     for pg in pages:
         usable = outside_figures(pg)
         gutter = layout.detect_gutter(usable, pg.native_h) if len(usable) >= 30 else doc_gutter
@@ -565,20 +701,55 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
                     ln.cls = cls
                     pg.lines.append(ln)
         else:
-            pg.lines = layout.build_lines(list(pg.spans), gutter, body, pg.native_h)
+            cols = layout.detect_columns(usable, pg.native_h) if len(usable) >= 30 else []
+            low_cols: list[tuple[float, float]] = []
+            y_cut = None
+            if not cols and len(usable) >= 30 and gutter is not None:
+                cols = layout.detect_columns(usable, pg.native_h, loose=True)  # 栏宽不等的三栏页（左窄、中宽、右窄）
+                y_cut = layout.lower_band_start(usable, cols, pg.native_h) if cols else None
+                if y_cut is not None:  # 图下面是另一套三栏：上下两带各用各的栏沟，找不到下面那套就不当三栏
+                    low_sp = [s for s in usable if s.y0 >= y_cut - 2]
+                    low_cols = layout.detect_columns(low_sp, pg.native_h)
+                    if len(low_cols) != 2 and prior_cols:
+                        low_cols = layout.columns_from_prior(low_sp, prior_cols, pg.native_h)  # 下半区只有几行字：借用别的三栏页的栏沟
+                    if len(low_cols) != 2:
+                        cols = []
+                    else:
+                        cols = layout.refine_gutters([s for s in usable if s.y0 < y_cut - 2], cols, pg.native_h)  # 图两侧看到的栏沟可能落进中栏文字里
+            if len(cols) == 2 and low_cols:
+                top_sp = [s for s in pg.spans if (s.y0 + s.y1) / 2 < y_cut]
+                bot_sp = [s for s in pg.spans if (s.y0 + s.y1) / 2 >= y_cut]
+                pg.lines = (layout.build_lines(top_sp, cols[0], body, pg.native_h, gutter2=cols[1])
+                            + layout.build_lines(bot_sp, low_cols[0], body, pg.native_h, gutter2=low_cols[1]))
+                gutter = None
+            elif len(cols) == 2:  # 三栏页面（Cell 评述/预览）：左、中、右三栏各自成行，不再把中栏和右栏的词交错拼在一起
+                pg.lines = layout.build_lines(list(pg.spans), cols[0], body, pg.native_h, gutter2=cols[1])
+                gutter = None  # 下面的“靠左的沟是侧栏”判断只适用于单沟页面
+            else:
+                pg.lines = layout.build_lines(list(pg.spans), gutter, body, pg.native_h)
         if gutter is not None and band is None and usable:
             left_e, right_e = min(sp.x0 for sp in usable), max(sp.x1 for sp in usable)
             if (gutter[0] + gutter[1]) / 2 < left_e + 0.35 * (right_e - left_e):
                 for ln in pg.lines:
                     if ln.cls == "L":
                         ln.cls = "S"  # 沟靠近左边缘：左边是窄侧栏，不是两栏里的左栏
+            elif pg.no == 1 and (right_e - gutter[1]) <= 0.40 * (right_e - left_e) and (gutter[0] - left_e) >= 1.3 * (right_e - gutter[1]):
+                for ln in pg.lines:
+                    if ln.cls == "R":
+                        ln.cls = "S"  # 首页右边一条比左边窄得多的栏（F1000Research 的 Open Peer Review 面板）
         pg.lines, pg.side_caps = layout.split_side_captions(pg.lines, pg.no, body)
         _flag_figure_lines(pg, body)
+        if model_boxes.get(pg.no) and pg.no not in ocr_done and _unrotated(pg):
+            _tag_model_formulas(pg, model_boxes[pg.no])
+    for pg in pages:  # 参考文献条目后面的超链接标签（F1000Research / eLife：“Publisher Full Text | PubMed Abstract”）不是正文
+        pg.lines = [l for l in pg.lines if not LINK_LABEL_RE.fullmatch(l.text.strip())]
     _remove_furniture(pages, body)
 
     blocks: list[Block] = []
     figure_blocks: dict[tuple[int, int], Block] = {}
     layout.HEADING_FONTS = layout.detect_heading_fonts([l for p_ in pages for l in p_.lines], body)
+    layout.LABEL_FONTS = layout.detect_label_fonts([l for p_ in pages for l in p_.lines])
+    layout.HEADING_FONTS = layout.HEADING_FONTS - layout.LABEL_FONTS  # 面板标签字体（Arial 等）排的行不是标题
     refs_active = False
     refs_seen = False
     content_refs_from = _content_refs_start(pages)  # 整篇没有“References”标题时，按内容找参考文献从哪一页开始
@@ -618,11 +789,14 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
             elif b.heading_hint and refs_active and (APPENDIX_RE.search(b.text) or _appendix_head(b.text)):
                 refs_active = False
 
-    layout.HEADING_FONTS = frozenset()
-    return _assemble(doc, pages, blocks, body, meta_raw, toc, page_sizes, ocr_done, needs_ocr)
+    try:
+        return _assemble(doc, pages, blocks, body, meta_raw, toc, page_sizes, ocr_done, needs_ocr)
+    finally:
+        layout.HEADING_FONTS = frozenset()
+        layout.LABEL_FONTS = frozenset()
 
 
-_AUTHOR_YEAR_START = re.compile(r"^\s*(?:[A-Z][\w'’\-]+,\s+(?:[A-Z]\.[\s\-]*){1,3}|(?:[A-Z]\.[\s\-]*){1,3}[A-Z][\w'’\-]+,)")
+_AUTHOR_YEAR_START = re.compile(r"^\s*(?:[A-Z][\w'’\-]+,\s+(?:[A-Z]\.[\s\-]*){1,3}|(?:[A-Z]\.[\s\-]*){1,3}[A-Z][\w'’\-]+,|[A-Z][\w'’\-]+\s[A-Z]{1,3}[,:]\s)")
 
 
 _YEAR_ANY = re.compile(r"(?<!\d)(?:19|20)\d{2}(?!\d)|arxiv|doi|https?://|\bpp\.|\bvol\.", re.I)
@@ -677,6 +851,8 @@ def _flag_chart_above_caption(pg: _Page) -> None:
             continue
         prev_y = cap.y0
         for ln in reversed(ordered[:i]):
+            if ln.x1 < cap.x0 - 6 or ln.x0 > cap.x1 + 6:
+                continue  # 图注只占一栏时，别的栏里的短行是正文，不是这张图的刻度
             if ln.in_figure:
                 prev_y = min(prev_y, ln.y0)
                 continue
@@ -686,7 +862,48 @@ def _flag_chart_above_caption(pg: _Page) -> None:
             prev_y = ln.y0
 
 
+def _figure_zones(regions: list[Region], page_area: float, gap: float = 30.0) -> list[Region]:
+    """拼版的多面板图（一页里十几张小位图/矢量块挨在一起）：把相距不超过 gap 的区域连成一片，得到整幅图的外框。
+    只认够大的：至少 3 块区域，或者占页面 25% 以上。"""
+    n = len(regions)
+    parent = list(range(n))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            a, b = regions[i], regions[j]
+            if max(a.x0 - b.x1, b.x0 - a.x1, 0.0) <= gap and max(a.y0 - b.y1, b.y0 - a.y1, 0.0) <= gap:
+                parent[find(i)] = find(j)
+    groups: dict[int, list[Region]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(regions[i])
+    zones = []
+    for g in groups.values():
+        x0, y0, x1, y1 = min(r.x0 for r in g), min(r.y0 for r in g), max(r.x1 for r in g), max(r.y1 for r in g)
+        if len(g) >= 3 or (x1 - x0) * (y1 - y0) >= 0.25 * page_area:
+            zones.append(Region(x0, y0, x1, y1, "vector"))
+    return zones
+
+
 def _flag_figure_lines(pg: _Page, body: float) -> None:
+    zones = _figure_zones(pg.regions, pg.native_w * pg.native_h) if len(pg.regions) >= 3 else []
+    if zones:
+        keep = pg.regions
+        pg.regions = list(keep) + zones
+        try:
+            _flag_figure_lines_in(pg, body)
+        finally:
+            pg.regions = keep
+        return
+    _flag_figure_lines_in(pg, body)
+
+
+def _flag_figure_lines_in(pg: _Page, body: float) -> None:
     _flag_chart_above_caption(pg)
     if not pg.regions:
         return
@@ -760,6 +977,10 @@ def _heading_level_numbered(text: str) -> tuple[int, str]:
     m = APPX_NUM_HEADING_RE.match(text)
     if m:
         return m.group("num").count(".") + 1, "num"
+    if re.match(r"\s*(?:[一二三四五六七八九十百]+[、．]|第[一二三四五六七八九十百零\d]+[章节篇部分])", text):
+        return 1, "cn"
+    if re.match(r"\s*[（(][一二三四五六七八九十百]+[）)]", text):
+        return 2, "cn"
     if ROMAN_HEADING_RE.match(text):
         return 1, "roman"
     if LETTER_HEADING_RE.match(text):
@@ -767,25 +988,123 @@ def _heading_level_numbered(text: str) -> tuple[int, str]:
     return 0, ""
 
 
+def _drop_repeated_headings(blocks: list[Block]) -> None:
+    """同样的不带编号的“标题”在文档里出现两次以上（审稿意见里每位审稿人都有的 “Is the study design appropriate…?”、页眉小标签）：
+    是模板化的栏目标签，不是章节。常见章节名、带编号的、参考文献标题不动。"""
+    norm = lambda b: re.sub(r"\W+", " ", b.text.lower()).strip()  # noqa: E731
+    cands = [b for b in blocks if b.heading_hint and b.kind == "paragraph" and not _heading_level_numbered(b.text.strip())[0]
+             and not _named(b.text) and not REFERENCES_RE.match(b.text.strip()) and len(b.text.split()) >= 4]
+    count = collections.Counter(norm(b) for b in cands)
+    for b in cands:
+        if count[norm(b)] >= 2:
+            b.heading_hint = False
+
+
 def _drop_table_header_hints(blocks: list[Block], body: float) -> None:
     """表头的格子（“TASK / PREVIOUS SOTA / INCREASE / (ABSOLUTE/ RELATIVE)”）是粗体的大写短词，一个个被当成了章节标题。
     真正的章节标题之间隔着整段正文；同一页上三个以上不带编号的大写短“标题”挤在不到 5 个字高的范围里，就是表头，撤掉标题标记。"""
     cands = [b for b in blocks if b.heading_hint and b.kind == "paragraph" and len(b.text.split()) <= 4
              and not _heading_level_numbered(b.text.strip())[0] and not _named(b.text) and not REFERENCES_RE.match(b.text.strip())]
+    idx = {id(b): i for i, b in enumerate(blocks)}
+    for i, b in enumerate(blocks):  # “Method”“Unit”这类常见章节名也会是表头：后面紧跟带数字的数据行就不是标题
+        if b.heading_hint and b.kind == "paragraph" and len(b.text.split()) <= 2 and not _heading_level_numbered(b.text.strip())[0] and i + 1 < len(blocks) \
+                and not REFERENCES_RE.match(b.text.strip()) and not re.search(r"(?i)availability|acknowledg|appendix|bibliograph|contribution|competing|funding|declaration", b.text):
+            j = i + 1
+            while j + 1 < len(blocks) and j < i + 4 and len(blocks[j].text.split()) <= 2 and blocks[j].page == b.page:
+                j += 1  # 隔着别的表头格子（“Type”“Error”）
+            n = blocks[j]
+            toks = n.text.split()
+            if n.page == b.page and n.kind in ("paragraph", "figure_text") and b.size <= body * 1.15 and len(toks) >= 3:
+                datalike = sum(1 for t in toks if re.search(r"\d", t)) >= 0.12 * len(toks)
+                # 数字不多的表格（只有方法名和引用）：后面几块之内跟着“Table N”图注，数据块里也没有成句的句号
+                near_cap = any(x.page == b.page and x.kind == "caption" and re.match(r"\s*Table\s+\w+", x.text) for x in blocks[j:j + 10])
+                if datalike or (near_cap and not re.search(r"[a-z]{3,}[.!?]\s+[A-Z]", n.text)):
+                    b.heading_hint = False
     for b in cands:
         near = [o for o in cands if o.page == b.page and abs(o.y0 - b.y0) <= 5 * max(b.size, body)]
         if len(near) >= 3:
             b.heading_hint = False
+            continue
+        # 表头只有一两个格子（“Method”“Training Set Test Set”）：紧跟在后面的是挤成一团的数字（表格的数据行），也不是标题
+        nxt = blocks[idx[id(b)] + 1] if idx[id(b)] + 1 < len(blocks) else None
+        if nxt is not None and nxt.page == b.page and nxt.kind in ("paragraph", "figure_text") and nxt.nlines >= 3:
+            toks = nxt.text.split()
+            nums = sum(1 for t in toks if re.fullmatch(r"[\d.,%±()+\-–−/]+", t))
+            if len(toks) >= 12 and nums >= 0.35 * len(toks):
+                b.heading_hint = False
+                continue
+        # 正文字号的短粗体行，后面不是成段的文字而是带数字的数据行（“Method Error %”后面跟“… 36.7 … 2011) …”）：表头
+        if nxt is not None and nxt.page == b.page and nxt.kind in ("paragraph", "figure_text") and b.size <= body * 1.15 and len(b.text.split()) <= 6:
+            toks = nxt.text.split()
+            digits = sum(1 for t in toks if re.search(r"\d", t))
+            if len(toks) >= 3 and digits >= 0.2 * len(toks):
+                b.heading_hint = False
+
+
+def _prose_like(text: str) -> bool:
+    """像成段的英文句子：至少 6 个 3 个字母以上的小写词，数字词不占大头（面板里的 “00 - - + +”“10 5” 不算）。"""
+    words = re.findall(r"[a-z]{3,}", text)
+    toks = text.split()
+    nums = sum(1 for t in toks if re.fullmatch(r"[-+−]?[\d.,%]+", t))
+    return len(words) >= 6 and nums <= 0.3 * max(1, len(toks))
+
+
+def _sentence_like(text: str) -> bool:
+    t = text.strip()
+    return bool(re.match(r"[A-Z][a-z]+", t)) and t.endswith((".", "!", "?")) and len(re.findall(r"[a-z]{2,}", t)) >= 1
+
+
+def _demote_panel_labels(blocks: list[Block], body: float = 10.0) -> None:
+    """图里的面板标签（“FKS2”“A FKS2”“15 Spo11 oligos”）是粗体/大字号的短行，被认成了标题。真正的小节标题后面紧跟成段的正文，
+    面板标签后面跟的是另一个标签或几个数字。不带编号、不是常见章节名的“标题”，紧跟着的块又是一小段非句子的碎片（≤120 个字符）：撤掉标题标记。"""
+    merged: set[int] = set()
+    for i, b in enumerate(blocks):
+        if not b.heading_hint or b.kind != "paragraph" or _named(b.text) or REFERENCES_RE.match(b.text.strip()):
+            continue
+        if (b.lines and layout.LABEL_FONTS and layout.line_font(b.lines[0]) in layout.LABEL_FONTS
+                and not re.match(r"\s*(?:[IVX]{1,5}|[A-Z]|\d{1,2}(?:\.\d{1,2})*)\.\s+[A-Z]", b.text)):  # “I. INTRODUCTION”这样带点的编号标题，哪怕标题字体也被误认成标签字体（revtex）
+            b.heading_hint = False  # 面板标签字体排的行（“15 Spo11 oligos”）：哪怕带着编号也不是标题
+            continue
+        if _heading_level_numbered(b.text.strip())[0] or i + 1 >= len(blocks):
+            continue
+        nxt = blocks[i + 1]
+        if nxt.page == b.page and nxt.kind == "paragraph" and nxt.text[:1].islower() and not b.text.rstrip().endswith((":", ".")) and b.nlines <= 2 and len(b.text.split()) >= 5 and abs(b.size - nxt.size) < 0.3 and b.size <= body * 1.15:
+            b.heading_hint = False  # 后面接着小写开头的续句：这一行是折行的正文（摘要里一段粗体），不是标题
+            if nxt.col == b.col and b.size <= body * 1.1 and not nxt.heading_hint and 0 <= nxt.y0 - b.y1 < 1.5 * max(b.size, 1.0):  # 紧挨着：并回续句（首行缩进导致切成了两块）
+                nxt.text = b.text.rstrip() + " " + nxt.text.lstrip()
+                nxt.lines = list(b.lines or []) + list(nxt.lines or [])
+                nxt.nlines = len(nxt.lines)
+                nxt.x0, nxt.y0 = min(nxt.x0, b.x0), min(nxt.y0, b.y0)
+                merged.add(id(b))
+            continue
+        if len(b.text) <= 20 and nxt.page == b.page and nxt.kind in ("paragraph", "figure_text") and not nxt.heading_hint and len(nxt.text) <= 120 and not _prose_like(nxt.text) and not _sentence_like(nxt.text):
+            b.heading_hint = False
+    if merged:
+        blocks[:] = [x for x in blocks if id(x) not in merged]
 
 
 def _merge_wrapped_headings(blocks: list[Block], front_ids: set[int], title_ids: set[int]) -> list[Block]:
     """折成两行的章节标题（“3 Normalization via Mini-Batch / Statistics”）：两行各自被认成标题，章节就多出半条。
     同页同栏、字号字重相同、紧挨着（行距之内）、第二行不是新编号开头的标题行，并回上一行。"""
+    # 多行标题（Cell 的三行小节标题）：最后一行被认成标题，前面整宽的行因为宽度超过“短标题”的限制没被认成。
+    # 标题字体里紧挨在标题行上面、同栏同字号的行，也是这个标题的一部分
+    if layout.HEADING_FONTS:
+        for i in range(len(blocks) - 1, 0, -1):
+            b, a = blocks[i], blocks[i - 1]
+            if (
+                b.heading_hint and not a.heading_hint and a.kind == b.kind == "paragraph" and a.lines and b.lines
+                and id(a) not in front_ids and id(b) not in front_ids and id(a) not in title_ids and id(b) not in title_ids
+                and layout.line_font(a.lines[0]) in layout.HEADING_FONTS and layout.line_font(b.lines[0]) in layout.HEADING_FONTS
+                and a.page == b.page and a.col == b.col and a.nlines <= 2 and abs(a.size - b.size) < 0.4
+                and -0.5 * a.size < b.y0 - a.y1 < 0.5 * a.size and not a.text.rstrip().endswith((".", ":", "?", ","))
+            ):
+                a.heading_hint = True
     out: list[Block] = []
     for b in blocks:
         a = out[-1] if out else None
         if (
-            a is not None and a.heading_hint and b.heading_hint and a.kind == b.kind == "paragraph"
+            a is not None and a.heading_hint and a.kind == b.kind == "paragraph"
+            and (b.heading_hint or (b.nlines == 1 and len(b.text.split()) <= 4 and b.text[:1].islower()))  # 折行标题的末词（“…damage after / transplantation”）不一定被认成标题
             and id(a) not in front_ids and id(b) not in front_ids and id(a) not in title_ids and id(b) not in title_ids
             and a.page == b.page and a.col == b.col and a.nlines <= 2 and abs(a.size - b.size) < 0.4 and abs(a.bold - b.bold) < 0.2
             and -0.5 * a.size < b.y0 - a.y1 < 0.5 * a.size and b.y0 > a.y0 + 0.5 * a.size and not layout.NUMBERED_HEAD_RE.match(b.text)
@@ -801,17 +1120,80 @@ def _merge_wrapped_headings(blocks: list[Block], front_ids: set[int], title_ids:
     return out
 
 
+def _cjk_cont(head: str, tail: str) -> bool:
+    """中文句子跨页被切开：上一页以汉字结尾（没有句号），下一页以汉字开头，且不是新的编号条目/标题。"""
+    return bool(re.search(r"[一-鿿]$", head.rstrip()) and re.match(r"\s*[一-鿿“‘]", tail)
+                and not layout.CN_HEAD_RE.match(tail) and not re.match(r"\s*\d+[.．、]", tail))
+
+
+def _join_cross_page(blocks: list[Block], skip: set[int]) -> list[Block]:
+    """跨页的段落：上一页最后一个段落没写完（不以句号等结尾），下一页第一块是小写开头的正文，它就是接着上一页的，并成一个段落。
+    只处理紧挨着的两块（中间没有图、图注、标题），页码相邻，都是普通正文。"""
+    out: list[Block] = []
+    for b in blocks:
+        a = out[-1] if out else None
+        if (
+            a is not None and a.kind == b.kind == "paragraph" and b.page == a.page + 1 and id(a) not in skip and id(b) not in skip
+            and not a.heading_hint and not b.heading_hint and not a.run_in and not b.run_in and not b.role == "heading"
+            and not a.text.rstrip().endswith(layout.TERMINAL) and (b.text[:1].islower() or _cjk_cont(a.text, b.text)) and not a.ref_page and not b.ref_page
+            and abs(a.size - b.size) < 0.9 and len(a.text) >= 8
+        ):
+            head = a.text.rstrip()
+            last = head.split(" ")[-1]
+            if _cjk_cont(head, b.text):
+                a.text = head + b.text.lstrip()  # 中文不加空格
+            elif head.endswith("-") and len(head) > 1 and head[-2].isalpha():
+                head = head if "-" in last[:-1] else head[:-1] + layout.SOFT_HYPHEN
+                a.text = head + b.text.lstrip()
+            else:
+                a.text = head + " " + b.text.lstrip()
+            a.cont = list(a.cont) + [b]
+            a.nlines += b.nlines
+            continue
+        out.append(b)
+    return out
+
+
+ACM_META_RE = re.compile(r"(?i)\s*(?:ccs concepts|keywords?|key words|acm reference format|categories and subject descriptors|general terms|additional (?:key\s*)?words|index terms)(?![a-z])")
+
+
+def _author_text(b: Block) -> str:
+    """作者行里的单位上标（“P. Perdikaris b,∗”“Kirkpatrick a”）是小字号的几个字符，拼进文本后粘在名字上、或被当成单词：先去掉它们。
+    行首就是上标编号的（“1European Molecular…”）是单位行，原样返回。"""
+    if not b.lines:
+        return b.text
+    out, dropped = [], False
+    first = min(b.lines[0].spans, key=lambda s: s.x0)
+    if first.size < 0.8 * b.lines[0].size and len(first.text.strip()) <= 4:
+        return b.text
+    for ln in b.lines:
+        keep = [s for s in ln.spans if not (s.size < 0.8 * ln.size and len(s.text.strip()) <= 4)]
+        dropped = dropped or len(keep) != len(ln.spans)
+        if keep:
+            out.append(layout._line_from(keep).text)
+    return " ".join(out) if dropped and out else b.text
+
+
 def _is_heading_block(b: Block, body: float) -> bool:
     t = b.text.strip()
     if not b.heading_hint or len(t) < 3 or len(t) > 160:
         return False
-    if is_caption(t) or re.fullmatch(r"[\d\W]+", t):
-        return False
+    if is_caption(t) or re.fullmatch(r"[\d\W]+", t) or re.fullmatch(r"(?i)(?:key\s*words?|index terms)\s*[:：]?", t):
+        return False  # “Keywords”是关键词行的标签，不是章节
     words = t.split()
     if t.endswith(".") and len(words) > 12:
         return False
     depth, _ = _heading_level_numbered(t)
-    return bool(b.bold >= 0.85 or depth or _named(t) or b.size >= body * 1.15)
+    if not depth and not _named(t) and len(words) >= 6 and re.search(r"[a-z)][.!?]\s+[A-Z]", t) and b.size < body * 1.15:
+        return False  # 句号后面还接着下一句：是正文（摘要的第一行恰好排成粗体），不是标题
+    if b.bold >= 0.85 or depth or _named(t) or b.size >= body * 1.15:
+        return True
+    # 本篇文档专门排小节标题的字体里的单行/两行短句；以介词、连词结尾的是正文折行，项目符号开头的是列表
+    return bool(
+        b.lines and layout.line_font(b.lines[0]) in layout.HEADING_FONTS and b.nlines <= 2 and t[:1] not in "•·-–—*"
+        and not re.search(r"(?i)\b(?:of|the|a|an|and|or|to|in|for|with|on|by|at|from|that|which)$", t)
+        and sum(1 for w in t.split() if re.fullmatch(r"[-+−]?\d+(?:\.\d+)?", w)) < 2 and not t.startswith("(")
+    )
 
 
 _AFFIL_RE = re.compile(r"universit|institut|department|college|school of|laborator|hospital|academy|大学|学院|研究所|实验室|e-?mail", re.I)
@@ -865,6 +1247,14 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
     role_title = [b for b in p1 if b.role == "title" and b.kind == "paragraph"]
     if role_title:
         cand = role_title  # 视觉划分标出了标题：不再靠字号猜
+    if len(cand) >= 2:
+        # 标题上面的栏目标签（Cell 的 “Analysis”“Previews”，字号比标题还大）不是标题
+        labels = [b for b in cand if re.fullmatch(r"(?i)analysis|previews?|reviews?|mini-?review|commentary|perspective|research article|report|letter|editorial|essay|snapshot|leading edge|brief report|opinion|news|feature", b.text.strip())]
+        if labels and len(labels) < len(cand):
+            cand = [b for b in cand if b not in labels]
+    if len(cand) >= 2 and any(len(b.text.split()) >= 4 for b in cand):
+        # 页眉里的刊名 logo（“remote sensing”，字比标题还大）不是标题：有更长的大字行（标题）时，两三个词以内的大字行不参与
+        cand = [b for b in cand if len(b.text.split()) >= 4 or b.size <= max(c.size for c in cand if len(c.text.split()) >= 4) + 0.5]
     title_blocks: list[Block] = []
     if cand:
         top = max(b.size for b in cand)
@@ -935,8 +1325,8 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
                             abstract_label_block = b
                             abstract_block = nxt
                 break
-            if b.heading_hint and _named(b.text):
-                break
+            if b.heading_hint and (_named(b.text) or (_heading_level_numbered(b.text.strip())[0] and not re.match(r"\s*\d+\s*[A-Z]", b.text))):
+                break  # 常见章节名、或带编号的章节标题（“一、总则”“1 Introduction”）：正文从这里开始（没有摘要的文档，不能把整页都当首部信息）
             front_ids.add(id(b))
     # 标题上方的短横幅（REVIEW、Open Access、刊名）不是章节
     if title_blocks:
@@ -952,12 +1342,53 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
     for b in p1:
         if b.kind == "paragraph" and b.size < 0.88 * body and b.y0 > 0.8 * first.native_h:
             front_ids.add(id(b))
+        elif b.kind == "paragraph" and len(b.text) < 90 and re.match(r"\s*(?:DOI|doi)\s*:\s*\S+\s*$", b.text):
+            front_ids.add(id(b))  # 摘要后面单独一行的 “DOI: 10.1103/…”（APS）
+        elif b.kind == "paragraph" and b.y0 > 0.7 * first.native_h and re.match(r"\s*[∗*†‡§¶♯]\s*\S", b.text) and b.size <= body:
+            front_ids.add(id(b))  # 首页底部的脚注（“∗Equal contribution.”“†Work performed while at Google Brain.”）
+        elif b.kind == "paragraph" and b.y0 > 0.8 * first.native_h and len(b.text) < 200 and b.size <= body and re.search(r"(?i)(?:conference|proceedings|symposium|workshop)", b.text) and re.search(r"(?:19|20)\d\d", b.text):
+            front_ids.add(id(b))  # 首页页脚的会议信息（“31st Conference on Neural Information Processing Systems (NIPS 2017)”）
+
+    # 摘要分成几段（ACM 的 KDD 版式、Bioinformatics 的 Motivation/Results/Availability）：紧挨着摘要、同栏同字号的几段，
+    # 一直到遇到标题、元数据小节、通讯/收稿行为止，都是摘要的后半；没遇到这样的终点就不并（可能是没认出标题的正文）
+    if abstract_block is not None and abstract_block.kind == "paragraph" and abstract_block in blocks:
+        i0 = blocks.index(abstract_block)
+        extra_abs: list[Block] = []
+        reached = False
+        for nb in blocks[i0 + 1:]:
+            nt = nb.text.strip()
+            if nb.page != abstract_block.page or nb.kind != "paragraph" or nb.col != abstract_block.col:
+                break
+            if nb.heading_hint or ACM_META_RE.match(nt) or (nb.run_in and ACM_META_RE.match(nb.run_in)) or id(nb) in front_ids or FRONT_NOTE_RE.search(nt):
+                reached = True
+                break
+            if len(extra_abs) >= 3 or len(nt) < 60 or abs(nb.size - abstract_block.size) > 0.6 or nb.run_in:
+                break
+            extra_abs.append(nb)
+        if reached and extra_abs:
+            for nb in extra_abs:
+                abstract_block.text = abstract_block.text.rstrip() + " " + nb.text.lstrip()
+                abstract_block.lines = list(abstract_block.lines or []) + list(nb.lines or [])
+                abstract_block.y1 = max(abstract_block.y1, nb.y1)
+                abstract_block.nlines += nb.nlines
+            drop_ids = {id(nb) for nb in extra_abs}
+            blocks = [x for x in blocks if id(x) not in drop_ids]
 
     # 首页底部/页边的作者信息：通讯作者、单位、版权与许可、收稿日期。它们不是正文，单独存成 front，阅读时放在“作者与版权信息”里
     front_notes: set[int] = set()
     front_notes |= side_ids
+    meta_ids: set[int] = set()
+    meta_next = False  # 上一块是 ACM 的元数据小节标签（CCS CONCEPTS / KEYWORDS / ACM Reference Format）：这一块是它的内容
     for b in p1:
         t = b.text.strip()
+        if b.kind == "paragraph" and b is not abstract_block and id(b) not in title_ids and (ACM_META_RE.match(t) or (meta_next and len(t) <= 900)):
+            label_only = bool(ACM_META_RE.match(t)) and len(t) <= 40
+            front_ids.add(id(b))
+            front_notes.add(id(b))
+            meta_ids.add(id(b))
+            meta_next = label_only
+            continue
+        meta_next = False
         if b.kind != "paragraph" or len(t) < 3 or id(b) in title_ids or b is abstract_block or b is abstract_label_block:
             continue
         below_abstract = abstract_block is not None and b.y0 > abstract_block.y1 + 2
@@ -1003,7 +1434,9 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
             blocks = [x for x in blocks if x is not nxt]
     # --- 标题块与章节 ---
     _drop_table_header_hints(blocks, body)
+    _drop_repeated_headings(blocks)
     blocks = _merge_wrapped_headings(blocks, front_ids, title_ids)
+    _demote_panel_labels(blocks, body)
     standalone_sizes = sorted({round(b.size * 2) / 2 for b in blocks if id(b) not in front_ids and id(b) not in title_ids
                                and _is_heading_block(b, body) and not _heading_level_numbered(b.text.strip())[0]}, reverse=True)
     size_rank = {s: i + 1 for i, s in enumerate(standalone_sizes)}
@@ -1066,12 +1499,18 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
         bbox = _to_display(page_by_no[b.page].rot, (b.x0, b.y0, b.x1, b.y1))
         first_ord = len(passages)
         runs = bold_runs(b) if kind in ("paragraph", "caption") else []
+        itl = bold_runs(b, "italic") if kind in ("paragraph", "caption") else []
         maths = math_runs(b, page_by_no[b.page].spans) if kind in ("paragraph", "caption") else []
+        for c in b.cont if kind == "paragraph" else []:  # 跨页接上来的那一块：它的行内公式、粗体也要算
+            runs = runs + bold_runs(c)
+            itl = itl + bold_runs(c, "italic")
+            maths = maths + math_runs(c, page_by_no[c.page].spans)
         for chunk in _split_long(text):
-            passages.append(ParsedPassage(len(passages), b.page, kind, chunk, bbox, section, bold=[r for r in runs if r in chunk],
+            passages.append(ParsedPassage(len(passages), b.page, kind, chunk, bbox, section, bold=[r for r in runs if r in chunk], italic=[r for r in itl if r in chunk],
                                           math=[m for m in maths if m["src"] in chunk]))
         return first_ord
 
+    blocks = _join_cross_page(blocks, front_ids | title_ids | front_notes | ({id(abstract_block)} if abstract_block is not None else set()))
     for b in blocks:
         pn = b.page
         if use_toc:
@@ -1118,14 +1557,20 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
             pass
         else:
             continue
-        if not use_toc and after_abstract and not b.run_in:
+        if not use_toc and after_abstract and not b.run_in and b.kind == "paragraph" and abstract_block is not None and b.page == abstract_block.page and b is not abstract_block                 and b.col == abstract_block.col and abstract_block.lines and b.lines and layout.line_font(b.lines[0]) == layout.line_font(abstract_block.lines[0])                 and abs(b.size - abstract_block.size) < 0.3 and b.y0 > abstract_block.y1:
+            pass  # 摘要被图隔成两截（ResNet）：同栏、同字体字号的后一截仍属摘要，不另开“正文”
+        elif not use_toc and after_abstract and not b.run_in:
             cur_section = new_section(1, "正文", pn)
             after_abstract = False
         # 算法框里的粗体词（Notation:、Input:）是伪代码的关键字，不是小节标题：位于“Algorithm N”表题下面一屏之内、同一栏的块
         in_algo = any(c[0] == pn and -5 < b.y0 - c[1] < 420 and b.x1 > c[2] and b.x0 < c[3] for c in algo_caps)
-        if b.run_in and re.fullmatch(r"(?i)(?:input|output|require|ensure|return|initialize|initialise|procedure|notation)s?", b.run_in.strip(" .:")):
+        if b.run_in and re.fullmatch(r"(?i)(?:input|output|require|ensure|return|initialize|initialise|procedure|notation|theorem|lemma|proposition|corollary|proof|definition|remark|example|claim|conjecture|assumption|fact|property)s?(?:\s*[\dA-Z][\dA-Za-z.\-]*)?", b.run_in.strip(" .:")):
             in_algo = True  # 伪代码的关键字（Input: / Output: / Require:）不是小节标题，哪怕“Algorithm N”的表题排在框的下面
-        if b.run_in and not use_toc and not in_refs and not in_algo:  # 参考文献里的行首短句（“Y. Bengio. Maxout networks.”）不是小节标题
+        if b.run_in and re.fullmatch(r"(?i)(?:conceptuali[sz]ation|data curation|formal analysis|funding acquisition|investigation|methodology|project administration|resources|software|supervision|validation|visuali[sz]ation|writing\s*[–-]\s*(?:original draft|review\s*(?:&|and)\s*editing))", b.run_in.strip(" .:：")):
+            in_algo = True  # 作者贡献里的 CRediT 角色（“Conceptualization: 姓名, 姓名.”）不是小节标题
+        if b.run_in and re.fullmatch(r"(?i)(?:key\s*words?|index terms)", b.run_in.strip(" .:：")):
+            in_algo = True  # “Keywords:” 是关键词行的标签，不是小节标题
+        if b.run_in and not use_toc and not in_refs and not in_algo and _prose_like(text):  # 参考文献里的行首短句（“Y. Bengio. Maxout networks.”）不是小节标题
             cur_section = new_section(b.level or 2, _heading_title(b.run_in), pn)
             after_abstract = False
         if text == "" or (re.fullmatch(r"[\d\W]+", text) and b.kind != "formula"):
@@ -1141,7 +1586,7 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
             m_num = re.match(r"\s*\[?(\d{1,3})[\].]\s", text)
             author_year_again = (
                 not in_refs and refs_sec is not None and not last_num and not m_num and len(text) > 40
-                and bool(_AUTHOR_YEAR_START.match(text)) and bool(re.search(r"\((?:19|20)\d{2}[a-z]?\)", text))
+                and bool(_AUTHOR_YEAR_START.match(text)) and bool(re.search(r"\((?:19|20)\d{2}[a-z]?\)|[;.,]\s*(?:19|20)\d{2}[a-z]?\s*[;.:]|\b(?:19|20)\d{2}\s*;\s*\d", text))
             )  # 作者-年份体：“Tricomi, E., Balleine, B. W., … (2009).”
             cont_again = not in_refs and refs_sec is not None and last_ref_open and text[:1].islower() and len(text) > 40  # 上一条没写完、这一段小写开头：右栏顶上被说明挤开的续行
             if cont_again or author_year_again or (not in_refs and refs_sec is not None and last_num and m_num and int(m_num.group(1)) == last_num + 1 and len(text) > 40):
@@ -1182,7 +1627,7 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
                 p.section_ord += 1
 
     # 图/表实体：把图区域与最近的图注关联
-    cap_passages = [p for p in passages if p.kind == "caption"]
+    cap_passages =[p for p in passages if p.kind == "caption"]
     for pg in pages:
         for ri, reg in enumerate(pg.regions):
             disp = _to_display(pg.rot, (reg.x0, reg.y0, reg.x1, reg.y1))
@@ -1209,9 +1654,22 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
     # 图、表不切断正文，并紧跟在首次提到它的段落后面（会重新编号：ord 就是阅读顺序）
     reflow.reflow(passages, figures, equations)
 
+    # 自动补出的“正文”章节里一个段落也没有（摘要之后第一块被丢掉/归进了别处）：目录里多一行点不到内容的条目，去掉并重排序号
+    used = {p.section_ord for p in passages if p.section_ord is not None}
+    empty_body = {s.ord for s in sections if s.title == "正文" and s.ord not in used}
+    if empty_body:
+        sections[:] = [s for s in sections if s.ord not in empty_body]
+        remap = {s.ord: i for i, s in enumerate(sections)}
+        for s in sections:
+            s.ord = remap[s.ord]
+        for p in passages:
+            if p.section_ord is not None:
+                p.section_ord = remap.get(p.section_ord, p.section_ord)
+
     full_text = " ".join(p.text for p in passages[:200])
     title_text = " ".join(b.text for b in sorted(title_blocks, key=lambda b: (b.y0, b.x0)))
-    author_texts = [b.text for b in p1 if id(b) in front_ids and id(b) not in side_ids and not re.search(r"(?i)\(\s*received\s+\d", b.text) and (b.size >= 0.88 * body or _looks_like_names(b.text)) and len(b.text) <= 2500][:40]
+    title_text = re.sub(r"(?<=[一-鿿，、：；！？）》」”])\s+(?=[一-鿿（《「“])", "", title_text)  # 标题折行处，汉字之间不该有空格
+    author_texts = [_author_text(b) for b in p1 if id(b) in front_ids and id(b) not in side_ids and not (b.run_in or '').lower().startswith('editor') and id(b) not in meta_ids and not re.search(r"(?i)\(\s*received\s+\d", b.text) and (b.size >= 0.88 * body or _looks_like_names(b.text) or (bool(title_blocks) and 0 <= b.y0 - max(t_.y1 for t_ in title_blocks) <= 80 and re.match(r"[A-Z][A-Z.\-']+(?:\s+[A-Z][A-Z.\-']+){1,3}\s", b.text) is not None)) and len(b.text) <= 2500][:40]
     abstract = None
     if abstract_block is not None:
         abstract = re.sub(r"(?i)^\s*(abstract|摘\s*要)[\s:：.—-]*", "", abstract_block.text).strip()[:3000]
@@ -1260,7 +1718,10 @@ def _looks_like_names(text: str) -> bool:
         ok = sum(1 for p in parts if 2 <= len(p.split()) <= 5 and p.split()[0][:1].isupper() and p.split()[-1][:1].isupper())
         if ok / len(parts) >= 0.85:
             return True
-    cap = sum(1 for w in words if w[:1].isupper() or w[:1] in "∗†‡*")
+    words = [w for w in words if w.lower() not in ("and", "&", "und", "et", "y", "und")]  # 作者之间的连接词不算普通词（“T. Kalewicz and V. Bommier”）
+    if len(words) < 3:
+        return False
+    cap = sum(1 for w in words if w[:1].isupper() or w[:1] in "∗†‡*&")
     return cap / len(words) > 0.8 and not re.search(r"[a-z]{3,} [a-z]{3,} [a-z]{3,}", text)
 
 
@@ -1278,4 +1739,9 @@ def _find_abstract(passages: list[ParsedPassage], sections: list[ParsedSection])
     for p in passages:
         if p.page <= 2 and p.kind == "paragraph" and re.match(r"(?i)(abstract[\s.:—-]|摘\s*要)", p.text):
             return re.sub(r"(?i)^(abstract[\s.:—-]*|摘\s*要[\s:：.]*)", "", p.text)[:3000]
+    for s in sections:  # 没有摘要、正文以 Summary 开头（JOSS）：Summary 下第一段当摘要
+        if s.page <= 2 and re.fullmatch(r"(?i)(?:\d+\.?\s*)?(?:executive\s+)?summary\s*", s.title.strip()):
+            texts = [p.text for p in passages if p.section_ord == s.ord and p.kind == "paragraph" and len(p.text) >= 120]
+            if texts:
+                return texts[0][:3000]
     return None

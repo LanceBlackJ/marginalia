@@ -15,6 +15,34 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pdfgen  # noqa: E402
 from fakellm import FakeLLM  # noqa: E402
 
+@pytest.fixture(autouse=True)
+def _no_layout_model(monkeypatch):
+    """测试里不下载、不运行真实的版面模型（需要联网和 75 MB 文件）；要测它的用例自己注入假引擎并打开开关。"""
+    from paperdesk.library import layout_boxes
+
+    monkeypatch.setattr(layout_boxes, "ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
+def _no_mineru(monkeypatch):
+    """测试里不连真实的 MinerU 服务；要测它的用例用 mineru_client.set_engine 注入假结果并打开开关。"""
+    from paperdesk.parsing import mineru_client
+
+    monkeypatch.setattr(mineru_client, "ENABLED", False)
+    yield
+    mineru_client.set_engine(None)
+
+
+@pytest.fixture(autouse=True)
+def _no_local_math(monkeypatch):
+    """测试里不加载真实的本地公式模型（PyTorch + 600 MB 权重）；要测它的用例用 math_local.set_engine 注入假引擎。"""
+    from paperdesk.vision import math_local
+
+    monkeypatch.setattr(math_local, "installed", lambda: False)
+    yield
+    math_local.set_engine(None)
+
+
 TOKEN = "test-token"
 AUTH = {"Authorization": f"Bearer {TOKEN}"}
 

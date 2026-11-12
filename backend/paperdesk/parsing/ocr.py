@@ -100,6 +100,8 @@ def ocr_page(path: Path, page_no: int) -> list[Span]:
         x0, x1 = min(p.x for p in pts), max(p.x for p in pts)
         y0, y1 = min(p.y for p in pts), max(p.y for p in pts)
         h = max(1.0, y1 - y0)
+        if len(text) >= 6 and h > 2.5 * max(1.0, x1 - x0):
+            continue  # 竖排的页边戳记（arXiv 编号、期刊水印）：框比宽高得多，不是正文，留着会被当成超大字号的标题
         spans.append(Span(x0=x0, y0=y0, x1=x1, y1=y1, baseline=y1 - 0.2 * h, text=text, size=round(h * 0.82, 2),
                           bold=False, italic=False, font="ocr", math=False))
     _normalise_sizes(spans)
@@ -114,5 +116,5 @@ def _normalise_sizes(spans: list[Span]) -> None:
     heights = sorted(s.y1 - s.y0 for s in spans if len(s.text) >= 12) or sorted(s.y1 - s.y0 for s in spans)
     med = heights[len(heights) // 2]
     for s in spans:
-        if (s.y1 - s.y0) <= 1.35 * med:
+        if (s.y1 - s.y0) <= 1.28 * med:
             s.size = round(med * 0.82, 2)

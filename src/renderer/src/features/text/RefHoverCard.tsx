@@ -16,7 +16,7 @@ export function refByline(item: RefItem): string {
 
 /**
  * 鼠标停在正文的引用角标上时浮出的小卡片：直接写出是哪篇文献（标题、作者、年份、来源）。
- * 好奇的话卡片上有“查看摘要”，一步打开这篇的摘要；点角标本身是更完整的浮层。
+ * 每条文献各有一个“查看详情”，一步打开那一篇的详情（摘要等）；点角标本身是更完整的浮层。
  */
 export function RefHoverCard() {
   const hover = useRefStore((s) => s.hover)
@@ -38,7 +38,6 @@ export function RefHoverCard() {
   const items = hover.refs.map((i) => byIndex.get(i)).filter((x): x is RefItem => !!x)
   if (items.length === 0) return null
   const shown = items.slice(0, MAX_SHOWN)
-  const first = items[0]
   return (
     <div
       ref={ref}
@@ -56,14 +55,16 @@ export function RefHoverCard() {
               <span className="pd-refhover-n">[{it.index}]</span> {refHeadline(it)}
             </div>
             {by && <div className="pd-refhover-by">{by}</div>}
+            <div className="pd-refhover-actions">
+              <Button size="sm" variant="primary" onClick={() => openDrawer(it.index)} title="联网查询 OpenAlex / Crossref，只发送这条参考文献的标题、作者或 DOI" aria-label={`查看详情 ${it.index}`}>
+                查看详情
+              </Button>
+            </div>
           </div>
         )
       })}
       {items.length > shown.length && <div className="pd-refhover-by">还有 {items.length - shown.length} 条，点角标查看全部</div>}
       <div className="pd-refhover-actions">
-        <Button size="sm" variant="primary" onClick={() => openDrawer(first.index)} title="联网查询 OpenAlex / Crossref，只发送这条参考文献的标题、作者或 DOI">
-          查看摘要
-        </Button>
         <button type="button" className="pd-refhover-more" onClick={() => openPopover(hover.refs, hover.rect)}>
           更多信息
         </button>

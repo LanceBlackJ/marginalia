@@ -62,7 +62,7 @@
 | POST | `/api/papers/{id}/locate` | body `{"text":"选中文字","page":3}`；把选中文字映射到段落：`{"matches":[{"ord","page","bbox","score","section_title"}]}`（score 0–1，按分数降序，最多 5 条） |
 | GET | `/api/papers/{id}/search?q=&limit=` | 论文内全文检索：`{"items":[{"ord","page","bbox","section_title","snippet","highlights":[[s,e]],"score"}]}`（`highlights` 为 `snippet` 内字符区间） |
 
-`Passage`：`{"ord":12,"page":3,"kind":"paragraph|caption|reference|formula|figure_text|table","section_title":"3.2 Method","text":"…","bbox":[x0,y0,x1,y1]}`
+`Passage`：`{"ord":12,"page":3,"kind":"paragraph|caption|reference|formula|figure_text|table","section_title":"3.2 Method","section_id":"57","text":"…","bbox":[x0,y0,x1,y1]}`（`section_id` 是所属章节的 id，和 `/outline` 里目录项的 `id` 一致；同名小节如两个 “Results” 只能靠它区分，没有所属章节时为 null；`/passages`、`/text` 返回）
 
 `kind` 说明：`paragraph` 正文段落；`caption` 图/表标题；`reference` 参考文献条目（检索默认排除）；
 `formula` 显示公式区域（文字层可能因数学字体编码而乱码，精确内容请渲染截图交给视觉模型）；

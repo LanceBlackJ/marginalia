@@ -1,6 +1,10 @@
 """解析的回归测试：每一条都来自真实论文里出过的问题（用合成的片段重现，不依赖 PDF 文件）。"""
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from paperdesk.parsing import layout
 from paperdesk.parsing.layout import Span, _line_from
 
@@ -403,3 +407,400 @@ def test_heading_fonts_are_found_from_isolated_short_lines():
 def test_equation_fragment_numbered_like_a_heading_is_not_a_heading():
     assert not layout._is_heading_line(line(100, [(72, "2 S s T s 2", {"bold": True, "w": 50})]), 240, 10.0)
     assert not layout._is_heading_line(line(100, [(72, "1 2 3 4", {"w": 30})]), 240, 10.0)
+
+
+def test_algorithm_steps_are_one_paragraph_each_and_never_display_formulas():
+    """伪代码框：“5: H∗, (y, T) ← IsMaxVolume(H)”和“6: P∗ ← Resample(…)”原来并成一行，星号上标成了独立的大号公式块。
+    每个“N:”步骤一块、一个 paragraph；小字号的上标片段并回它所在的步骤行。"""
+    def step(y, text, x=324.0, size=10.0):
+        return line(y, [(x, text, {"w": 5.0 * len(text)})], size)
+
+    star = _line_from([sp("\u2217 (\u2217) \u2217", 358, 153.0, 7.0, w=40)])
+    star.cls = "R"
+    lines = [step(112, "4: H \u2190 Eq (29) \u2190Y\u2217"), step(158, "5: H , (yr , T ) \u2190 IsMaxVolume(H)"), star,
+             step(171, "6: P\u2217 \u2190 Resample(y(r\u2217), T \u2217)"), step(183, "7: u \u2190 NMPC (P , H )"), step(194, "8: end if")]
+    for l in lines:
+        l.cls = "R"
+    blocks = layout.segment_paragraphs(lines, 5, 10.0)
+    assert [b.kind for b in blocks] == ["paragraph"] * 5, [(b.kind, b.text) for b in blocks]
+    assert [b.text[:2] for b in blocks] == ["4:", "5:", "6:", "7:", "8:"]
+    assert "\u2217" in blocks[1].text and blocks[1].text.startswith("5: H")  # 上标并回了第 5 步
+    # 正文里偶然以 “3: ” 开头、没有相邻编号步骤的行不当步骤
+    assert layout._algo_step_ids([step(100, "3: the ratio is large")]) == set()
+
+
+# ---------------- 第三轮：用户下载的 Nature/Cell/Elsevier/ACM/Oxford/Springer 论文里发现的问题 ----------------
+def test_html_entities_in_the_text_layer_are_decoded():
+    assert layout.clean_text("PGC-1&alpha; and &alpha;-Catenin &mdash; done") == "PGC-1α and α-Catenin — done"
+    assert layout.clean_text("R&D & more") == "R&D & more"  # 不是实体的 & 不动
+
+
+def test_root_bar_glyph_run_is_not_text():
+    assert layout.clean_text("the value pﬃﬃﬃﬃ N and pffiffiffiffiffiffi x") == "the value √ N and √ x"
+
+
+def test_glosa_math_is_a_text_font_not_a_math_font():
+    """Nature 的正文字体叫 GlosaMath-Roman：名字里有 math，但是正文。"""
+    assert not layout.MATH_FONT_RE.search("GlosaMath-Roman") and layout.MATH_FONT_RE.search("CMMI10")
+
+
+def test_authors_with_affiliation_digit_before_the_star_and_superscript_letters():
+    from paperdesk.parsing.metadata import guess_authors
+
+    got = guess_authors(["David Silver1*, Aja Huang1*, Chris J. Maddison1, Arthur Guez1, Laurent Sifre1, George van den Driessche1"])
+    assert got[:3] == ["David Silver", "Aja Huang", "Chris J. Maddison"], got
+    assert guess_authors(["Fei Sun, Roberto Cipolla, Senior Member, IEEE"]) == ["Fei Sun", "Roberto Cipolla"]
+    assert guess_authors(["BIOINFORMATICS ORIGINAL PAPER", "Associate Editor: Martin Bishop", "Yang Liao, Gordon K. Smyth and Wei Shi"])[:1] == ["Yang Liao"]
+
+
+def test_two_consecutive_numbered_equations_stay_two_blocks():
+    """(33)(34) 两个紧挨着的编号公式：不能并成一个块、丢掉前一个编号。"""
+    lines = [
+        line(581, [(85, "s.t. x0 = xinit,", {"w": 90}), (272, "(33)", {})]),
+        line(598, [(100, "xk+1 = xk + f(xk, uk)Δt,", {"w": 150}), (272, "(34)", {})]),
+    ]
+    blocks = layout.segment_paragraphs(lines, 5, 10.0)
+    assert [b.eq_number for b in blocks if b.kind == "formula"] == ["33", "34"], [(b.kind, b.text) for b in blocks]
+
+
+def test_cross_page_paragraph_continuation_is_joined():
+    from paperdesk.parsing import pdf_parser as P
+
+    a = layout.Block(3, 300, 700, 552, 750, "polynomials in s. For brevity, we", 10.0, 0.0, 2, "R")
+    b = layout.Block(4, 48, 60, 289, 72, "use the a_j to explain,", 10.0, 0.0, 1, "L")
+    c = layout.Block(4, 48, 90, 289, 130, "Another paragraph starts here.", 10.0, 0.0, 3, "L")
+    out = P._join_cross_page([a, b, c], set())
+    assert [x.text for x in out] == ["polynomials in s. For brevity, we use the a_j to explain,", "Another paragraph starts here."]
+    assert out[0].cont == [b]
+
+
+def test_orphan_superscript_stacked_on_a_subscript_joins_the_text_line():
+    """c_a^{(j)}：上标 “(j)” 压在下标 “a” 上面、离正文基线太远，自成一行会把一句话截成三段。"""
+    body = [sp("use the a", 72, 100.0, 10.0, w=40), sp("(ˆs, c", 114, 100.0, 10.0, w=30), sp("a", 146, 102.0, 7.0, w=4)]
+    sup = [sp("(j)", 146, 95.0, 7.0, w=10)]
+    lines = layout.build_lines(body + sup, None, 10.0)
+    assert len(lines) == 1, [l.text for l in lines]
+
+
+def test_panel_label_helpers():
+    from paperdesk.parsing import pdf_parser as P
+    assert P._prose_like("This protein binds the receptor and then recruits the kinase to membranes")
+    assert not P._prose_like("00 - - + 10 5")
+    assert P._sentence_like("Not applicable.")
+    assert not P._sentence_like("MCT4 12010080")
+
+
+def test_overprinted_label_fragments_are_dropped():
+    """Cell 的示意图把标签画了好几层（整词 “Stabilizes” 上面再叠 “Sta”“es”）：字典式提取不去重，会读成 “StabilizesStaes”。"""
+    whole = sp("Stabilizes", 100, 200, 8.0, w=50)
+    frag1 = sp("Sta", 100, 200, 8.0, w=15)
+    frag2 = sp("es", 135, 200, 8.0, w=12)
+    other = sp("Agrin", 100, 230, 8.0, w=30)
+    kept = layout._drop_overprint([whole, frag1, frag2, other])
+    assert [s.text for s in kept] == ["Stabilizes", "Agrin"]
+    dup = layout._drop_overprint([sp("AChR", 10, 10, 8.0, w=20), sp("AChR", 10, 10, 8.0, w=20)])
+    assert len(dup) == 1
+
+
+# ---- 第二轮：用不同版式的论文测出来的问题 ----
+ZH_FONT = next((str(p) for p in (Path(r"C:\Windows\Fonts\simhei.ttf"), Path(r"C:\Windows\Fonts\msyh.ttc"), Path(r"C:\Windows\Fonts\simsun.ttc")) if p.exists()), None)
+
+
+def _pdf_from_pages(tmp_path, pages, name="t.pdf"):
+    import pymupdf
+
+    doc = pymupdf.open()
+    for items in pages:
+        pg = doc.new_page(width=595, height=842)
+        for x, y, text, size, font in items:
+            if font == "zh":
+                pg.insert_font(fontname="zh", fontfile=ZH_FONT)
+            pg.insert_text((x, y), text, fontsize=size, fontname=font)
+    path = tmp_path / name
+    doc.save(str(path))
+    return path
+
+
+@pytest.mark.skipif(ZH_FONT is None, reason="本机没有中文字体")
+def test_chinese_numbered_headings_become_sections(tmp_path):
+    from paperdesk.parsing.pdf_parser import parse_pdf
+
+    body = "参评各类奖学金、荣誉均需同时满足以下基本条件，并按照学院规定的时间和程序提交相应的证明材料以供审核。"
+    items = [(150, 70, "奖学金评审细则", 18, "zh")] + [(70, 110 + 20 * i, body, 12, "zh") for i in range(4)]
+    items += [(70, 210, "一、基本条件", 14, "zh")] + [(70, 240 + 20 * i, body, 12, "zh") for i in range(6)]
+    items += [(70, 380, "（一）体育竞技奖", 14, "zh")] + [(70, 410 + 20 * i, body, 12, "zh") for i in range(6)]
+    d = parse_pdf(_pdf_from_pages(tmp_path, [items]))
+    titles = [s.title for s in d.sections]
+    assert "一、基本条件" in titles and "（一）体育竞技奖" in titles
+    assert next(s.level for s in d.sections if s.title.startswith("（一）")) > next(s.level for s in d.sections if s.title.startswith("一、"))
+
+
+def test_chinese_sentence_split_by_a_page_break_is_joined_without_a_space():
+    from paperdesk.parsing.pdf_parser import _cjk_cont
+
+    assert _cjk_cont("获大连理工大学一等奖学金，可直接获大", "连理工大学“优秀大学生”荣誉称号。")
+    assert not _cjk_cont("获大连理工大学一等奖学金。", "连理工大学")  # 不影响英文/已结束的句子由别处判断；这里只管汉字结尾
+    assert not _cjk_cont("条件如下：", "（一）体育竞技奖")  # 新的小节编号不是续句
+
+
+def test_author_guess_ignores_chinese_sentences():
+    from paperdesk.parsing.metadata import split_authors
+
+    assert split_authors("绩得分，L代表科研论文得分；") == []
+    assert split_authors("张三 李四 王五") == ["张三", "李四", "王五"]
+
+
+def test_vertical_ocr_margin_stamp_is_dropped():
+    from pathlib import Path
+
+    from paperdesk.parsing import ocr
+
+    def fake(png):
+        return [([[10, 10], [60, 10], [60, 400], [10, 400]], "arXiv:1406.2661v1 [stat.ML] 10 Jun 2014", 0.9),
+                ([[100, 50], [400, 50], [400, 70], [100, 70]], "Generative Adversarial Nets", 0.95)]
+
+    import pymupdf
+
+    # 一页空白 PDF 就够：OCR 引擎是注入的假引擎
+    doc = pymupdf.open(); doc.new_page(width=595, height=842)
+    import tempfile, os
+
+    with tempfile.TemporaryDirectory() as d:
+        p = Path(d) / "s.pdf"; doc.save(str(p)); doc.close()
+        ocr.set_engine(fake)
+        try:
+            spans = ocr.ocr_page(p, 1)
+        finally:
+            ocr.set_engine(None)
+    assert [s.text for s in spans] == ["Generative Adversarial Nets"]
+
+
+# ---- 第二轮多版式测试的回归（对应 PARSER_VERSION 25 的改动）----
+def _blk(text, y0=100.0, size=10.0, bold=0.0, nlines=1, kind="paragraph", hint=False, font="F1", page=1, col="L"):
+    from paperdesk.parsing.layout import Block
+
+    ln = line(y0 + size, [(50, text, {"font": font, "bold": bold > 0.5})], size=size)
+    return Block(page, 50, y0, 50 + 5 * len(text), y0 + size * nlines, text, size, bold, nlines, col, kind, heading_hint=hint, lines=[ln])
+
+
+def test_table_header_cells_followed_by_number_rows_are_not_headings():
+    from paperdesk.parsing import pdf_parser as P
+
+    blocks = [_blk("Method Error %", 100, bold=1.0, hint=True), _blk("Binary Features (Netzer et al., 2011) 36.7 HOG 35.1 Stacked Sparse Coding 30.6 K-Means 29.7", 120, nlines=3),
+              _blk("Method", 300, bold=1.0, hint=True), _blk("Type", 312, bold=1.0, hint=True),
+              _blk("Standard Neural Net 1.6 Logistic 1.4 SVM Gaussian kernel 1.4 Dropout NN 1.25 DBN 1.18", 324, nlines=3)]
+    P._drop_table_header_hints(blocks, 11.0)
+    assert not blocks[0].heading_hint and not blocks[2].heading_hint
+
+
+def test_real_back_matter_headings_survive_the_table_header_rule():
+    from paperdesk.parsing import pdf_parser as P
+
+    blocks = [_blk("Code availability", 100, bold=1.0, hint=True), _blk("The code is available at https://github.com/x/y (2020) and 12 other places 1 2 3", 120, nlines=2)]
+    P._drop_table_header_hints(blocks, 10.0)
+    assert blocks[0].heading_hint
+
+
+def test_dotted_roman_heading_is_not_demoted_even_in_a_label_font():
+    from paperdesk.parsing import layout, pdf_parser as P
+
+    old = layout.LABEL_FONTS
+    layout.LABEL_FONTS = frozenset({"Adv.B"})
+    try:
+        blocks = [_blk("I. INTRODUCTION", 100, hint=True, font="Adv.B"), _blk("In 1916, the year after the final formulation of the field equations of general relativity, Einstein predicted.", 120, nlines=3)]
+        P._demote_panel_labels(blocks, 10.0)
+        assert blocks[0].heading_hint
+        panel = [_blk("15 Spo11 oligos", 100, hint=True, font="Adv.B"), _blk("12 8", 120)]
+        P._demote_panel_labels(panel, 10.0)
+        assert not panel[0].heading_hint  # 面板标签仍然被撤掉
+    finally:
+        layout.LABEL_FONTS = old
+
+
+def test_bold_abstract_first_line_is_text_not_a_heading_and_rejoins_its_continuation():
+    from paperdesk.parsing import layout, pdf_parser as P
+
+    old = layout.LABEL_FONTS
+    layout.LABEL_FONTS = frozenset()
+    a = _blk("Deeper neural networks are more difficult to train. We", 100, hint=True, bold=1.0)
+    b = _blk("present a residual learning framework to ease the training of networks", 112, nlines=3)
+    blocks = [a, b]
+    try:
+        P._demote_panel_labels(blocks, 10.0)
+    finally:
+        layout.LABEL_FONTS = old
+    assert len(blocks) == 1 and blocks[0].text.startswith("Deeper neural networks") and "present a residual" in blocks[0].text
+
+
+def test_a_sentence_in_the_heading_font_is_not_a_heading():
+    from paperdesk.parsing import pdf_parser as P
+
+    assert not P._is_heading_block(_blk("The depth of representations is of central importance. For many visual tasks we", 100, hint=True, bold=1.0), 10.0)
+    assert P._is_heading_block(_blk("3.2. Identity Mapping by Shortcuts", 100, hint=True, bold=1.0), 10.0)
+
+
+def test_wrapped_heading_last_word_rejoins_the_heading():
+    from paperdesk.parsing import layout, pdf_parser as P
+
+    a = _blk("Cold storage exacerbates mitochondrial and renal damage after", 100, size=11.0, bold=1.0, hint=True)
+    b = _blk("transplantation", 112, size=11.0, bold=1.0, hint=False)
+    out = P._merge_wrapped_headings([a, b], set(), set())
+    assert len(out) == 1 and out[0].text.endswith("after transplantation")
+
+
+def test_chinese_heading_patterns():
+    from paperdesk.parsing import pdf_parser as P
+
+    assert P._heading_level_numbered("一、基本条件") == (1, "cn")
+    assert P._heading_level_numbered("（二）创新创业奖")[0] == 2
+    assert P._heading_level_numbered("第三章 总则")[0] == 1
+
+
+def test_two_authors_followed_directly_by_the_affiliation():
+    from paperdesk.parsing.metadata import _names_in_block, guess_authors
+
+    assert guess_authors(["Karen Simonyan & Andrew Zisserman Visual Geometry Group, Department of Engineering Science, University of Oxford"]) == ["Karen Simonyan", "Andrew Zisserman"]
+    assert guess_authors(["T. Kalewicz and V. Bommier"]) == ["T. Kalewicz", "V. Bommier"]
+    assert "⃝c ESO" not in guess_authors(["⃝c ESO 2019", "T. Kalewicz and V. Bommier"])
+
+
+def test_stacked_baselines_are_split_into_their_own_lines():
+    from paperdesk.parsing.layout import _split_stacked
+
+    group = [sp("Define", 100, 100, 12), sp("inf", 150, 100, 12, w=20), sp("where", 200, 100, 12), sp("infimum", 250, 100, 12),
+             sp("is", 100, 114, 12), sp("just", 130, 114, 12), sp("the", 170, 114, 12), sp("lowest", 200, 114, 12), sp("eigenvalue", 260, 114, 12)]
+    rows = _split_stacked(group)
+    assert len(rows) == 2 and {s.text for s in rows[0]} >= {"Define", "where"} and {s.text for s in rows[1]} >= {"lowest", "eigenvalue"}
+    one_line = [sp("a", 100, 100, 12), sp("b", 120, 100, 12)]
+    assert _split_stacked(one_line) == [one_line]
+
+
+def test_tall_integral_glyph_takes_the_baseline_of_the_text_beside_it():
+    from paperdesk.parsing.layout import Span, _fix_tall_operators
+
+    text = Span(110, 380, 160, 392, 389.8, "satisfying", 12.0, False, False, "Times", False)
+    after = Span(172, 380, 190, 392, 389.8, "e", 12.0, False, False, "Times", False)
+    other = Span(110, 366, 160, 378, 375.4, "Define", 12.0, False, False, "Times", False)
+    integral = Span(163.4, 379.7, 169.1, 408.4, 380.2, "∫", 12.0, False, False, "CMEX10", False)
+    _fix_tall_operators([text, after, other, integral])
+    assert abs(integral.baseline - 389.8) < 0.01  # 不再算作上一行（375.4）的一部分
+
+
+def test_link_label_lines_are_recognised():
+    from paperdesk.parsing.pdf_parser import LINK_LABEL_RE
+
+    for t in ("Publisher Full Text", "PubMed Abstract | Publisher Full Text | Free Full Text", "Data Source", "Reference Source"):
+        assert LINK_LABEL_RE.fullmatch(t)
+    assert not LINK_LABEL_RE.fullmatch("Publisher Full Text of the study design")  # 不会吃掉真正的句子
+
+
+def test_vancouver_style_reference_starts():
+    from paperdesk.parsing.layout import AUTHOR_START_RE
+    from paperdesk.parsing.pdf_parser import _looks_like_ref_start
+
+    assert AUTHOR_START_RE.match("Capobianco M, Pizzuto EA, Devescovi A: Gesture–speech combinations")
+    assert _looks_like_ref_start("Cerniglia L: “Preterm/Fullterm”, Mendeley Data, v2. 2017.")
+    assert not _looks_like_ref_start("The authors acknowledge and are grateful to all children and parents.")
+
+
+def test_repeated_template_headings_are_not_sections():
+    from paperdesk.parsing import pdf_parser as P
+
+    q = "Is the study design appropriate and is the work technically sound?"
+    blocks = [_blk(q, 100, bold=1.0, hint=True), _blk("Yes.", 120), _blk(q, 300, bold=1.0, hint=True, page=2), _blk("Yes.", 320, page=2),
+              _blk("Statistical analysis plan overview", 400, bold=1.0, hint=True)]
+    P._drop_repeated_headings(blocks)
+    assert [b.heading_hint for b in blocks] == [False, False, False, False, True]
+
+
+# ---- 本地版面模型（表格/图/显示公式的框）补规则漏掉的对象 ----
+def _page(spans_text, w=612.0, h=792.0):
+    """造一个最小的 _Page：只要有 native 尺寸、spans、regions、lines、rot。"""
+    import pymupdf
+
+    from paperdesk.parsing import pdf_parser as P
+
+    pg = P._Page.__new__(P._Page)
+    pg.no, pg.native_w, pg.native_h, pg.rot = 1, w, h, pymupdf.Matrix(1, 0, 0, 1, 0, 0)
+    pg.spans = [sp(t, x, y, 10.0, w=5.0 * len(t)) for t, x, y in spans_text]
+    pg.regions, pg.lines = [], []
+    return pg
+
+
+def test_model_table_box_becomes_a_table_region_unless_it_is_prose():
+    from paperdesk.parsing import pdf_parser as P
+
+    cells = [("Method", 100, 200), ("Error", 220, 200), ("A", 100, 215), ("1.5", 220, 215), ("B", 100, 230), ("2.5", 220, 230)]
+    pg = _page(cells)
+    P._add_model_regions(pg, [{"kind": "table", "conf": 0.9, "box": [90 / 612, 185 / 792, 300 / 612, 240 / 792]}])
+    assert len(pg.regions) == 1 and pg.regions[0].table
+    # 低置信度 / 占了大半页 / 框里是成段的句子：都不采用
+    pg2 = _page(cells)
+    P._add_model_regions(pg2, [{"kind": "table", "conf": 0.2, "box": [0.1, 0.2, 0.5, 0.3]}, {"kind": "table", "conf": 0.9, "box": [0, 0, 1, 0.9]}])
+    assert pg2.regions == []
+    sentences = [("This is a long sentence with many ordinary words that ends properly in a period.", 100, 200 + 14 * i) for i in range(6)]
+    pg3 = _page(sentences)
+    P._add_model_regions(pg3, [{"kind": "figure", "conf": 0.9, "box": [90 / 612, 190 / 792, 540 / 612, 300 / 792]}])
+    assert pg3.regions == []
+
+
+def test_model_region_marks_an_existing_plain_region_as_a_table_instead_of_duplicating_it():
+    from paperdesk.parsing import pdf_parser as P
+    from paperdesk.parsing.figures import Region
+
+    pg = _page([("x", 100, 200)])
+    pg.regions = [Region(90, 180, 300, 260, "vector")]
+    P._add_model_regions(pg, [{"kind": "table", "conf": 0.9, "box": [92 / 612, 182 / 792, 298 / 612, 258 / 792]}])
+    assert len(pg.regions) == 1 and pg.regions[0].table
+
+
+def test_model_formula_box_makes_its_lines_one_formula_block():
+    from paperdesk.parsing import pdf_parser as P
+    from paperdesk.parsing.layout import segment_paragraphs
+
+    pg = _page([])
+    pg.lines = [line(300, [(200, "P(h|r, v) = prod P(hj|rj, v),", {})]), line(314, [(200, "Z(theta)", {})]),
+                line(100, [(50, "Plain prose line that is not an equation at all and stays prose here", {})])]
+    P._tag_model_formulas(pg, [{"kind": "formula", "conf": 0.8, "box": [190 / 612, 285 / 792, 400 / 612, 322 / 792]}])
+    assert [l.role for l in pg.lines] == ["formula", "formula", ""] and pg.lines[0].region == pg.lines[1].region >= 10_000
+    blocks = segment_paragraphs(sorted(pg.lines, key=lambda l: l.y0), 1, 10.0)
+    kinds = [b.kind for b in blocks]
+    assert kinds.count("formula") == 1 and "paragraph" in kinds
+
+
+def test_model_formula_box_around_prose_is_ignored():
+    from paperdesk.parsing import pdf_parser as P
+
+    sent = "This long line is ordinary prose with plenty of words so the box around it is a false positive"
+    pg = _page([])
+    pg.lines = [line(300, [(50, sent, {})]), line(314, [(50, sent + " again", {})])]
+    P._tag_model_formulas(pg, [{"kind": "formula", "conf": 0.9, "box": [40 / 612, 285 / 792, 560 / 612, 325 / 792]}])
+    assert [l.role for l in pg.lines] == ["", ""]
+
+
+def test_model_boxes_end_to_end_on_a_pdf_with_a_table_the_rules_miss(tmp_path):
+    """用 PyMuPDF 造一页带“没有线的表格”的 PDF：没有模型框时表里的单元格是正文段落，有框时它们成了图内文字。"""
+    import pymupdf
+
+    from paperdesk.parsing.pdf_parser import parse_pdf
+
+    doc = pymupdf.open()
+    pg = doc.new_page(width=612, height=792)
+    y = 80
+    for _ in range(5):
+        pg.insert_textbox(pymupdf.Rect(72, y, 540, y + 58), "Ordinary running text sentence about the experiment and its results in the paper. " * 3, fontsize=10, fontname="helv")
+        y += 62
+    for r, row in enumerate([("Method", "Top-1", "Top-5"), ("A", "70.1", "89.2"), ("B", "71.5", "90.3"), ("C", "73.0", "91.0")]):
+        for c, cell in enumerate(row):
+            pg.insert_text((90 + 120 * c, 440 + 16 * r), cell, fontsize=10, fontname="helv")
+    pg.insert_text((90, 530), "Table 1: Results of three methods.", fontsize=9, fontname="helv")
+    path = tmp_path / "t.pdf"
+    doc.save(str(path))
+    plain = parse_pdf(path)
+    boxes = {1: [{"kind": "table", "conf": 0.9, "box": [80 / 612, 425 / 792, 470 / 612, 500 / 792]}]}
+    with_model = parse_pdf(path, model_boxes=boxes)
+    assert any(p.kind == "figure_text" and "Top-1" in p.text for p in with_model.passages)
+    assert not any(p.kind == "paragraph" and "Top-1" in p.text for p in with_model.passages)
+    assert any(f.kind == "table" for f in with_model.figures) or any(p.kind == "caption" for p in with_model.passages)
+    assert any("Ordinary running text" in p.text for p in with_model.passages if p.kind == "paragraph")  # 正文不受影响
+    assert len(plain.passages) >= 1

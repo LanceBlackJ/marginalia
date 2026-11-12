@@ -92,11 +92,13 @@ class TranslateBody(BaseModel):
     page: int | None = None
     passage_ord: int | None = None
     force: bool = False
+    # 这段文字里解析时还原出的行内公式 [{src, tex}]：翻译时当占位符保护起来，译文里放回原来的 src，前端才能把它渲染成公式
+    math: list[dict] | None = Field(default=None, max_length=200)
 
 
 @router.post("/ai/translate")
 async def translate(body: TranslateBody, ctx: AppContext = Depends(get_ctx)):
-    return sse_response(AIService(ctx).translate_events(body.paper_id, body.text, body.page, body.passage_ord, body.force, body.context_title))
+    return sse_response(AIService(ctx).translate_events(body.paper_id, body.text, body.page, body.passage_ord, body.force, body.context_title, body.math))
 
 
 class LookupBody(BaseModel):

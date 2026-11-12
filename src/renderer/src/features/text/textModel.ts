@@ -10,7 +10,7 @@ export const READ_VIEWS: ReadView[] = ['text', 'both', 'target', 'pdf', 'split']
 export type TextView = Exclude<ReadView, 'pdf' | 'split'>
 
 export type Block =
-  | { type: 'heading'; key: string; title: string; level: number; page: number }
+  | { type: 'heading'; key: string; title: string; level: number; page: number; /** 对应目录项的章节键（见 secKey），同名小节靠它区分 */ secKey?: string }
   /** parts：被页边界切开的同一个段落的各段（至少一段）；显示时接成一段，复制/定位仍按各段序号 */
   | { type: 'passage'; item: TextItem; parts: TextItem[]; pageStart: boolean }
 
@@ -29,6 +29,11 @@ export interface TextDoc {
 
 /** 解析器给“第一个标题之前的正文”起的占位章节名：不当作标题显示。 */
 export const IMPLICIT_BODY = '正文'
+
+/** 章节键：目录项和正文标题共用，用章节 id（带 # 前缀，不会和标题文字撞）。同名小节（两个 “Results”）只有 id 能区分。 */
+export function secKey(id: string | null | undefined): string | undefined {
+  return id === null || id === undefined || id === '' ? undefined : `#${id}`
+}
 
 /** 章节标题 → 标题级别（1 为最高层）。同名标题取第一次出现。 */
 export function headingLevels(outline: OutlineItem[]): Map<string, number> {
@@ -71,11 +76,14 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
   let lastSection: string | null = null
   let lastPage = 0
   // 目录里每个标题的位置，以及哪些标题下面有正文（没有的是“空父标题”，要补上）
+  // 章节一律按 id 认（旧后端没给 section_id 时退回标题）：同名小节不能互相顶替
+  const keyOf = (i: { section_id?: string | null; section_title: string | null }): string | null => secKey(i.section_id) ?? i.section_title
   const outlineIdx = new Map<string, number>()
   outline.forEach((o, i) => {
-    if (!outlineIdx.has(o.title)) outlineIdx.set(o.title, i)
+    for (const k of [secKey(o.id), o.title]) if (k && !outlineIdx.has(k)) outlineIdx.set(k, i)
   })
-  const hasText = new Set(items.map((i) => i.section_title).filter((t): t is string => !!t))
+  const hasText = new Set(items.map(keyOf).filter((t): t is string => !!t))
+  const outlineKey = (o: OutlineItem): string => secKey(o.id) ?? o.title
   let lastIdx: number | null = null
   // 序号就是阅读顺序：解析时图、表已经挪到首次提到它的段落后面（页码因此不一定单调），不能再按页码重排
   const sorted = [...split.rest].sort((a, b) => a.ord - b.ord)
@@ -92,22 +100,23 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
     const floating = it.kind === 'caption' || it.kind === 'figure_text'
     let pageStart = !floating && it.page !== lastPage
     if (!floating) lastPage = it.page
-    if (it.section_title && it.section_title !== lastSection) {
-      lastSection = it.section_title
+    const curKey = keyOf(it)
+    if (it.section_title && curKey && curKey !== lastSection) {
+      lastSection = curKey
       if (it.section_title !== IMPLICIT_BODY) {
         // 补上夹在上一个标题和这个标题之间、自己下面没有任何正文的标题（“2 Background”下面直接就是“2.1 …”）：
         // 标题只在遇到某一节的第一段正文时才会出现，这类父标题不补的话，右边的“本文结构”就会比左边的目录少。
-        const k = outlineIdx.get(it.section_title)
+        const k = outlineIdx.get(curKey)
         if (k !== undefined && lastIdx !== null && k > lastIdx + 1) {
           for (let j = lastIdx + 1; j < k; j++) {
             const o = outline[j]
-            if (!hasText.has(o.title) && o.title !== IMPLICIT_BODY) {
-              blocks.push({ type: 'heading', key: `o${o.id}`, title: o.title, level: levels.get(o.title) ?? 2, page: o.page })
+            if (!hasText.has(outlineKey(o)) && o.title !== IMPLICIT_BODY) {
+              blocks.push({ type: 'heading', key: `o${o.id}`, title: o.title, level: levels.get(o.title) ?? 2, page: o.page, secKey: secKey(o.id) })
             }
           }
         }
         if (k !== undefined) lastIdx = k
-        blocks.push({ type: 'heading', key: `h${it.ord}`, title: it.section_title, level: levels.get(it.section_title) ?? 2, page: it.page })
+        blocks.push({ type: 'heading', key: `h${it.ord}`, title: it.section_title, level: levels.get(it.section_title) ?? 2, page: it.page, secKey: secKey(it.section_id) })
         pageStart = false // 页码标在标题上，不重复标在紧随其后的段落
       }
     }
@@ -166,6 +175,8 @@ export interface Seg {
   text: string
   /** 原文里加粗的文字 */
   bold?: boolean
+  /** 原文里斜体的文字 */
+  italic?: boolean
   /** 这段文字是一个行内公式：text 是提取出的原文，tex 是还原出的 LaTeX，渲染时用公式代替 */
   tex?: string
   /** 搜索词命中 */
@@ -258,6 +269,15 @@ export function boldRanges(text: string, runs: string[] | undefined): Array<[num
 
 /** 在已有的分段（搜索命中、批注高亮）上叠加加粗：只切开，不改变文字内容。 */
 export function applyBold(segs: Seg[], ranges: Array<[number, number]>): Seg[] {
+  return applyFlag(segs, ranges, 'bold')
+}
+
+/** 同 applyBold，叠加斜体。 */
+export function applyItalic(segs: Seg[], ranges: Array<[number, number]>): Seg[] {
+  return applyFlag(segs, ranges, 'italic')
+}
+
+function applyFlag(segs: Seg[], ranges: Array<[number, number]>, key: 'bold' | 'italic'): Seg[] {
   if (ranges.length === 0) return segs
   const out: Seg[] = []
   let pos = 0
@@ -273,8 +293,8 @@ export function applyBold(segs: Seg[], ranges: Array<[number, number]>): Seg[] {
       const from = pts[i]
       const to = pts[i + 1]
       const mid = pos + from
-      const bold = ranges.some(([a, b]) => mid >= a && mid < b)
-      out.push(bold ? { ...s, text: s.text.slice(from, to), bold: true } : { ...s, text: s.text.slice(from, to) })
+      const on = ranges.some(([a, b]) => mid >= a && mid < b)
+      out.push(on ? { ...s, text: s.text.slice(from, to), [key]: true } : { ...s, text: s.text.slice(from, to) })
     }
     pos = end
   }

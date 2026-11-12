@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from ..util import DOI_RE, normalize_doi
 
 AFFIL_WORDS = re.compile(
-    r"universit|institut|department|laborator|school|college|academy|inc\.|corp|ltd|@|\blab\b|\bcentre\b|\bcenter\b|"
+    r"universit|institut|department|laborator|observatoi|observator|school|college|academy|inc\.|corp|ltd|@|\blab\b|\bcentre\b|\bcenter\b|"
     r"大学|学院|研究所|研究院|实验室|公司|学校|系\b",
     re.I,
 )
@@ -42,7 +42,7 @@ def _sensible_title(t: str | None) -> bool:
     return len(t) >= 8 and not BAD_TITLE.match(t) and not re.fullmatch(r"[\d\W]+", t)
 
 
-NOT_NAME_ZH = re.compile(r"[年卷期第页号]|基金|作者|通信|收稿|摘要|关键词|引言|大学|学院|研究所|研究院|实验室|公司|期刊|学报|综述|人工|智能|中国|学校|中心|医院")
+NOT_NAME_ZH = re.compile(r"[年卷期第页号]|简介|概述|概念|目录|背景|历史|方法|结论|附录|基金|作者|通信|收稿|摘要|关键词|引言|大学|学院|研究所|研究院|实验室|公司|期刊|学报|综述|人工|智能|中国|学校|中心|医院")
 NOT_NAME = re.compile(r"\b(open access|visual geometry|review|article|research|group|journal|letter|abstract|preprint|vol|no)\b", re.I)
 _PARTICLES = {"van", "der", "den", "de", "del", "della", "di", "da", "dos", "du", "la", "le", "von", "bin", "al", "el", "ten", "ter"}
 
@@ -79,6 +79,8 @@ def _is_subsequence(small: list[str], big: list[str]) -> bool:
 
 
 def split_authors(text: str) -> list[str]:
+    if re.search(r"[。；：]\s*$", text.strip()) or re.search(r"[一-鿿]{12,}", text):
+        return []  # 以句号/分号/冒号收尾、或连着十几个汉字没有分隔：是正文句子，不是作者行
     text = re.sub(r"\bet\s+al\b\.?", " ", text)  # “B. P. Abbott et al.”：合作组论文只写第一作者
     text = re.sub(r"[∗*†‡§¶♯#\d⋆★☯✉+]+", " ", text)
     text = re.sub(r"\s+(and|&)\s+", ",", text)
@@ -89,6 +91,8 @@ def split_authors(text: str) -> list[str]:
         name = re.sub(r"\s+", " ", part).strip(" .")
         if not name:
             continue
+        if "⃝" in name or "©" in name:
+            continue  # “⃝c ESO 2019”：版权符号被拆成组合圈 + c，不是人名
         words = name.split()
         if re.match(r"The\s", name) and not re.search(r"(?i)collaboration|consortium|group|team", name):
             continue  # “The Swiss AI Lab” 这类单位名不是人名
@@ -108,10 +112,16 @@ def split_authors(text: str) -> list[str]:
 
 def _names_in_block(t: str) -> list[str]:
     lines = [ln.strip() for ln in t.splitlines() if ln.strip()]
+    two = re.match(r"^((?:[A-Z]\.|[A-Z][a-z]+)\s+[A-Z][\w'’\-]+)\s*[∗*†‡+]*\s*(?:&|and)\s+((?:[A-Z]\.|[A-Z][a-z]+)\s+[A-Z][\w'’\-]+)(?=\s|$)", lines[0]) if len(lines) == 1 else None
+    if two and AFFIL_WORDS.search(lines[0][two.end():]):
+        return [two.group(1), two.group(2)]  # “Karen Simonyan & Andrew Zisserman Visual Geometry Group, …”：两位作者后面直接接着单位
     if AFFIL_WORDS.search(t) and len(lines) == 1:
         # 作者和单位排在同一行（“Gao Huang  Zhuang Liu  Cornell University  Tsinghua University”）：取单位之前的名字
         m = AFFIL_WORDS.search(lines[0])
         head = lines[0][: m.start()].split()
+        cut = next((i for i, w in enumerate(head) if re.match(r"\d+[A-Z]", w)), None)
+        if cut is not None:
+            head = head[:cut] + ['_']  # 作者行后面直接接着“1Aerosol Physics Laboratory…”这样的单位编号：名字到此为止
         return split_authors(" ".join(head[:-1]))
     if AFFIL_WORDS.search(t):
         # 作者网格：每位作者一块，“姓名 / 单位 / 邮箱”分行排。单位行和邮箱行不要，第一行当姓名
@@ -121,21 +131,49 @@ def _names_in_block(t: str) -> list[str]:
     return split_authors(t)
 
 
+_ADDRESS_RE = re.compile(r"\b\d{5}(?:-\d{4})?\b|\b\d{1,5}\s+[A-Z][a-z]+\s+(?:St|Street|Ave|Avenue|Rd|Road|Pkwy|Parkway|Blvd|Boulevard|Dr|Drive)\b|[A-Z]\d[A-Z]\s?\d[A-Z]\d\b")
+_ORG_NAME_RE = re.compile(
+    r"(?i)(?:^|\s)(?:leading edge|in this issue|previews?|snapshot|errata|correction|member|fellow|ieee|acm|senior|google|brain|deepmind|microsoft|facebook|openai|amazon|nvidia|ibm|baidu|tencent|alibaba|research|labs?|"
+    r"cancer|hospital|hutchinson|foundation|society|pkwy|parkway|avenue|boulevard)(?:\s|$)")
+
+
 def guess_authors(author_texts: list[str]) -> list[str]:
     authors: list[str] = []
     for t in author_texts:
         if len(t) > 2500 or "abstract" in t.lower():
             continue
+        if re.match(r"(?i)\s*(?:received|accepted|published|revised|submitted)\s*[:：]", t):
+            continue  # 收稿日期行（“Received: 27 April 2020; Accepted: …”）
+        if re.match(r"(?i)\s*(?:associate\s+|action\s+|handling\s+|academic\s+)?editors?\b", t):
+            continue  # “Editor: Yoshua Bengio”：编辑不是作者
+        if t.strip().isupper() and re.search(r"ORIGINAL|ARTICLE|PAPER|REVIEW|LETTER|RESEARCH", t):
+            continue  # 页眉里的栏目名（“BIOINFORMATICS ORIGINAL PAPER”）
+        mails = list(re.finditer(r"\S+@\S+", t))
+        if len(mails) >= 3:
+            # “姓名 邮箱 姓名 邮箱 …”（JMLR）：每个邮箱前面的那几个词是名字；最后一个邮箱后面是单位，不看
+            names: list[str] = []
+            prev_end = 0
+            for m in mails:
+                words = t[prev_end:m.start()].split()[-4:]
+                got_ = split_authors(" ".join(words))
+                names.extend(got_[-1:] if got_ else [])
+                prev_end = m.end()
+            if len(names) >= 3:
+                return list(dict.fromkeys(names))[:25]  # 邮箱对应的名字就是完整的作者名单，后面零散的单名行（编辑）不再加
+        if _ADDRESS_RE.search(t) and (not AFFIL_WORDS.search(t) or t.lstrip()[:1].isdigit()) and len(re.findall(r"[a-zà-ÿ]\d{1,2}(?:,|\s)", t)) < 2:
+            continue  # 通信地址（“Google, 1600 Amphitheatre Pkwy, Mountain View, CA 94043”）：按逗号一拆全成了“人名”
         got = _names_in_block(t)
         # 作者名后面紧跟 ∗ † ‡（共同第一作者、通讯作者）的几位并排：名字、单位、邮箱各占一行，被拼成一段
         # （“Ashish Vaswani∗ Noam Shazeer∗ Niki Parmar∗ Jakob Uszkoreit∗ Google Brain Google Brain …”）：标记就是名字的结束。
         # 只在上面的办法没有把这些带标记的名字都认出来的时候才用，认全了就保持原结果（还能带上没有标记的作者）
         starred = re.findall(r"((?:[A-ZÀ-ÞŁŠ-Ž][\w.'’\-]*\s+){1,3}[A-ZÀ-ÞŁŠ-Ž][\w.'’\-]+)\s*[∗*†‡§¶+]", t)
+        starred = [re.sub(r"\d+$", "", n) for n in starred]  # 单位编号写在星号前（“David Silver1*”）：去掉名字后面的数字
         if len(starred) >= 2 and not any(AFFIL_WORDS.search(n) for n in starred) and not all(n in got for n in starred):
             got = starred
         authors.extend(got)
     # 报告编号（“CERN-PH-EP/2012-220”“CMS-HIG-12-028”）、日期不是人名：带斜杠、数字，或字母不到六成的都丢掉
     authors = [a.strip("() ") for a in authors]
+    authors = [a for a in authors if not _ORG_NAME_RE.search(a) and ":" not in a]  # 带冒号的是“Academic Editor: Paul”这类标签  # “Google Brain”“Fred Hutchinson Cancer”：单位名，不是人
     authors = [a for a in authors if a and not re.search(r"[/\@\d]", a) and sum(c.isalpha() for c in a) >= 0.7 * len(a.replace(" ", ""))]
     seen = set()
     uniq = []
@@ -154,6 +192,10 @@ def extract_metadata(
     abstract_text: str | None,
 ) -> PdfMetadata:
     md = PdfMetadata()
+    if meta_raw.get("title") and "&" in meta_raw["title"]:
+        import html
+
+        meta_raw = {**meta_raw, "title": html.unescape(meta_raw["title"])}  # Cell 的 PDF 元数据里标题带 HTML 实体（PGC-1&alpha;）
     layout_title = re.sub(r"\s+", " ", title_text or "").strip()
     pdf_title = (meta_raw.get("title") or "").strip()
     if _sensible_title(layout_title):

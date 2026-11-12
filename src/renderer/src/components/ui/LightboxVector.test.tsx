@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { Lightbox, VECTOR_FIT } from './Lightbox'
+import { Lightbox, VECTOR_FIT, VECTOR_FIT_H, VECTOR_MIN } from './Lightbox'
 
 const STAGE_W = 1000
 const STAGE_H = 600
@@ -42,16 +42,35 @@ describe('矢量图的查看', () => {
     await waitFor(() => expect((screen.getByRole('img', { name: '图' }) as HTMLImageElement).style.width).toBe('990px'))
     fireEvent.click(screen.getByRole('button', { name: '放大' }))
     const img = screen.getByRole('img', { name: '图' }) as HTMLImageElement
-    expect(parseFloat(img.style.width)).toBeCloseTo(990 * 1.25, 1)
+    await waitFor(() => expect(parseFloat(img.style.width)).toBeCloseTo(990 * 1.25, 0))
     expect(img.style.transform).not.toContain('scale(')
     expect(img.className).toContain('pd-lb-img--vec')
   })
 
-  it('图比窗口高时，默认顶边对齐窗口（先看到图的上部）', async () => {
-    openWith('image/svg+xml', { w: 400, h: 600 }) // 高 = 990 × 1.5 = 1485，窗口高 600
-    await waitFor(() => expect((screen.getByRole('img', { name: '图' }) as HTMLImageElement).style.height).toBe('1485px'))
+  it('图比窗口高时，默认按高度缩到整张图都在窗口里（不充满屏幕、不被截断）', async () => {
+    openWith('image/svg+xml', { w: 400, h: 600 }) // 按宽度会是 990×1485，窗口高 600
+    const h = STAGE_H * VECTOR_FIT_H
+    await waitFor(() => expect(parseFloat((screen.getByRole('img', { name: '图' }) as HTMLImageElement).style.height)).toBeCloseTo(h, 1))
     const img = screen.getByRole('img', { name: '图' }) as HTMLImageElement
-    expect(img.style.transform).toContain(`${(1485 - STAGE_H) / 2}px`)
+    expect(parseFloat(img.style.width)).toBeCloseTo((h * 400) / 600, 1)
+    expect(parseFloat(img.style.width)).toBeLessThanOrEqual(STAGE_W * VECTOR_FIT)
+    expect(img.style.transform).toContain('+ 0px')
+  })
+
+  it('滚轮可以缩小到比默认更小，也能放大；缩小有下限', async () => {
+    openWith('image/svg+xml', { w: 400, h: 200 })
+    await waitFor(() => expect((screen.getByRole('img', { name: '图' }) as HTMLImageElement).style.width).toBe('990px'))
+    const stage = screen.getByRole('dialog').querySelector('.pd-lb-stage') as HTMLElement
+    const width = (): number => parseFloat((screen.getByRole('img', { name: '图' }) as HTMLImageElement).style.width)
+    fireEvent.wheel(stage, { deltaY: 100, clientX: 500, clientY: 300 })
+    await waitFor(() => expect(width()).toBeLessThan(990))
+    for (let i = 0; i < 40; i++) {
+      fireEvent.wheel(stage, { deltaY: 100, clientX: 500, clientY: 300 })
+      await Promise.resolve()
+    }
+    await waitFor(() => expect(width()).toBeCloseTo(990 * VECTOR_MIN, 0))
+    fireEvent.wheel(stage, { deltaY: -100, clientX: 500, clientY: 300 })
+    await waitFor(() => expect(width()).toBeGreaterThan(990 * VECTOR_MIN))
   })
 
   it('位图保持原来的显示方式（不改成矢量的宽高）', async () => {

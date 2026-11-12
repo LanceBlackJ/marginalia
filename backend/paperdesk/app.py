@@ -34,6 +34,7 @@ from .context import AppContext
 from .db import Database
 from .jobs import JobManager
 from .library import import_jobs
+from .library import layout_boxes as _layout_boxes  # noqa: F401  导入时就注册 page_boxes 表（必须在数据库初始化之前）
 from .util import ApiError
 
 log = logging.getLogger("paperdesk")

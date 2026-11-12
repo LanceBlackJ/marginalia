@@ -55,7 +55,9 @@ def handle_ocr_paper(ctx: JobContext) -> dict:
             spans[pno] = ocr.ocr_page(path, pno)
             ctx.progress(i / len(pages), f"已识别 {i}/{len(pages)} 页")
         ctx.check_cancelled()
-        parsed = parse_pdf(path, ocr_pages=spans)
+        from . import layout_boxes
+
+        parsed = parse_pdf(path, ocr_pages=spans, model_boxes=layout_boxes.load(ctx.app, paper_id))
         chars = sum(len(p.text) for p in parsed.passages if p.source == "ocr")
         if not parsed.has_text_layer:
             _set_note(app, paper_id, "已用本地 OCR 尝试识别，没有识别到可用的文字。可以直接阅读原文。")

@@ -73,7 +73,7 @@ def _norm(s: str) -> str:
     return re.sub(r"[^\w\-]", "", s).lower()
 
 
-def detect_markers(text: str, valid: set[int], ay: dict[tuple[str, int], list[int]], vocab: Counter) -> list[dict]:
+def detect_markers(text: str, valid: set[int], ay: dict[tuple[str, int], list[int]], vocab: Counter, lenient: bool = False) -> list[dict]:
     """返回段落里的引用标记 [{kind, text, start, end, refs}]，按位置排序、互不重叠。"""
     found: list[dict] = []
 
@@ -90,7 +90,10 @@ def detect_markers(text: str, valid: set[int], ay: dict[tuple[str, int], list[in
         lower, upper = word == word.lower(), word == word.upper() and len(word) >= 2
         if not (lower or upper) or word.lower() in NOT_CITATION or re.match(r"0\d", digits):
             continue
-        if vocab.get(word, 0) < (2 if upper else 1):
+        known = vocab.get(word, 0)
+        if lower and not known:  # 单复数形式出现过也算真实单词（suspects8 ← suspect）
+            known = vocab.get(word[:-1], 0) if word.endswith("s") else vocab.get(word + "s", 0)
+        if known < (2 if upper else 1) and not (lenient and lower and len(word) >= 5):
             continue
         add("sup", m.start(2), m.end(2), expand_numbers(digits, valid))
     if ay:
@@ -125,11 +128,18 @@ def detect_all(passages: list[dict], entries: list[dict], style: str) -> list[di
         return []
     vocab = build_vocab(passages)
     ay = author_year_index(entries) if style != "numeric" or any(e.get("year") for e in entries) else {}
-    out = []
-    for p in passages:
-        if p["kind"] not in ("paragraph", "caption"):
-            continue
-        marks = detect_markers(p["text"], valid if style in ("numeric", "unknown") else set(), ay, vocab)
-        if marks:
-            out.append({"ord": p["ord"], "markers": marks})
+    def run(lenient: bool) -> list[dict]:
+        out = []
+        for p in passages:
+            if p["kind"] not in ("paragraph", "caption"):
+                continue
+            marks = detect_markers(p["text"], valid if style in ("numeric", "unknown") else set(), ay, vocab, lenient)
+            if marks:
+                out.append({"ord": p["ord"], "markers": marks})
+        return out
+
+    out = run(False)
+    # 整篇都用上标数字引用（Nature 系，已识别出不少）时，只出现一次的词（suspects8）也认：不然这些引用悬停没有反应
+    if sum(1 for o in out for m in o["markers"] if m["kind"] == "sup") >= 8:
+        out = run(True)
     return out

@@ -54,6 +54,9 @@ export function activeOutlineIndex(
   sectionTitle: string | null = null
 ): number {
   if (sectionTitle) {
+    // 先按章节键（#id，同名小节靠它区分），再按标题
+    const byKey = sectionTitle.startsWith('#') ? outline.findIndex((o) => `#${o.id}` === sectionTitle) : -1
+    if (byKey >= 0) return byKey
     const hit = outline.findIndex((o) => o.title === sectionTitle)
     if (hit >= 0) return hit
   }
@@ -72,4 +75,23 @@ export function activeOutlineIndex(
     if (s !== null && s <= anchorOrd) idx = i
   })
   return idx >= 0 ? idx : byPage()
+}
+
+/**
+ * 滚动时左边目录该高亮哪一节：平时是阅读线上方最近的标题；滚到文档最底部时，最后一节（参考文献等）的标题已经不可能再顶到阅读线上，
+ * 此时取最后一节；但如果是刚从目录点过去的章节、它的标题还在窗口里，就优先它（点“致谢”，它和后面的“参考文献”同屏时，高亮不能被抢走）。
+ */
+export function activeSectionOnScroll(
+  tops: ReadonlyArray<{ title: string; top: number }>,
+  line: number,
+  atBottom: boolean,
+  jumpedTitle: string | null,
+  viewHeight: number
+): string | null {
+  if (!atBottom || tops.length === 0) return activeSectionAt(tops, line)
+  if (jumpedTitle) {
+    const hit = tops.find((t) => t.title === jumpedTitle)
+    if (hit && hit.top > -40 && hit.top < viewHeight - 20) return jumpedTitle
+  }
+  return tops[tops.length - 1].title
 }

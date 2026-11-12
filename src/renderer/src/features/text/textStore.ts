@@ -296,7 +296,7 @@ export const useTextStore = create<TextState>((set, get) => {
       set({ retranslating: new Set(get().retranslating).add(ord) })
       let failure: string | null = null
       try {
-        await api.ai.translate({ paper_id: id, text: item.text, page: item.page, force: true }, (event, data) => {
+        await api.ai.translate({ paper_id: id, text: item.text, page: item.page, passage_ord: item.ord, force: true, math: item.math }, (event, data) => {
           if (event === 'error') failure = String((data as Record<string, unknown>).message ?? '翻译失败')
         })
       } catch (err) {

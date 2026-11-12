@@ -531,6 +531,8 @@ export interface TranslateRequest {
   page?: number
   passage_ord?: number
   force?: boolean
+  /** 这段文字里解析时还原出的行内公式 [{src, tex}]：翻译时当占位符保护起来，译文里放回原来的 src，才能和原文一样渲染成公式 */
+  math?: Array<{ src: string; tex: string }>
 }
 
 export interface ContextIncludes extends PrivacyIncludes {}

@@ -172,7 +172,18 @@ def test_layout_job_with_unusable_replies_does_not_reparse_and_does_not_block_ot
     assert processing._layout_pending(api.ctx, pid, fresh=True) is False  # 试过了：不再挡住公式、表格等步骤
 
 
-def test_start_auto_does_layout_first_and_defers_the_other_steps(lapi, paper):
+def test_start_auto_is_off_by_default(lapi, paper):
+    api = lapi
+    pid = api.import_pdf(paper)["paper_id"]
+    api.configure_ai()
+    from paperdesk.library import processing
+
+    assert layout_ai.AUTO_ON_IMPORT is False
+    assert processing.start_auto(api.ctx, pid, fresh=True).get("layout") is None
+
+
+def test_start_auto_does_layout_first_and_defers_the_other_steps(lapi, paper, monkeypatch):
+    monkeypatch.setattr(layout_ai, "AUTO_ON_IMPORT", True)
     api = lapi
     pid = api.import_pdf(paper)["paper_id"]
     api.configure_ai()
@@ -199,3 +210,33 @@ def test_layout_api_status_and_start(lapi, paper):
     assert api.post(f"/papers/{pid}/layout-ai").json()["job_id"] is None  # 都有结论了
     assert api.post(f"/papers/{pid}/layout-ai?force=true").json()["job_id"]  # force：全部重来
     assert api.get("/papers/nope/layout-ai").status_code == 404
+
+
+def test_padded_crop_does_not_pull_in_the_caption_below_the_figure(tmp_path):
+    """图的下沿紧挨着图注（甚至压着图注的上沿）：加边距的截图/矢量图不能把图注的上半截字带进来。"""
+    import pymupdf
+
+    from paperdesk.parsing import render
+
+    doc = pymupdf.open()
+    pg = doc.new_page(width=595, height=842)
+    pg.draw_rect(pymupdf.Rect(100, 100, 400, 220), width=1)
+    pg.insert_text((110, 160), "inside the figure", fontsize=10)
+    pg.insert_text((100, 232), "Fig. 2. An illustration of a general framework that uses negative sampling.", fontsize=10)
+    path = tmp_path / "f.pdf"
+    doc.save(str(path))
+    doc.close()
+    d = pymupdf.open(str(path))
+    clip = pymupdf.Rect(94, 94, 406, 226)  # 区域 (100,100,400,222) 加 6pt 边距
+    trimmed = render._trim_pad(d[0], (100, 100, 400, 222), clip)
+    assert trimmed.y1 <= 222.5 and trimmed.y0 == clip.y0 and trimmed.x0 == clip.x0
+    svg = render.render_svg(path, 1, (100, 100, 400, 222), pad=6.0)
+    assert 'height="' in svg and float(svg.split('height="')[1].split('"')[0]) <= 128.6
+    d.close()
+
+
+def test_truncated_reply_keeps_the_regions_that_were_written_completely():
+    text = '{"regions":[{"role":"header","box":[34,30,100,45]},{"role":"paragraph","box":[34, 55, 500, 135]},{"role":"heading","box":[34,140,3'
+    regs = layout_ai.parse_reply(text)
+    assert [r["role"] for r in regs] == ["header", "paragraph"]
+    assert regs[1]["box"][3] == pytest.approx(0.135)

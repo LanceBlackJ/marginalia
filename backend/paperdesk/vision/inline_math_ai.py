@@ -11,8 +11,10 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import hashlib
 import json
+import logging
 import re
 from collections import Counter
 
@@ -25,12 +27,16 @@ from ..db import register_schema
 from ..jobs import JobContext, JobManager
 from ..llmjson import extract_json
 from ..util import ApiError, dumps, loads, utcnow
-from . import formula
+from . import formula, math_local
 from .images import crop_png
 
 JOB_TYPE = "inline_math_ai"
+LOCAL_MODEL = "texify"
+log = logging.getLogger(__name__)
 BATCH = 6
 DPI = 220
+LOCAL_DPI = 216  # 整行图：本地模型用 3 倍放大的整行（实测最准）
+LOCAL_LINES_PER_STEP = 12  # 每处理这么多行更新一次进度、检查一次取消
 
 register_schema("inline_math_ai", """
 CREATE TABLE IF NOT EXISTS inline_math_ai (
@@ -60,7 +66,13 @@ def cand_key(page: int, bbox: list[float], src: str) -> str:
 
 
 _CMD = re.compile(r"\\[A-Za-z]+")
+_FUNC_CMD = re.compile(r"\\(max|min|log|ln|exp|sin|cos|tan|sup|inf|lim|det|arg|dim|sinh|cosh|tanh)(?![A-Za-z])")
 _ASCII_ALNUM = re.compile(r"[A-Za-z0-9]")
+
+
+def _bare(tex: str) -> str:
+    """去掉 LaTeX 命令，只留字母数字（\\max 这类函数名在 PDF 文字层里是 max 三个字母，要留下来才对得上原文）。"""
+    return _CMD.sub("", _FUNC_CMD.sub(r"\1", tex))
 
 
 def plausible(src: str, tex: str) -> tuple[bool, str]:
@@ -72,7 +84,7 @@ def plausible(src: str, tex: str) -> tuple[bool, str]:
     issues = formula._balanced(tex)
     if issues:
         return False, "；".join(issues)
-    skeleton = _ASCII_ALNUM.findall(_CMD.sub("", tex))
+    skeleton = _ASCII_ALNUM.findall(_bare(tex))
     want = Counter(_ASCII_ALNUM.findall(src))
     have = Counter(skeleton)
     missing = sum((want - have).values())
@@ -102,13 +114,30 @@ def _candidates(app: AppContext, paper_id: str) -> list[dict]:
         for i, m in enumerate(loads(r["math_json"], [])):
             if m.get("tex") or not m.get("bbox") or not m.get("page"):
                 continue
-            out.append({"ord": r["ord"], "idx": i, "key": cand_key(m["page"], m["bbox"], m["src"]), "page": m["page"], "bbox": m["bbox"], "src": m["src"]})
+            out.append({"ord": r["ord"], "idx": i, "key": cand_key(m["page"], m["bbox"], m["src"]), "page": m["page"], "bbox": m["bbox"], "src": m["src"],
+                        "line": m.get("line")})
     return out
 
 
 def _cache(app: AppContext, paper_id: str) -> dict[str, dict]:
     with app.db.session() as conn:
-        return {r["key"]: {"tex": r["tex"], "status": r["status"]} for r in conn.execute("SELECT key, tex, status FROM inline_math_ai WHERE paper_id = ?", (paper_id,))}
+        return {r["key"]: {"tex": r["tex"], "status": r["status"], "model": r["model"]}
+                for r in conn.execute("SELECT key, tex, status, model FROM inline_math_ai WHERE paper_id = ?", (paper_id,))}
+
+
+def _vlm_ready(app: AppContext) -> bool:
+    """视觉模型和 Key 都配好了（和 processing._vision_ready 一致）。"""
+    from ..ai import settings as ai_settings
+
+    cfg = ai_settings.public_settings(app)
+    return bool(cfg.get("has_api_key") and cfg.get("vision_model"))
+
+
+def _needs_work(hit: dict | None, vlm_ready: bool) -> bool:
+    """这个候选还要不要处理：没处理过；或者只被本地模型试过且没认出来（status 不是 ok、model 是 texify），而现在视觉模型可用了，就再让视觉模型试一次。"""
+    if hit is None:
+        return True
+    return bool(vlm_ready and hit["status"] != "ok" and hit.get("model") == LOCAL_MODEL)
 
 
 def _apply(app: AppContext, paper_id: str, cands: list[dict], cache: dict[str, dict]) -> int:
@@ -129,6 +158,7 @@ def _apply(app: AppContext, paper_id: str, cands: list[dict], cache: dict[str, d
                 if it["idx"] < len(arr) and not arr[it["idx"]].get("tex") and arr[it["idx"]].get("src") == it["src"]:
                     arr[it["idx"]]["tex"] = it["tex"]
                     arr[it["idx"]]["ai"] = True
+                    arr[it["idx"]].pop("parts", None)  # 整条公式识别出来了，不再需要小簇兜底
                     n += 1
             conn.execute("UPDATE passages SET math_json = ? WHERE paper_id = ? AND ord = ?", (dumps(arr), paper_id, ord_))
     return n
@@ -136,8 +166,8 @@ def _apply(app: AppContext, paper_id: str, cands: list[dict], cache: dict[str, d
 
 def pending(app: AppContext, paper_id: str) -> int:
     """还需要问模型的候选数（缓存里已有结论的不算）。"""
-    cache = _cache(app, paper_id)
-    return sum(1 for c in _candidates(app, paper_id) if c["key"] not in cache)
+    cache, ready = _cache(app, paper_id), _vlm_ready(app)
+    return sum(1 for c in _candidates(app, paper_id) if _needs_work(cache.get(c["key"]), ready))
 
 
 def enqueue(app: AppContext, paper_id: str) -> str | None:
@@ -147,7 +177,10 @@ def enqueue(app: AppContext, paper_id: str) -> str | None:
         return None
     cache = _cache(app, paper_id)
     _apply(app, paper_id, cands, cache)
-    if all(c["key"] in cache for c in cands):
+    ready = _vlm_ready(app)
+    if not (math_local.available() or ready):
+        return None  # 既没有本地公式模型、视觉模型也没配好：没有能识别的引擎
+    if not any(_needs_work(cache.get(c["key"]), ready) for c in cands):
         return None
     with app.db.session() as conn:
         title = conn.execute("SELECT title FROM papers WHERE id = ?", (paper_id,)).fetchone()["title"]
@@ -184,6 +217,56 @@ def _parse_items(text: str) -> dict[int, str]:
                     continue
                 latex = str(it.get("latex") or "").strip()
                 out[n] = formula.clean_latex(latex)[0] if latex else ""
+    return out
+
+
+def _skeleton(tex: str) -> str:
+    return "".join(_ASCII_ALNUM.findall(_bare(tex)))
+
+
+def match_segment(src: str, segs: list[str]) -> str | None:
+    """整行转写里的哪个公式片段就是这个候选：字母数字骨架与 PDF 文字层原文最像、并且通过 plausible 核对的那个。"""
+    want = _skeleton(src)
+    best: tuple[float, str] | None = None
+    for seg in segs:
+        if r"\begin{array}" in seg or r"\\" in seg:
+            continue  # 多行数组：整行里夹着算法框、矩阵之类，不是一个行内公式
+        cleaned = formula.clean_latex(seg)[0]
+        tex = tidy(cleaned, src) if cleaned else ""
+        if not tex or not plausible(src, tex)[0]:
+            continue
+        score = difflib.SequenceMatcher(None, want, _skeleton(tex)).ratio()
+        if best is None or score > best[0]:
+            best = (score, tex)
+    return best[1] if best else None
+
+
+def _context_bbox(c: dict) -> tuple[float, float, float, float]:
+    """候选所在的整行位置；旧数据没有记录整行时，把公式的框向左右各放宽一截、上下留一点（同一行的上下文）。"""
+    if c.get("line"):
+        return tuple(c["line"])  # type: ignore[return-value]
+    x0, y0, x1, y1 = c["bbox"]
+    return (max(0.0, x0 - 180.0), y0 - 2.0, x1 + 180.0, y1 + 2.0)
+
+
+def local_pass(app: AppContext, ctx: JobContext, paper_id: str, todo: list[dict]) -> dict[str, str | None]:
+    """用本地模型（整行图）识别这些候选：{key: LaTeX 或 None}。同一行上的多个候选只识别一次。"""
+    lines: dict[tuple, list[dict]] = {}
+    for c in todo:
+        b = _context_bbox(c)
+        lines.setdefault((c["page"], tuple(round(v, 1) for v in b)), []).append(c)
+    keys = list(lines)
+    out: dict[str, str | None] = {}
+    for start in range(0, len(keys), LOCAL_LINES_PER_STEP):
+        ctx.check_cancelled()
+        chunk = keys[start:start + LOCAL_LINES_PER_STEP]
+        pngs = [crop_png(app, paper_id, page, bbox, LOCAL_DPI, pad=6.0) for page, bbox in chunk]
+        texts = math_local.recognize(pngs, app.paths.data_dir)
+        for k, text in zip(chunk, texts):
+            segs = math_local.segments(text)
+            for c in lines[k]:
+                out[c["key"]] = match_segment(c["src"], segs)
+        ctx.progress(min(0.95, (start + len(chunk)) / max(1, len(keys))), f"本地识别行内公式 {min(start + len(chunk), len(keys))}/{len(keys)} 行")
     return out
 
 
@@ -228,14 +311,47 @@ async def decide(service: AIService, provider, arbiter_model: str, paper_id: str
     return None, "两个模型的转写不一致，也没能裁决" + (f"（差异：{diff}）" if diff else "")
 
 
+def _save_rows(app: AppContext, rows: list[tuple]) -> None:
+    with app.db.session() as conn:
+        conn.executemany(
+            "INSERT INTO inline_math_ai(paper_id, key, tex, status, model, created_at) VALUES (?,?,?,?,?,?) "
+            "ON CONFLICT(paper_id, key) DO UPDATE SET tex=excluded.tex, status=excluded.status, model=excluded.model, created_at=excluded.created_at",
+            rows,
+        )
+
+
 async def _recognize(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
+    """先用本地模型（整行图，不联网、不花钱）；本地没装、或没认出来的候选，再交给视觉模型（配好了才用）。"""
     service = AIService(app)
-    provider, cfg = service.provider()
-    choice = choose_model(TaskType.VISION, cfg)
-    models = _models(cfg, choice.model)
+    provider = cfg = None
+    models: list[str] = []
+    try:
+        provider, cfg = service.provider()
+        models = _models(cfg, choose_model(TaskType.VISION, cfg).model)
+    except LLMError as err:
+        if not math_local.available():
+            raise ApiError(err.code, err.message) from err  # 没有任何引擎可用：如实报错
+    ready = bool(models)
     cache = _cache(app, paper_id)
-    todo = [c for c in _candidates(app, paper_id) if c["key"] not in cache]
-    ok = bad = disagreed = 0
+    todo = [c for c in _candidates(app, paper_id) if _needs_work(cache.get(c["key"]), ready)]
+    ok = bad = disagreed = local_ok = 0
+    if math_local.available():
+        fresh = [c for c in todo if c["key"] not in cache]  # 本地模型没试过的
+        if fresh:
+            try:
+                got = await asyncio.to_thread(local_pass, app, ctx, paper_id, fresh)
+            except Exception as exc:  # noqa: BLE001  本地模型出任何问题都退回视觉模型，不让整个任务失败
+                if exc.__class__.__name__ == "JobCancelled":
+                    raise
+                log.warning("本地公式识别失败，改用视觉模型：%s", exc)
+                got = {}
+            rows = [(paper_id, c["key"], got.get(c["key"]), "ok" if got.get(c["key"]) else "failed", LOCAL_MODEL, utcnow()) for c in fresh if c["key"] in got]
+            _save_rows(app, rows)
+            local_ok = sum(1 for r in rows if r[3] == "ok")
+        cache = _cache(app, paper_id)
+        todo = [c for c in todo if cache.get(c["key"], {}).get("status") != "ok"]  # 本地认出来的不再问视觉模型
+    if not ready:
+        todo = []  # 没有视觉模型：本地没认出来的保持原文字，不缓存成最终失败（以后配好视觉模型会再试一次）
     for start in range(0, len(todo), BATCH):
         ctx.check_cancelled()
         group = todo[start:start + BATCH]
@@ -265,15 +381,10 @@ async def _recognize(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
             rows.append((paper_id, c["key"], tex, "ok" if tex else "failed", "+".join(models), utcnow()))
             ok += bool(tex)
             bad += not tex
-        with app.db.session() as conn:
-            conn.executemany(
-                "INSERT INTO inline_math_ai(paper_id, key, tex, status, model, created_at) VALUES (?,?,?,?,?,?) "
-                "ON CONFLICT(paper_id, key) DO UPDATE SET tex=excluded.tex, status=excluded.status, model=excluded.model, created_at=excluded.created_at",
-                rows,
-            )
+        _save_rows(app, rows)
         ctx.progress(min(1.0, (start + len(group)) / max(1, len(todo))), f"已处理 {start + len(group)}/{len(todo)} 个行内公式")
     applied = _apply(app, paper_id, _candidates(app, paper_id), _cache(app, paper_id))
-    return {"recognized": ok, "rejected": bad, "applied": applied, "models": models, "disagreed": disagreed}
+    return {"recognized": ok + local_ok, "local": local_ok, "rejected": bad, "applied": applied, "models": models, "disagreed": disagreed}
 
 
 def handle(ctx: JobContext) -> dict:

@@ -1,0 +1,7 @@
+# 可选组件：本地行内公式识别（vision/math_local.py）。体积大（PyTorch 约 1 GB，模型权重约 600 MB，首次使用时自动下载），所以不放进 requirements.txt；
+# 没装就不可用，行内公式仍走视觉模型兜底。打包版（PyInstaller）默认不带。
+# transformers 必须钉在 4.46.x：texify 0.2.1 和 4.5x 以上不兼容（会报 'dict' object has no attribute 'to_dict'）。
+torch
+texify==0.2.1
+transformers==4.46.3
+tokenizers<0.21

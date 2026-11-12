@@ -21,6 +21,7 @@ from . import online
 # 段落的文字来源：text = PDF 文字层；ocr = 扫描页的本地 OCR（可能有识别错误，界面要提示）
 register_column("ocr", "passages", "source", "TEXT NOT NULL DEFAULT 'text'")
 register_column("math", "passages", "math_json", "TEXT")  # 行内公式 [{src, tex}]（JSON）；旧论文重新解析后才有
+register_column("italic", "passages", "italic_json", "TEXT")  # 原文斜体的文字片段（JSON 数组）；旧论文重新解析后才有
 register_column("bold", "passages", "bold_json", "TEXT")  # 原文加粗的文字片段（JSON 数组）；旧论文重新解析后才有
 # 解析器版本（见 parsing.pdf_parser.PARSER_VERSION）：旧库里的论文是 1，提示“有新版解析，可重新解析”
 register_column("reparse", "papers", "parser_version", "INTEGER NOT NULL DEFAULT 1")
@@ -156,11 +157,23 @@ def import_pdf_file(
             return ImportOutcome("duplicate", info["parent_id"] or dup["id"], f"这个文件已经作为补充材料添加过了：{dup['title'] or src.name}")
         return ImportOutcome("duplicate", dup["id"], f"已在文献库中：{dup['title'] or src.name}")
 
+    from . import layout_boxes  # 局部导入：layout_boxes 依赖解析模块，避免循环
+
     say(f"解析 {src.name} …")
+    from ..parsing.parse_best import parse_with_mineru
+
     try:
-        parsed = parse_pdf(src)
+        parsed = parse_with_mineru(src, say)  # MinerU 本地服务可用就用它（自带版面/公式/表格识别）；否则 None，走规则解析
     except PdfError as exc:
         return ImportOutcome("failed", message=str(exc))
+    if parsed is not None:
+        model_boxes = {}
+    else:
+        model_boxes = layout_boxes.detect(app, src, say)  # 本地版面模型框出的表格/图/公式（没有模型或失败就是 {}，走纯规则）
+        try:
+            parsed = parse_pdf(src, model_boxes=model_boxes)
+        except PdfError as exc:
+            return ImportOutcome("failed", message=str(exc))
 
     meta = dict(
         title=parsed.metadata.title, authors=parsed.metadata.authors, year=parsed.metadata.year,
@@ -277,6 +290,7 @@ def import_pdf_file(
         if not attach_to:
             shutil.rmtree(pdir, ignore_errors=True)
         raise
+    layout_boxes.save(app, paper_id, model_boxes)  # 重新解析时直接用，不用再跑模型
 
     (pdir / "metadata.json").write_text(
         dumps({"id": paper_id, "title": title, **{k: meta[k] for k in ("authors", "year", "venue", "doi", "arxiv_id")},
@@ -306,11 +320,12 @@ def _store_parsed(conn, paper_id: str, parsed: ParsedDoc) -> None:
         )
         section_ids[s.ord] = cur.lastrowid
     conn.executemany(
-        "INSERT INTO passages(paper_id, ord, page, section_id, kind, text, x0, y0, x1, y1, source, bold_json, math_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO passages(paper_id, ord, page, section_id, kind, text, x0, y0, x1, y1, source, bold_json, math_json, italic_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         [
             (paper_id, p.ord, p.page, section_ids.get(p.section_ord) if p.section_ord is not None else None,
              p.kind, p.text, *p.bbox, p.source, json.dumps(p.bold, ensure_ascii=False) if p.bold else None,
-             json.dumps(p.math, ensure_ascii=False) if p.math else None)
+             json.dumps(p.math, ensure_ascii=False) if p.math else None,
+             json.dumps(p.italic, ensure_ascii=False) if p.italic else None)
             for p in parsed.passages
         ],
     )
@@ -318,10 +333,17 @@ def _store_parsed(conn, paper_id: str, parsed: ParsedDoc) -> None:
         "INSERT INTO figures(paper_id, page, x0, y0, x1, y1, kind, label, caption_ord, inner_ord) VALUES (?,?,?,?,?,?,?,?,?,?)",
         [(paper_id, f.page, *f.bbox, f.kind, f.label, f.caption_ord, f.inner_ord) for f in parsed.figures],
     )
-    conn.executemany(
-        "INSERT INTO equations(paper_id, page, x0, y0, x1, y1, number, text, passage_ord) VALUES (?,?,?,?,?,?,?,?,?)",
-        [(paper_id, e.page, *e.bbox, e.number, e.text, e.passage_ord) for e in parsed.equations],
-    )
+    for e in parsed.equations:
+        cur = conn.execute(
+            "INSERT INTO equations(paper_id, page, x0, y0, x1, y1, number, text, passage_ord) VALUES (?,?,?,?,?,?,?,?,?)",
+            (paper_id, e.page, *e.bbox, e.number, e.text, e.passage_ord),
+        )
+        if e.latex:  # 解析器（MinerU）已给出 LaTeX：直接当作公式识别结果缓存，不必再调视觉模型
+            conn.execute(
+                "INSERT OR REPLACE INTO equation_latex(equation_id, paper_id, latex, confidence, status, warnings_json, error, model, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                (cur.lastrowid, paper_id, e.latex, "high", "ok", "[]", None, "mineru", utcnow()),
+            )
     conn.execute("UPDATE papers SET parser_version = ? WHERE id = ?", (PARSER_VERSION, paper_id))
 
 

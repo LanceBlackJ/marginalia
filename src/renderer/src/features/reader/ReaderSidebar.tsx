@@ -36,7 +36,7 @@ function OutlineTab() {
           data-current={i === currentIdx}
           style={{ paddingLeft: 8 + (it.level - minLevel) * 12 }}
           title={it.title}
-          onClick={() => jumpToSection(it.page, it.title)}
+          onClick={() => jumpToSection(it.page, it.title, it.id)}
         >
           <span className="pd-outline-page">{it.page}</span>
           {it.title}
@@ -190,7 +190,7 @@ function NarrowStrip() {
             data-current={i === currentIdx}
             title={`${i + 1}. ${it.title} · 第 ${it.page} 页`}
             aria-label={`${it.title}，第 ${it.page} 页`}
-            onClick={() => jumpToSection(it.page, it.title)}
+            onClick={() => jumpToSection(it.page, it.title, it.id)}
           >
             {i + 1}
           </button>

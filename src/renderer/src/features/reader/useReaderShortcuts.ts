@@ -17,9 +17,11 @@ function scroller(): HTMLElement | null {
 }
 
 /** 上一节 / 下一节：按目录里的章节顺序，从“当前页所在章节”往前或往后一个。 */
-export function neighbourSection(outline: Array<{ title: string; page: number }>, currentPage: number, current: string | null, dir: 1 | -1): { title: string; page: number } | null {
+export function neighbourSection<T extends { title: string; page: number; id?: string }>(outline: T[], currentPage: number, current: string | null, dir: 1 | -1): T | null {
   if (outline.length === 0) return null
-  let idx = outline.findIndex((o) => o.title === current)
+  // current 可以是章节键（#id，同名小节也唯一）或标题
+  let idx = current?.startsWith('#') ? outline.findIndex((o) => o.id !== undefined && `#${o.id}` === current) : -1
+  if (idx < 0) idx = outline.findIndex((o) => o.title === current)
   if (idx < 0) {
     idx = -1
     for (let i = 0; i < outline.length; i++) if (outline[i].page <= currentPage) idx = i
@@ -64,10 +66,10 @@ export function useReaderShortcuts(enabled: boolean): void {
         case '[':
         case ']': {
           const dir = lower === ']' ? 1 : -1
-          const target = neighbourSection(st.outline, st.currentPage, st.currentSectionTitle(), dir)
+          const target = neighbourSection(st.outline, st.currentPage, st.currentSectionKey(), dir)
           if (target) {
             e.preventDefault()
-            st.jumpToSection(target.page, target.title)
+            st.jumpToSection(target.page, target.title, target.id)
           }
           return
         }

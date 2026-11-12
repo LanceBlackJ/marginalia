@@ -32,7 +32,7 @@ class FakeLLM:
         self.fail_models: dict[str, int] = {}  # 指定模型名 -> 一直返回这个 HTTP 状态（模拟某个模型暂时不可用）
         self.think_budget = 0  # >0：max_tokens 不超过它时正文为空（模拟思考型模型把输出额度全花在思考上）
         self.thinking_mode = ""  # "tag"：回答前带 <think>…</think>；"field"：思考放在 reasoning_content 字段（流式）
-        self.translate_mode = ""  # DROP_SEGMENT：批量翻译时漏掉第 2 段
+        self.translate_mode = ""  # DROP_SEGMENT：批量翻译时漏掉第 2 段；DROP_PLACEHOLDERS：译文里丢掉 ⟦n⟧ 占位符
         self.transport = httpx.MockTransport(self.handler)
 
     # ---- 辅助 ----
@@ -50,6 +50,8 @@ class FakeLLM:
             return '["attention", "routing", "cascade failure"]'
         if "论文翻译助手" in system:
             src = user.split("待翻译文本：", 1)[-1].strip()
+            if "DROP_PLACEHOLDERS" in self.translate_mode:  # 模拟模型把 ⟦n⟧ 占位符丢掉
+                src = re.sub(r"⟦\s*\d+\s*⟧", "", src)
             if re.search(r"^###\d+###$", src, re.M):  # 全文翻译的批量格式：逐段加前缀，保留标记行
                 if "DROP_SEGMENT" in self.translate_mode:  # 模拟模型漏掉第 2 段
                     parts = re.split(r"^(###\d+###)$", src, flags=re.M)
