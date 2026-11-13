@@ -58,12 +58,16 @@ function crossesPageOrColumn(prev: TextItem, next: TextItem): boolean {
  * - 以大写开头（“…from the Hugging | Face community…”，专有名词被栏尾切开）：只有确实换了页/栏、上一段够长时才接。
  * 同一页内只在上一段足够长（不是一行小标题）时才接，避免把短行、列表项误接。
  */
+const DANGLING_END = /\b(?:in|of|the|a|an|and|or|to|for|with|on|by|as|at|from|that|which|is|are|be|its|their|this|these|than|into|between)\s*$/i
+
 export function continuesAcrossPage(prev: TextItem, next: TextItem): boolean {
   if (prev.kind !== 'paragraph' || next.kind !== 'paragraph') return false
   if (next.page < prev.page) return false
   if (next.page === prev.page && prev.text.trim().length < 80) return false
   if (SENTENCE_END.test(prev.text)) return false
   if (/^\s*\p{Ll}/u.test(next.text)) return true
+  // 上一段停在介词、冠词、连词上（“…Interaction scenarios in”）：句子肯定没写完，下一段哪怕以大写缩写（MAS、LLM）开头也是它的后半句
+  if (prev.text.trim().length >= 40 && DANGLING_END.test(prev.text) && /^\s*[\p{Lu}\d]/u.test(next.text)) return true
   return prev.text.trim().length >= 80 && crossesPageOrColumn(prev, next) && /^\s*\p{Lu}\p{Ll}+[\s,]/u.test(next.text)
 }
 

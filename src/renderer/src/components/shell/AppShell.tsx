@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { PageBoundary } from '@/components/PageBoundary'
 import { AlertCircle } from 'lucide-react'
 import { Button, EmptyState, ProgressBar, Spinner, ToastHost } from '@/components/ui'
+import { DropImport } from '@/features/importing/DropImport'
 import { ImportDialogs } from '@/features/importing/ImportDialogs'
 import { importDownloadedPdf, summarizeImportJob } from '@/features/importing/importActions'
 import { useMediaQuery } from '@/lib/hooks'
@@ -153,6 +154,7 @@ export function AppShell() {
         </main>
       </div>
       <ImportDialogs />
+      {status === 'ready' && <DropImport />}
       <ToastHost />
     </div>
   )

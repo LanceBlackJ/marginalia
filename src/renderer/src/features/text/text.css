@@ -692,3 +692,17 @@
 .pd-tp-bmflag:hover {
   color: var(--text-2);
 }
+
+.pd-refhover-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-md);
+  padding-top: var(--sp-sm);
+  font-size: var(--fs-aux);
+  color: var(--text-2);
+}
+.pd-refhover-pager button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

@@ -27,6 +27,8 @@ export interface PaperDeskBridge {
   /** 契约之外的补充：后端失败后由用户点击“重试”触发主进程重新拉起。 */
   retryBackend(): Promise<void>
   pickPdfFiles(): Promise<string[]>
+  /** 拖进窗口的文件在磁盘上的绝对路径（渲染进程拿不到 File.path，要靠 preload 的 webUtils） */
+  pathsForFiles(files: File[]): string[]
   /** 选择补充材料文件（PDF/表格/文档/压缩包/任意文件，可多选） */
   pickSupplementFiles(): Promise<string[]>
   pickFolder(): Promise<string | null>

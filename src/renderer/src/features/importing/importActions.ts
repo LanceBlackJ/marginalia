@@ -42,6 +42,28 @@ export async function importLocalFiles(): Promise<void> {
   }
 }
 
+/** 拖进窗口的文件/文件夹：PDF 走文件导入，文件夹递归扫描 PDF，其他类型忽略并提示。 */
+export async function importDropped(files: string[], folders: string[]): Promise<void> {
+  const pdfs = files.filter((p) => /\.pdf$/i.test(p))
+  const skipped = files.length - pdfs.length
+  if (pdfs.length === 0 && folders.length === 0) {
+    toast.error('没有可导入的文件', '只支持 PDF 文件或包含 PDF 的文件夹。')
+    return
+  }
+  try {
+    if (pdfs.length > 0) {
+      const { job_id } = await api.imports.files(pdfs)
+      startJob(job_id, `共 ${pdfs.length} 个 PDF，可在任务中心查看进度。${skipped ? `另有 ${skipped} 个非 PDF 文件已忽略。` : ''}`)
+    }
+    for (const dir of folders) {
+      const { job_id } = await api.imports.folder(dir, true)
+      startJob(job_id, '正在扫描文件夹中的 PDF。')
+    }
+  } catch (err) {
+    toast.error('导入失败', errorMessage(err))
+  }
+}
+
 /** 论文下载浏览器里截下来的 PDF：直接导入（来源标题里写明是从哪个网址下载的）。 */
 export async function importDownloadedPdf(path: string, filename: string): Promise<void> {
   if (await attachDownloadedPdf(path, filename)) return // 是从某篇只有题录的论文里点进去下载的：接回那一篇

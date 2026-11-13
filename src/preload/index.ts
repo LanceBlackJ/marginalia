@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC, type BackendStatus, type PaperDeskBridge, type PaperDownload } from '../shared/bridge'
 
 const bridge: PaperDeskBridge = {
@@ -13,6 +13,7 @@ const bridge: PaperDeskBridge = {
   },
   retryBackend: () => ipcRenderer.invoke(IPC.backendRetry),
   pickPdfFiles: () => ipcRenderer.invoke(IPC.pickPdfFiles),
+  pathsForFiles: (files) => files.map((f) => webUtils.getPathForFile(f)).filter(Boolean),
   pickSupplementFiles: () => ipcRenderer.invoke(IPC.pickSupplementFiles),
   pickFolder: () => ipcRenderer.invoke(IPC.pickFolder),
   setApiKey: (key) => ipcRenderer.invoke(IPC.setApiKey, key),

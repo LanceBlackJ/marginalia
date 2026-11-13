@@ -1,11 +1,10 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui'
 import type { RefItem } from '@/lib/types.references'
 import { placePopover, refHeadline, type Placement } from './refModel'
 import { useRefStore } from './refStore'
 
 const WIDTH = 360
-const MAX_SHOWN = 4
 
 /** 一条参考文献的“谁、哪年、哪里发的”：解析不可靠（双栏弄乱了）时不给，免得给出错的信息。 */
 export function refByline(item: RefItem): string {
@@ -27,17 +26,22 @@ export function RefHoverCard() {
   const openPopover = useRefStore((s) => s.openPopover)
   const ref = useRef<HTMLDivElement>(null)
   const [place, setPlace] = useState<Placement | null>(null)
+  const [page, setPage] = useState(0)
+
+  // 换了一个角标就从第一条看起
+  useEffect(() => setPage(0), [hover?.refs.join(',')])
 
   useLayoutEffect(() => {
     if (!hover) return setPlace(null)
     const h = ref.current?.offsetHeight ?? 120
     setPlace(placePopover(hover.rect, WIDTH, { w: window.innerWidth, h: window.innerHeight }, h))
-  }, [hover, byIndex])
+  }, [hover, byIndex, page])
 
   if (!hover) return null
   const items = hover.refs.map((i) => byIndex.get(i)).filter((x): x is RefItem => !!x)
   if (items.length === 0) return null
-  const shown = items.slice(0, MAX_SHOWN)
+  const cur = Math.min(page, items.length - 1)
+  const shown = [items[cur]]
   return (
     <div
       ref={ref}
@@ -63,7 +67,19 @@ export function RefHoverCard() {
           </div>
         )
       })}
-      {items.length > shown.length && <div className="pd-refhover-by">还有 {items.length - shown.length} 条，点角标查看全部</div>}
+      {items.length > 1 && (
+        <div className="pd-refhover-pager">
+          <button type="button" className="pd-refhover-more" disabled={cur === 0} aria-label="上一条" onClick={() => setPage(cur - 1)}>
+            ‹
+          </button>
+          <span>
+            {cur + 1} / {items.length}
+          </span>
+          <button type="button" className="pd-refhover-more" disabled={cur === items.length - 1} aria-label="下一条" onClick={() => setPage(cur + 1)}>
+            ›
+          </button>
+        </div>
+      )}
       <div className="pd-refhover-actions">
         <button type="button" className="pd-refhover-more" onClick={() => openPopover(hover.refs, hover.rect)}>
           更多信息
