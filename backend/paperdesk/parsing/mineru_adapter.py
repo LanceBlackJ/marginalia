@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import re
+from html.parser import HTMLParser
 
 from . import reflow
 from .metadata import extract_metadata
@@ -65,11 +66,72 @@ def _clean(t: str) -> str:
     return re.sub(r"[ \t]+", " ", re.sub(r"\s*\n\s*", " ", t)).strip()
 
 
+class _Grid(HTMLParser):
+    """把 MinerU 的 HTML 表格摊成二维格子：colspan/rowspan 占的格子留空，这样表头和数据列对得上。"""
+
+    def __init__(self):
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self._pend: dict[int, int] = {}  # 列 -> 还要往下占几行
+        self._cell = None
+        self._span = (1, 1)
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        if tag == "tr":
+            self.rows.append([])
+        elif tag in ("td", "th"):
+            def num(k):
+                try:
+                    return max(1, min(40, int(a.get(k) or 1)))
+                except ValueError:
+                    return 1
+            self._span = (num("colspan"), num("rowspan"))
+            self._cell = []
+
+    def handle_data(self, data):
+        if self._cell is not None:
+            self._cell.append(data)
+
+    def handle_endtag(self, tag):
+        if tag in ("td", "th") and self._cell is not None and self.rows:
+            row = self.rows[-1]
+            while self._pend.get(len(row), 0) > 0:
+                self._pend[len(row)] -= 1
+                row.append("")
+            cs, rs = self._span
+            row.append(_clean("".join(self._cell)))
+            for k in range(1, cs):
+                row.append("")
+            if rs > 1:
+                for k in range(cs):
+                    self._pend[len(row) - cs + k] = rs - 1
+            self._cell = None
+
+
+def _html_rows(h: str) -> list[list[str]]:
+    h = re.sub(r"<eq>(.*?)</eq>", r"", h, flags=re.S)
+    g = _Grid()
+    g.feed(h)
+    return [r for r in g.rows if any(c for c in r)]
+
+
 def _html_text(h: str) -> str:
-    h = re.sub(r"</t[dh]>", " | ", h)
-    h = re.sub(r"</tr>", "\n", h)
-    h = re.sub(r"<eq>(.*?)</eq>", r"\1", h, flags=re.S)
-    return html.unescape(re.sub(r"<[^>]+>", "", h)).strip()
+    rows = _html_rows(h)
+    if not rows:
+        h = re.sub(r"</t[dh]>", " | ", h)
+        h = re.sub(r"</tr>", "\n", h)
+        return html.unescape(re.sub(r"<[^>]+>", "", h)).strip()
+    return "\n".join(" | ".join(html.unescape(c) for c in r) + " |" for r in rows)
+
+
+def _split_footnote(rows: list[list[str]]) -> tuple[list[list[str]], str]:
+    """表格最后若有只有一个格子、字很多的行，那是脚注，不是数据。"""
+    foot = []
+    while len(rows) > 2 and sum(1 for c in rows[-1] if c) == 1 and max(len(c) for c in rows[-1]) > 60:
+        foot.insert(0, next(c for c in rows[-1] if c))
+        rows = rows[:-1]
+    return rows, " ".join(foot)
 
 
 def _level(title: str, mineru_level: int | None) -> int:
@@ -212,7 +274,14 @@ def build(mid: dict, pages: list[tuple[float, float]], meta_raw: dict | None = N
                 cp = add(pno, "caption", (cap + (" " + foot if foot else "")).strip(), _union([cbox, fbox])) if (cap or foot) else None
                 inner = None
                 for sb in bodies:
-                    tx = _html_text(sb.get("content") or "") if isinstance(sb.get("content"), str) else _clean(_plain(sb.get("content")))
+                    if isinstance(sb.get("content"), str):
+                        rows, extra = _split_footnote(_html_rows(sb["content"]))
+                        tx = _html_text(sb["content"]) if not rows else "\n".join(
+                            " | ".join(html.unescape(c) for c in r) + " |" for r in rows)
+                        if extra and cp is not None and extra not in cp.text:
+                            cp.text = (cp.text + " " + extra).strip()
+                    else:
+                        tx = _clean(_plain(sb.get("content")))
                     ip = add(pno, "figure_text", tx, _box(sb, w, h), sec=state["sec"])
                     inner = inner or ip
                 m = FIG_LABEL.match(cap) if cap else None

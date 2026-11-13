@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import pymupdf
@@ -51,6 +52,18 @@ def _runs(page, pred) -> list[tuple[str, tuple[float, float, float, float]]]:
     return [(t, tuple(b)) for t, b in out if len(t) >= 2 and any(ch.isalnum() for ch in t)]
 
 
+def _respace(page, p) -> None:
+    """MinerU 在旋转的表格页上会丢空格（“Table1|Evaluationof…”）：文字层里有空格，且字母完全一致时用文字层的。"""
+    t = p.text
+    if len(t) < 25 or t.count(" ") / len(t) > 0.04:
+        return
+    x0, y0, x1, y1 = p.bbox
+    got = " ".join(page.get_text("text", clip=pymupdf.Rect(x0 - 1, y0 - 1, x1 + 1, y1 + 1)).split())
+    squash = lambda x: re.sub(r"[\s|]+", "", x).lower()
+    if got and got.count(" ") > t.count(" ") and squash(got) == squash(t):
+        p.text = got
+
+
 def annotate(parsed: ParsedDoc, path: Path) -> None:
     with _PARSE_LOCK:
         doc = pymupdf.open(str(path))
@@ -63,6 +76,8 @@ def annotate(parsed: ParsedDoc, path: Path) -> None:
                 if not 1 <= pno <= doc.page_count:
                     continue
                 page = doc[pno - 1]
+                for p in ps:
+                    _respace(page, p)
                 if page.rotation:
                     continue
                 for attr, pred in (("bold", _is_bold), ("italic", _is_italic)):

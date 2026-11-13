@@ -1075,6 +1075,21 @@ export function TextReader() {
     })
   }, [])
 
+  // 刚进入论文、内容变高（译文到了、图片撑开）时并没有滚动事件：目录高亮要主动重算，否则会停在旧位置直到用户滚一下
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    onScroll()
+    const timers = [60, 250, 800, 2000].map((ms) => window.setTimeout(onScroll, ms))
+    const inner = el.firstElementChild
+    const ro = inner ? new ResizeObserver(() => onScroll()) : null
+    if (inner && ro) ro.observe(inner)
+    return () => {
+      timers.forEach((t) => window.clearTimeout(t))
+      ro?.disconnect()
+    }
+  }, [doc, onScroll])
+
   // ---------- 选区 ----------
   useEffect(() => {
     const el = containerRef.current

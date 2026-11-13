@@ -107,8 +107,9 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
         // 补上夹在上一个标题和这个标题之间、自己下面没有任何正文的标题（“2 Background”下面直接就是“2.1 …”）：
         // 标题只在遇到某一节的第一段正文时才会出现，这类父标题不补的话，右边的“本文结构”就会比左边的目录少。
         const k = outlineIdx.get(curKey)
-        if (k !== undefined && lastIdx !== null && k > lastIdx + 1) {
-          for (let j = lastIdx + 1; j < k; j++) {
+        const from = lastIdx === null ? 0 : lastIdx + 1 // 第一个出现的标题之前也要补（“Results”夹在无标题的引言和第一个小节之间）
+        if (k !== undefined && k > from) {
+          for (let j = from; j < k; j++) {
             const o = outline[j]
             if (!hasText.has(outlineKey(o)) && o.title !== IMPLICIT_BODY) {
               blocks.push({ type: 'heading', key: `o${o.id}`, title: o.title, level: levels.get(o.title) ?? 2, page: o.page, secKey: secKey(o.id) })
