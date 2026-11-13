@@ -34,12 +34,13 @@ export function sectionStarts(outline: readonly OutlineItem[], items: readonly P
  * 标题是按正文里实际的位置判断的（小节的标题在大章节的标题之后），所以停在小节里就得到小节，不会停在大章节上。
  */
 export function activeSectionAt(tops: ReadonlyArray<{ title: string; top: number }>, line: number): string | null {
-  let cur: string | null = tops.length ? tops[0].title : null
-  for (const t of tops) {
-    if (t.top <= line) cur = t.title
-    else break
-  }
-  return cur
+  if (tops.length === 0) return null
+  // 不能指望标题在页面上的位置严格按顺序：只要有一个排在前面的标题位置偏下，“遇到就停”会让高亮卡在更早的小节。
+  // 所以看全部标题：阅读线上方最近的那个；都在阅读线下面就取最靠上的。
+  let best: { title: string; top: number } | null = null
+  for (const t of tops) if (t.top <= line && (!best || t.top >= best.top)) best = t
+  if (best) return best.title
+  return tops.reduce((m, t) => (t.top < m.top ? t : m)).title
 }
 
 /**

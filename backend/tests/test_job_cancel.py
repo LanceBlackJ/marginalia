@@ -71,3 +71,38 @@ def test_run_async_unit_cancels_promptly():
     with pytest.raises(JobCancelled):
         ctx.run_async(forever())
     assert time.time() - t0 < 2.5
+
+
+def test_cancel_import_stops_now_and_removes_what_was_imported(api, sample_pdf, monkeypatch):
+    """导入多个文件时点停止：任务立刻标成已取消，已经导入完的那几篇要撤销，没做的不再做。"""
+    import shutil
+    import threading
+
+    from paperdesk.library import import_jobs
+
+    files = []
+    for i in range(3):
+        p = sample_pdf.parent / f"copy{i}.pdf"
+        shutil.copy(sample_pdf, p)
+        files.append(str(p))
+    real = import_jobs.import_pdf_file
+    gate = threading.Event()
+    calls = []
+
+    def slow(app, path, **kw):
+        out = real(app, path, **kw)
+        calls.append(path)
+        if len(calls) == 1:
+            gate.set()
+            time.sleep(1.5)  # 第一篇导入完后，处理器停在这里（相当于正在做一个长步骤）
+        return out
+
+    monkeypatch.setattr(import_jobs, "import_pdf_file", slow)
+    job_id = api.post("/import/files", {"paths": files}).json()["job_id"]
+    assert gate.wait(30)
+    j = api.post(f"/jobs/{job_id}/cancel").json()
+    assert j["status"] == "cancelled"  # 立刻就是已取消，不用等后台线程
+    time.sleep(2.5)
+    assert api.get("/papers").json()["items"] == []  # 已导入的被撤销
+    assert len(calls) == 1  # 后面两个文件没有再导入
+    assert api.get(f"/jobs/{job_id}").json()["status"] == "cancelled"

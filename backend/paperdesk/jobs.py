@@ -36,6 +36,7 @@ class JobContext:
         self.job_id = job_id
         self.payload = payload
         self._cancel = cancel_event
+        self.created_papers: list[str] = []  # 这个任务新建的论文：取消时要整体撤销
 
     @property
     def app(self) -> AppContext:
@@ -44,6 +45,10 @@ class JobContext:
     @property
     def cancelled(self) -> bool:
         return self._cancel.is_set()
+
+    def track_paper(self, paper_id: str | None) -> None:
+        if paper_id and paper_id not in self.created_papers:
+            self.created_papers.append(paper_id)
 
     def check_cancelled(self) -> None:
         if self._cancel.is_set():
@@ -118,6 +123,7 @@ class JobManager:
         self.app = app
         self._handlers: dict[str, Handler] = {}
         self._events: dict[str, threading.Event] = {}
+        self._ctxs: dict[str, JobContext] = {}
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="job")
 
@@ -197,12 +203,16 @@ class JobManager:
         handler = self._handlers.get(row["type"])
         event = self._events.get(job_id) or threading.Event()
         ctx = JobContext(self, job_id, loads(row["payload_json"], {}), event)
+        with self._lock:
+            self._ctxs[job_id] = ctx
         try:
             if handler is None:
                 raise ApiError("bad_request", f"未知任务类型：{row['type']}")
             result = handler(ctx)
+            if event.is_set():  # 取消发出时处理器正卡在一个长步骤里，没来得及检查：照样按取消处理
+                raise JobCancelled()
         except JobCancelled:
-            self._finish(job_id, "cancelled", message="已取消")
+            self._finish(job_id, "cancelled", message=self._rollback(ctx, "已取消"))
         except ApiError as exc:
             ctx.log(f"失败：{exc.message}")
             self._finish(job_id, "failed", error=exc.message)
@@ -215,6 +225,21 @@ class JobManager:
         finally:
             with self._lock:
                 self._events.pop(job_id, None)
+                self._ctxs.pop(job_id, None)
+
+    def _rollback(self, ctx: JobContext, base: str) -> str:
+        """撤销这个任务已经做完的部分：它新建的论文连同分析数据一起删掉。可重复调用。"""
+        from .library import repo
+
+        done = 0
+        while ctx.created_papers:
+            pid = ctx.created_papers.pop()
+            try:
+                repo.delete_paper(self.app, pid)
+                done += 1
+            except Exception as exc:  # noqa: BLE001  已经不在了或删除失败：不影响取消本身
+                log.warning("撤销论文 %s 失败：%s", pid, exc)
+        return f"{base}，已撤销已导入的 {done} 篇" if done else base
 
     def _finish(
         self, job_id: str, status: str, *, error: str | None = None, result: Any = None,
@@ -272,6 +297,7 @@ class JobManager:
             return [self._to_dict(r) for r in conn.execute(sql, (*args, limit)).fetchall()]
 
     def cancel(self, job_id: str) -> dict:
+        cancel_ctx = None
         with self.app.db.session() as conn:
             row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
             if row is None:
@@ -284,9 +310,15 @@ class JobManager:
             elif row["status"] == "running":
                 with self._lock:
                     ev = self._events.get(job_id)
+                    ctx = self._ctxs.get(job_id)
                 if ev is not None:
                     ev.set()
-                conn.execute("UPDATE jobs SET message='正在取消…' WHERE id=?", (job_id,))
+                # 立刻标成已取消：不等后台线程走到下一个检查点；它之后的收尾只会撤销新产生的内容
+                conn.execute(
+                    "UPDATE jobs SET status='cancelled', finished_at=?, message='已取消' WHERE id=? AND status='running'",
+                    (utcnow(), job_id),
+                )
+                cancel_ctx = ctx
             elif row["status"] == "waiting_approval":
                 conn.execute(
                     "UPDATE jobs SET status='cancelled', finished_at=?, message='已取消' WHERE id=? AND status='waiting_approval'",
@@ -294,6 +326,10 @@ class JobManager:
                 )
             else:
                 raise ApiError("conflict", "该任务当前状态无法取消", 409)
+        if cancel_ctx is not None:
+            msg = self._rollback(cancel_ctx, "已取消")
+            with self.app.db.session() as conn:
+                conn.execute("UPDATE jobs SET message=? WHERE id=?", (msg, job_id))
         return self.get(job_id)  # type: ignore[return-value]
 
     def delete(self, job_id: str) -> None:

@@ -56,6 +56,13 @@ def _maybe_auto_analyze(ctx: JobContext, paper_id: str, outcome: ImportOutcome) 
             pass
 
 
+def _meta(ctx: JobContext, **kw) -> str:
+    """新建只有题录的论文，并记到任务名下（取消任务时一起撤销）。"""
+    pid = create_metadata_only(ctx.app, **kw)
+    ctx.track_paper(pid)
+    return pid
+
+
 def _item(inp: str, outcome: ImportOutcome) -> dict:
     item = {"input": inp, "status": outcome.status, "paper_id": outcome.paper_id, "message": outcome.message}
     if outcome.ocr_job_id:  # 扫描版：文字正在后台由本地 OCR 识别
@@ -79,6 +86,8 @@ def handle_import(ctx: JobContext) -> dict:
             ctx.log(f"导入失败 {path.name}: {type(exc).__name__}: {exc}")
             out = ImportOutcome("failed", message=f"导入出错：{exc}")
         if out.status == "imported" and out.paper_id:
+            ctx.track_paper(out.paper_id)
+            ctx.check_cancelled()
             _maybe_auto_analyze(ctx, out.paper_id, out)
         elif out.status != "imported":
             ctx.log(f"{path.name}: {out.status} — {out.message}")
@@ -111,6 +120,9 @@ def _download_and_import(
                 ctx.app, dest, source_url=source_url or url, overrides=overrides,
                 override_source=resolved.source, keep_original_path=False, log=ctx.log,
             )
+            if outcome.status == "imported":
+                ctx.track_paper(outcome.paper_id)
+            ctx.check_cancelled()
             return outcome, None
     if last_error:
         ctx.log(f"所有开放获取链接均不可用：{last_error}")
@@ -148,8 +160,7 @@ def handle_import_doi(ctx: JobContext) -> dict:
             items.append({"input": raw, "status": "failed", "paper_id": None, "message": msg})
             continue
         if metadata_only:  # 用户只要题录：不下载任何全文
-            paper_id = create_metadata_only(
-                ctx.app, doi=doi, arxiv_id=None, metadata=resolved.metadata,
+            paper_id = _meta(ctx, doi=doi, arxiv_id=None, metadata=resolved.metadata,
                 access_info=resolved.access_info, source=resolved.source,
             )
             items.append({"input": raw, "status": "metadata_only", "paper_id": paper_id,
@@ -164,8 +175,7 @@ def handle_import_doi(ctx: JobContext) -> dict:
             items.append(_item(raw, out))
             continue
         # 没有可用的开放获取全文：保留题录，并告知可用来源
-        paper_id = create_metadata_only(
-            ctx.app, doi=doi, arxiv_id=None, metadata=resolved.metadata,
+        paper_id = _meta(ctx, doi=doi, arxiv_id=None, metadata=resolved.metadata,
             access_info=resolved.access_info, source=resolved.source,
         )
         if out is not None:
@@ -203,8 +213,7 @@ def handle_import_url(ctx: JobContext) -> dict:
         if not resolved.metadata:
             return {"items": [{"input": url, "status": "failed", "paper_id": None,
                                "message": "这个链接解析不出题录，无法“仅保存元数据”。请改用 DOI 或 arXiv 链接，或直接导入 PDF。"}]}
-        paper_id = create_metadata_only(
-            ctx.app, doi=resolved.doi, arxiv_id=resolved.arxiv_id, metadata=resolved.metadata,
+        paper_id = _meta(ctx, doi=resolved.doi, arxiv_id=resolved.arxiv_id, metadata=resolved.metadata,
             access_info=resolved.access_info, source=resolved.source, source_url=url,
         )
         return {"items": [{"input": url, "status": "metadata_only", "paper_id": paper_id,
@@ -215,8 +224,7 @@ def handle_import_url(ctx: JobContext) -> dict:
             _maybe_auto_analyze(ctx, out.paper_id, out)
         return {"items": [_item(url, out)]}
     if resolved.metadata:
-        paper_id = create_metadata_only(
-            ctx.app, doi=resolved.doi, arxiv_id=resolved.arxiv_id, metadata=resolved.metadata,
+        paper_id = _meta(ctx, doi=resolved.doi, arxiv_id=resolved.arxiv_id, metadata=resolved.metadata,
             access_info=resolved.access_info, source=resolved.source, source_url=url,
         )
         reason = f"（{dl_error}）" if dl_error else ""
