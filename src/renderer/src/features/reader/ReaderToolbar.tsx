@@ -141,7 +141,7 @@ function ModeControl() {
   )
 }
 
-/** 主阅读界面切换：文字（默认）｜对照｜译文｜PDF。 */
+/** 主阅读界面切换：文字（默认）｜PDF｜并排。文字界面里的译文可以在文字栏的开关里关掉。 */
 function ReadViewControl() {
   const readView = useReaderStore((s) => s.readView)
   const setReadView = useReaderStore((s) => s.setReadView)
@@ -154,8 +154,6 @@ function ReadViewControl() {
       onChange={setReadView}
       options={[
         { value: 'text', label: '文字', disabled: noText, disabledReason: reason },
-        { value: 'both', label: '对照', disabled: noText, disabledReason: reason },
-        { value: 'target', label: '译文', disabled: noText, disabledReason: reason },
         { value: 'pdf', label: 'PDF' },
         { value: 'split', label: '并排', disabled: noText, disabledReason: reason }
       ]}
@@ -291,14 +289,15 @@ export function ReaderToolbar() {
 
   /** 全文翻译：切到对照界面并开始翻译，译文边翻边出现。 */
   const translateAll = (): void => {
-    setReadView('both')
+    usePrefs.getState().set({ showTranslation: true })
+    setReadView('text')
     void useTextStore.getState().startTranslation()
   }
 
   /** 当前界面的文字（PDF 界面按“文字”导出）。 */
   const exportText = (): string => {
     const t = useTextStore.getState()
-    const view = readView === 'pdf' || readView === 'split' ? 'text' : readView
+    const view = usePrefs.getState().showTranslation ? 'both' : 'text'
     return buildPlain(t.items, t.trans, view, { showNoise: false })
   }
   const copyText = async (): Promise<void> => {

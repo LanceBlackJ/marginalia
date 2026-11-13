@@ -32,6 +32,9 @@ CJK_NUM = re.compile(r"^[一二三四五六七八九十]+、")
 CJK_SUB = re.compile(r"^[（(][一二三四五六七八九十]+[）)]")
 
 
+CAPTION_HEAD = re.compile(r"(?i)^\s*(?:supplementary\s+)?(?:tables?|tab\.|fig(?:ure)?s?\.?|表|图)\s*S?\d+")
+
+
 def _plain(spans, math: list[dict] | None = None) -> str:
     """spans → 文字；行内公式直接把 LaTeX 放进文字里，同时登记到 math（src 与 tex 相同，阅读器按 src 替换渲染）。"""
     if isinstance(spans, str):
@@ -154,6 +157,9 @@ def build(mid: dict, pages: list[tuple[float, float]], meta_raw: dict | None = N
                     continue
                 if not title_text and not sections and pno == 1 and b.get("level") == 1:
                     title_text = tt
+                    continue
+                if CAPTION_HEAD.match(tt):  # “Table S3 …”“Figure 2 …”被识别成标题：这是图表题注，不进目录
+                    add(pno, "paragraph", tt, box)
                     continue
                 state["seen_heading"] = True
                 state["in_refs"] = bool(REF_HEAD.match(tt))

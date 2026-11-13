@@ -3,6 +3,7 @@ import { toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { textApi, type EquationLatexItem, type EquationsLatex, type FigureRegion, type TableAnalysisItem, type TableTranslation, type TablesAnalysis, type TextItem } from '@/lib/api.text'
 import { visionApi } from '@/lib/api.vision'
+import { usePrefs } from '@/stores/prefsStore'
 import type { EquationItem } from '@/lib/types.vision'
 
 export interface EquationInfo {
@@ -43,6 +44,7 @@ export function mergeEquations(list: EquationItem[], res: EquationsLatex | null)
   return out
 }
 
+const autoTried = new Set<string>()
 const autoEqStarted = new Set<string>()
 const autoTblStarted = new Set<string>()
 
@@ -116,7 +118,7 @@ interface TextState {
   load: (paperId: string) => Promise<void>
   reset: () => void
   refreshTranslation: () => Promise<void>
-  startTranslation: () => Promise<void>
+  startTranslation: (auto?: boolean) => Promise<void>
   cancelTranslation: () => Promise<void>
 }
 
@@ -337,6 +339,12 @@ export const useTextStore = create<TextState>((set, get) => {
       } catch {
         /* 任务列表取不到不影响阅读 */
       }
+      // 默认直接翻译：还没翻完、也没有在跑的翻译任务时自动开始（每篇每次运行只自动一次；设置里可关）
+      const st = get()
+      if (st.paperId === paperId && !st.jobId && !st.trComplete && usePrefs.getState().autoTranslatePaper && !autoTried.has(paperId)) {
+        autoTried.add(paperId)
+        void get().startTranslation(true)
+      }
       // 图与公式：只读已有结果，不调用模型
       void (async () => {
         try {
@@ -439,21 +447,21 @@ export const useTextStore = create<TextState>((set, get) => {
       }
     },
 
-    startTranslation: async () => {
+    startTranslation: async (auto = false) => {
       const id = get().paperId
       if (!id || get().jobId) return
       try {
         const r = await textApi.startTranslation(id)
         if (r.job_id) {
           set({ jobId: r.job_id, jobMsg: '正在翻译…', progress: undefined })
-          toast.info('开始翻译全文', '正文段落会发送给你配置的模型；译文会边翻边出现，也可以到任务页查看。')
+          if (!auto) toast.info('开始翻译全文', '正文段落会发送给你配置的模型；译文会边翻边出现，也可以到任务页查看。')
           poll(r.job_id, id)
         } else {
           await get().refreshTranslation()
-          toast.info('这篇论文已经全部翻译过了')
+          if (!auto) toast.info('这篇论文已经全部翻译过了')
         }
       } catch (err) {
-        toast.error('无法开始翻译', errorMessage(err))
+        if (!auto) toast.error('无法开始翻译', errorMessage(err))
       }
     },
 

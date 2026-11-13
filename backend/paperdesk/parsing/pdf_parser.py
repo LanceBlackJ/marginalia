@@ -1221,6 +1221,7 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
             blocks = [b for b in blocks if b.page != 1]
     first = pages[fno - 1]
 
+    blocks = [b for b in blocks if not (b.page == fno and re.fullmatch(r"(?i)\s*check for updates\s*", b.text or ""))]  # 期刊的“Check for updates”徽标插在摘要中间，会把摘要切成两截
     # --- 标题：首页上半部分里字号最大的非页眉段落 ---
     p1 = [b for b in blocks if b.page == fno]
     p1_sizes = sorted({round(b.size, 1) for b in p1 if b.kind == "paragraph"}, reverse=True)
@@ -1350,6 +1351,21 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
             front_ids.add(id(b))  # 首页页脚的会议信息（“31st Conference on Neural Information Processing Systems (NIPS 2017)”）
 
     # 摘要分成几段（ACM 的 KDD 版式、Bioinformatics 的 Motivation/Results/Availability）：紧挨着摘要、同栏同字号的几段，
+    # 摘要从半句话开头（小写字母起头）：前面紧挨着的几小块（被版面里的徽标/插图隔开的前半段）是它的开头，并到前面来
+    if abstract_block is not None and abstract_block.kind == "paragraph" and abstract_block in blocks:
+        while abstract_block.text.lstrip()[:1].islower():
+            i0 = blocks.index(abstract_block)
+            prev = blocks[i0 - 1] if i0 > 0 else None
+            if (prev is None or prev.page != abstract_block.page or prev.kind != "paragraph" or prev.col != abstract_block.col
+                    or id(prev) in title_ids or prev.run_in or abs(prev.size - abstract_block.size) > 0.6
+                    or prev.text.rstrip().endswith(layout.TERMINAL) or len(prev.text.strip()) < 20):
+                break
+            sep = "" if prev.text.rstrip().endswith("-") else " "
+            abstract_block.text = prev.text.rstrip().rstrip("-") + sep + abstract_block.text.lstrip() if sep == "" else prev.text.rstrip() + sep + abstract_block.text.lstrip()
+            abstract_block.lines = list(prev.lines or []) + list(abstract_block.lines or [])
+            abstract_block.y0 = min(abstract_block.y0, prev.y0)
+            abstract_block.nlines += prev.nlines
+            blocks = [x for x in blocks if x is not prev]
     # 一直到遇到标题、元数据小节、通讯/收稿行为止，都是摘要的后半；没遇到这样的终点就不并（可能是没认出标题的正文）
     if abstract_block is not None and abstract_block.kind == "paragraph" and abstract_block in blocks:
         i0 = blocks.index(abstract_block)

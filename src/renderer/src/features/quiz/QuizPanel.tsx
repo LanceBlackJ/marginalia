@@ -6,7 +6,7 @@ import { useReaderStore } from '@/features/reader/readerStore'
 import { firstUnanswered, scoreOf, useQuizStore, type QuizKind, type QuizQuestion, type QuizSet } from './quizStore'
 import './quiz.css'
 
-const LETTERS = ['A', 'B', 'C', 'D']
+const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
 const COUNT_MIN = 3
 const COUNT_MAX = 20
 

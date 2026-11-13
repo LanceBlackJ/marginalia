@@ -1,9 +1,8 @@
 import { useEffect } from 'react'
 import { useNotesStore } from '@/features/notes/notesStore'
-import type { TextView } from '@/features/text/textModel'
+import { usePrefs } from '@/stores/prefsStore'
 import { useReaderStore } from './readerStore'
 
-const TEXT_CYCLE: TextView[] = ['text', 'both', 'target']
 
 /** 在输入框、文本域、可编辑区域里打字时不触发快捷键。 */
 export function isTypingTarget(t: EventTarget | null): boolean {
@@ -79,10 +78,8 @@ export function useReaderShortcuts(enabled: boolean): void {
           return
         case 't': {
           if (st.noText) return
-          const cur = st.readView === 'split' ? st.splitTextView : st.readView === 'pdf' ? 'target' : (st.readView as TextView)
-          const next = TEXT_CYCLE[(TEXT_CYCLE.indexOf(cur) + 1) % TEXT_CYCLE.length]
-          if (st.readView === 'split') st.setSplitTextView(next)
-          else st.setReadView(next)
+          const pr = usePrefs.getState()
+          pr.set({ showTranslation: !pr.showTranslation })
           return
         }
         case 's': {

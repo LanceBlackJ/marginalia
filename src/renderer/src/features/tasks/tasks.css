@@ -99,6 +99,11 @@
   background: var(--bg-hover);
   box-shadow: inset 2px 0 0 var(--text);
 }
+.pd-task-row .pd-tooltip-host {
+  display: flex !important;
+  min-width: 0;
+  max-width: 100%;
+}
 .pd-task-title {
   font-size: var(--fs-body);
   font-weight: 500;

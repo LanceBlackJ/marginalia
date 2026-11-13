@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Check, ChevronLeft, ChevronRight, RotateCcw, Trash2, X, XCircle } from 'lucide-react'
-import { Button, EmptyState, IconButton, ProgressBar, Skeleton, Tag, toast } from '@/components/ui'
+import { Button, EmptyState, IconButton, ProgressBar, Skeleton, Tag, Tooltip, toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { jobsApprovalApi } from '@/lib/api.materials'
 import { attachAsSupplement, canAttachAsSupplement } from '@/features/materials/attach'
@@ -36,7 +36,7 @@ function StateText({ status }: { status: string }) {
 }
 
 /** 对齐的行式列表：任务名与说明 | 类型 | 进度或状态 | 时间。 */
-function TaskRows({ jobs, selectedId, onSelect, onDelete }: { jobs: Job[]; selectedId: string | null; onSelect: (id: string) => void; onDelete: (job: Job) => void }) {
+function TaskRows({ jobs, selectedId, onSelect, onDelete, onStop }: { jobs: Job[]; selectedId: string | null; onSelect: (id: string) => void; onDelete: (job: Job) => void; onStop: (job: Job) => void }) {
   return (
     <div className="pd-task-list" role="table">
       {jobs.map((j) => (
@@ -56,9 +56,9 @@ function TaskRows({ jobs, selectedId, onSelect, onDelete }: { jobs: Job[]; selec
           }}
         >
           <span style={{ minWidth: 0 }}>
-            <div className="pd-ellipsis pd-task-title" title={j.title}>
-              {j.title}
-            </div>
+            <Tooltip content={j.title}>
+              <div className="pd-ellipsis pd-task-title">{j.title}</div>
+            </Tooltip>
             {(j.status === 'failed' ? j.error || j.message : j.message) && (
               <div className="pd-aux pd-muted pd-ellipsis" title={j.status === 'failed' ? j.error || j.message : j.message}>
                 {j.status === 'failed' ? j.error || j.message : j.message}
@@ -77,6 +77,18 @@ function TaskRows({ jobs, selectedId, onSelect, onDelete }: { jobs: Job[]; selec
             {formatRelativeTime(j.created_at)}
           </span>
           <span className="pd-task-del">
+            {j.can_cancel && (
+              <IconButton
+                icon={<XCircle size={14} />}
+                label={j.message === '正在取消…' ? '正在停止…' : '停止任务'}
+                size="sm"
+                disabled={j.message === '正在取消…'}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onStop(j)
+                }}
+              />
+            )}
             {!isActiveJob(j.status) && j.status !== 'paused' && (
               <IconButton
                 icon={<Trash2 size={14} />}
@@ -116,6 +128,15 @@ export function TasksPage() {
   useEffect(() => {
     void refresh().catch(() => undefined)
   }, [refresh])
+
+  const stopOne = async (job: Job): Promise<void> => {
+    try {
+      await api.jobs.cancel(job.id)
+      await refresh()
+    } catch (err) {
+      toast.error('停止失败', errorMessage(err))
+    }
+  }
 
   const removeOne = async (job: Job): Promise<void> => {
     try {
@@ -196,7 +217,7 @@ export function TasksPage() {
             <EmptyState title={jobs.length === 0 ? '还没有任务' : '没有符合条件的任务'} description={jobs.length === 0 ? '导入论文或生成论文分析后，任务会显示在这里。' : undefined} />
           ) : (
             <>
-              <TaskRows jobs={shown} selectedId={selectedId} onSelect={setSelectedId} onDelete={(j) => void removeOne(j)} />
+              <TaskRows jobs={shown} selectedId={selectedId} onSelect={setSelectedId} onDelete={(j) => void removeOne(j)} onStop={(j) => void stopOne(j)} />
               {pages > 1 && (
                 <nav className="pd-tasks-pager" aria-label="分页">
                   <IconButton icon={<ChevronLeft size={15} />} label="上一页" size="sm" disabled={cur <= 1} onClick={() => setPage(cur - 1)} />

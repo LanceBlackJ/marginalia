@@ -34,21 +34,26 @@ KINDS = ('mixed', 'choice', 'judge')
 JUDGE_OPTIONS = ['正确', '错误']
 
 SYSTEM = (
-    "你是严谨的论文阅读测验出题人。读者刚读完下面这篇论文，请出题检验 TA 是否真的**理解**了这篇论文。要求：\n"
+    "你是严谨的论文阅读测验出题人，同时是一位资深的研究生导师，正在面试一位声称读过下面这篇论文的学生（组会提问、保研/博士面试的风格）。请出题检验 TA 是否真的**理解**了这篇论文，而不是背过摘要。要求：\n"
     "- 只依据给出的论文内容出题，不要考论文之外的知识；\n"
-    "- 重点考理解和思路：要解决什么问题、为什么这样做（动机）、核心想法和方法的关键思路、主要结论说明了什么、"
-    "和已有方法的本质区别、局限与适用范围；也可以考“如果……会怎样”这类需要想一想的推断；\n"
-    "- 不要考细节：不要考具体数字、超参数、页码、作者名、数据集规模、公式的具体写法、某个表格里的某一格；\n"
-    "- 题型有两种：choice（单项选择题，4 个选项只有 1 个正确，错误选项要像真的、有迷惑性，但依据论文能判断为错，"
-    "正确选项的位置要分散）和 judge（判断题，给出一个陈述，答案是“正确”或“错误”；错误的陈述要是常见的误解或似是而非的说法，"
-    "不要靠改一个无关紧要的词来凑错误）；\n"
-    "- 每题给出一句简短的中文解析，并从论文原文里逐字摘一句（原样复制，不要改写）作为依据；\n"
-    "- 题目、选项和解析用中文；论文里的术语、模型名保留英文。\n"
+    "- 像导师那样追问：为什么要这样设计而不是更简单的做法？这个假设不成立时会怎样？关键组件去掉会发生什么？"
+    "作者的结论是否真的被实验支持、有没有别的解释？方法的适用边界和代价在哪？和最相近的已有方法本质区别是什么？"
+    "如果换一种设定（数据、规模、噪声、任务）结论还成立吗？题干要有具体情境或推断，不要问“论文提出了什么”这种可以照抄摘要的题；\n"
+    "- 不要考细节记忆：不要考具体数字、超参数、页码、作者名、数据集规模、公式的具体写法、表格里的某一格；\n"
+    "- 难度要有梯度：约三分之一考核心思路，三分之一考动机与设计取舍，三分之一考推断、局限与批判性思考；\n"
+    "- 题型有两种：choice（单项选择题，**5 到 6 个选项**，只有 1 个正确）和 judge（判断题，答案是“正确”或“错误”）；\n"
+    "- 选择题质量要求：每个错误选项都要是学生真会犯的错误——常见误解、把相近方法的特点安到这篇论文上、因果颠倒、"
+    "夸大或缩小适用范围、只对一半的说法；错误选项必须依据论文能判断为错，不能是明显离谱的凑数项，也不能因为“有争议”而可能也对；"
+    "所有选项长度、语气、详略相近，不要让正确选项显得最长或最具体；选项之间不重叠、不互相包含；不要用“以上都对/都不对”；正确选项的位置要分散；\n"
+    "- 判断题质量要求：陈述要含一个需要思考才能判断的点；错误的陈述是常见误解或似是而非的说法，不要靠改一个无关紧要的词来凑错误，也不要用“总是/从不”这类一眼可判的绝对词；\n"
+    "- 每题给出中文解析：先说答案为什么对，再逐个点出主要错误选项错在哪（学生常见的误区是什么）；并从论文原文里逐字摘一句（原样复制，不要改写）作为依据；\n"
+    "- 题目、选项和解析用中文；论文里的术语、模型名保留英文；\n"
+    "- 宁缺毋滥：拿不准依据、或者答案有争议的题不要出。\n"
     "只输出一个 JSON 对象：\n"
-    '{"questions": [{"type": "choice", "question": "题干", "options": ["选项文字", "选项文字", "选项文字", "选项文字"], '
+    '{"questions": [{"type": "choice", "question": "题干", "options": ["选项文字", "选项文字", "选项文字", "选项文字", "选项文字", "选项文字"], '
     '"answer": 0, "explanation": "为什么选这个、其它为什么不对", "evidence": "从论文原文逐字摘的一句"}, '
     '{"type": "judge", "question": "一个陈述", "options": ["正确", "错误"], "answer": 1, "explanation": "为什么", "evidence": "原文的一句"}]}\n'
-    "answer 是正确选项的下标（选择题 0 到 3；判断题 0 表示“正确”、1 表示“错误”）；选择题选项文字里不要自己写“A.”“B.”之类的前缀。"
+    "answer 是正确选项的下标（选择题从 0 开始；判断题 0 表示“正确”、1 表示“错误”）；选择题选项文字里不要自己写“A.”“B.”之类的前缀。"
     "题型要求见用户消息。不要输出任何其它文字。"
 )
 
@@ -118,11 +123,13 @@ def _clean(q: dict, paras: list[dict]) -> dict | None:
         if not isinstance(ans, int) or ans not in (0, 1):
             return None
     else:
-        if not isinstance(opts, list) or len(opts) != 4 or not all(isinstance(o, str) and o.strip() for o in opts):
+        if not isinstance(opts, list) or not 4 <= len(opts) <= 8 or not all(isinstance(o, str) and o.strip() for o in opts):
             return None
-        if not isinstance(ans, int) or not 0 <= ans < 4:
+        if not isinstance(ans, int) or not 0 <= ans < len(opts):
             return None
-        options = [re.sub(r"^\s*[A-Da-d][.、．:：)）]\s*", "", o).strip() for o in opts]
+        options = [re.sub(r"^\s*[A-Ha-h][.、．:：)）]\s*", "", o).strip() for o in opts]
+        if len({_squash(o) for o in options}) != len(options) or any(re.fullmatch(r"(以上|上述|其(他|它)).{0,6}(都|均)?(对|正确|错误|不对|皆是)?", o) for o in options):
+            return None  # 重复选项、“以上都对”之类的凑数选项
     stem = str(q.get("question") or "").strip()
     if len(stem) < 6:
         return None
@@ -144,8 +151,8 @@ async def generate(app: AppContext, paper_id: str, count: int, kind: str = 'mixe
     ctx = _sample(paras)
     body = "\n\n".join(f"[{p['section'] or '正文'}] {p['text']}" for p in ctx)
     want = {
-        "mixed": f"请出 {count} 道题，选择题和判断题混合（判断题约占三分之一到一半）。",
-        "choice": f"请出 {count} 道单项选择题（type 全部是 choice）。",
+        "mixed": f"请出 {count} 道题，选择题和判断题混合（选择题为主，判断题约占四分之一到三分之一）。",
+        "choice": f"请出 {count} 道单项选择题（type 全部是 choice，每题 5 到 6 个选项）。",
         "judge": f"请出 {count} 道判断题（type 全部是 judge）。",
     }[kind]
     verified: list[dict] = []
@@ -164,7 +171,7 @@ async def generate(app: AppContext, paper_id: str, count: int, kind: str = 'mixe
         user = f"论文标题：{paper['title']}\n{ask}\n每道题的 evidence 必须是论文原文里连续的一句话，逐字照抄，不要改写、不要翻译。{avoid}\n\n论文内容：\n{body}"
         try:
             data = await ask_json(
-                app, system=SYSTEM, user=user, task_type="quiz", tier="strong", max_tokens=600 + 650 * ask_n, paper_id=paper_id, retries=1,
+                app, system=SYSTEM, user=user, task_type="quiz", tier="strong", max_tokens=800 + 900 * ask_n, paper_id=paper_id, retries=1,
                 includes={"question": False, "selection": False, "notes": False, "supplements": False, "code": False},
                 summary=f"发送了论文《{paper['title'][:40]}》约 {len(user):,} 字的正文，用于出 {ask_n} 道题（选择题/判断题）",
             )

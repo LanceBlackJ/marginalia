@@ -847,8 +847,8 @@ export function TextReader() {
   const paperId = useReaderStore((s) => s.paperId) ?? ''
   const paperTitle = useReaderStore((s) => s.paper?.title) ?? ''
   const readViewState = useReaderStore((s) => s.readView)
-  const splitTextView = useReaderStore((s) => s.splitTextView)
-  const view: TextView = readViewState === 'split' ? splitTextView : (readViewState as TextView)
+  const showTranslation = usePrefs((s) => s.showTranslation)
+  const view: TextView = readViewState === 'target' || readViewState === 'both' ? (readViewState as TextView) : showTranslation ? 'both' : 'text'
   const textSize = useReaderStore((s) => s.textSize)
   const wide = useReaderStore((s) => s.textWide)
   const outline = useReaderStore((s) => s.outline)

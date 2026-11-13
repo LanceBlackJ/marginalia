@@ -27,6 +27,7 @@ function AutoSettings() {
     <SettingRow title="自动" description="">
       <div className="pd-switchlist">
         <Switch checked={prefs.autoReparse} onChange={(v) => prefs.set({ autoReparse: v })} label="打开有新版解析的论文时自动重新解析" />
+        <Switch checked={prefs.autoTranslatePaper} onChange={(v) => prefs.set({ autoTranslatePaper: v })} label="打开论文时自动翻译全文（调用模型，译文边翻边出现）" />
         <Switch checked={prefs.autoTranslateWorks} onChange={(v) => prefs.set({ autoTranslateWorks: v })} label="发现页的论文自动翻译标题和摘要（调用模型）" />
       </div>
     </SettingRow>

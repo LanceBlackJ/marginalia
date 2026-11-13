@@ -33,10 +33,14 @@ def import_supplement_pdf(
             raise ApiError("conflict", "这个文件已经作为补充材料添加过了", 409)
         raise ApiError("conflict", f"这个文件已作为独立论文存在于文献库：{dup['title'][:40]}。可以在文献库里把它转为补充材料。", 409)
     say(f"解析 {src.name}（{src.stat().st_size // 1024 // 1024} MB）…")
-    try:
-        parsed = parse_pdf(src)
-    except PdfError as exc:
-        raise ApiError("bad_request", str(exc)) from exc
+    from ..parsing.parse_best import parse_with_mineru
+
+    parsed = parse_with_mineru(src, say)  # 和主论文一样：MinerU 优先（目录、版面、公式更准），不可用再走规则解析
+    if parsed is None:
+        try:
+            parsed = parse_pdf(src)
+        except PdfError as exc:
+            raise ApiError("bad_request", str(exc)) from exc
 
     stem = Path(original_name or src.name).stem
     title = (parsed.metadata.title or "").strip()
