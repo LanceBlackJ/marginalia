@@ -6,6 +6,7 @@ import re
 
 from ..context import AppContext
 from ..db import register_schema
+from ..parsing.pdf_text_repair import repair_reference_passages
 from ..util import ApiError, dumps, loads, utcnow
 from . import citations as cit
 from . import links, parse
@@ -47,6 +48,7 @@ def _reference_passages(app: AppContext, paper_id: str) -> tuple[list[dict], dic
         ).fetchall()
         widths = {r["page"]: r["width"] for r in conn.execute("SELECT page, width FROM page_info WHERE paper_id = ?", (paper_id,))}
     ps = [{"ord": r["ord"], "page": r["page"], "text": r["text"], "bbox": [r["x0"], r["y0"], r["x1"], r["y1"]]} for r in rows]
+    repair_reference_passages(app.paths.paper_dir(paper_id) / "original.pdf", ps)
     return ps, widths
 
 

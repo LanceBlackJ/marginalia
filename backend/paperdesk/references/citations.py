@@ -12,7 +12,7 @@ from .parse import first_author_surname
 _NUMS = r"\d{1,3}(?:\s*[,–‐\-]\s*\d{1,3}){0,6}"
 _BRACKET = re.compile(rf"(?<![A-Za-z0-9])\[\s*({_NUMS})\s*\]")
 _REF_WORD = re.compile(rf"\b[Rr]efs?\.?\s+({_NUMS})")
-_SUP = re.compile(r"(?<![^\W\d_])([^\W\d_]{3,})(\d{1,3}(?:[,–‐-]\d{1,3}){0,4})(?=[\s.,;:)\]]|$)")
+_SUP = re.compile(r"(?<![^\W\d_])([^\W\d_]{3,})(\d{1,3}(?:[,–‐-]\d{1,3}){0,4})(?=[\s.,;:)\]—–―\-/”’]|$)")
 _PAREN = re.compile(r"\(([^()]{3,200})\)")
 _NAME = r"(?:(?:van|von|de|der|den|di|da|del|della|la|le|ten|ter|bin|al|el|du|dos|das)\s+){0,2}[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+"
 _AY_PART = re.compile(

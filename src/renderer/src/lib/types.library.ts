@@ -29,6 +29,7 @@ export interface PaperFilters {
   has_supplement?: boolean
   has_code?: boolean
   favorite?: boolean
+  finished?: boolean
   /** yyyy-mm-dd（含当天） */
   imported_from?: string
   imported_to?: string
@@ -88,5 +89,5 @@ export interface PaperFacets {
   languages: Array<{ language: string; count: number }>
   parse: Record<string, number>
   read: { unread: number; reading: number; done: number }
-  flags: { has_notes: number; has_annotations: number; has_code: number; has_supplement: number; favorite: number }
+  flags: { has_notes: number; has_annotations: number; has_code: number; has_supplement: number; favorite: number; finished: number }
 }

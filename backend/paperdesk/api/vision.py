@@ -170,9 +170,11 @@ def start_tables(paper_id: str, body: TablesBody | None = None, ctx: AppContext 
 def table_image(paper_id: str, caption_ord: int, dpi: int = Query(150, ge=72, le=300), vector: bool = Query(False), ctx: AppContext = Depends(get_ctx)):
     """表格区域的图（本地渲染，不调用模型），供“对照原图”。vector=true 时给矢量图（SVG），放大不糊。"""
     _ensure_paper(ctx, paper_id)
+    # 表格方向和裁剪逻辑会随解析器版本变化，不能让浏览器把旧的横排/竖排图缓存一个小时。
+    headers = {"Cache-Control": "no-store, no-cache, must-revalidate"}
     if vector:
-        return Response(content=table_batch.image_svg(ctx, paper_id, caption_ord).encode("utf-8"), media_type="image/svg+xml", headers={"Cache-Control": "private, max-age=3600"})
-    return Response(content=table_batch.image_png(ctx, paper_id, caption_ord, dpi), media_type="image/png")
+        return Response(content=table_batch.image_svg(ctx, paper_id, caption_ord).encode("utf-8"), media_type="image/svg+xml", headers=headers)
+    return Response(content=table_batch.image_png(ctx, paper_id, caption_ord, dpi), media_type="image/png", headers=headers)
 
 
 # ---- 图表 ----

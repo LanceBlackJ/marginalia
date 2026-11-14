@@ -12,7 +12,7 @@ export interface EquationInfo {
   /** 已经识别好的 LaTeX（还没识别或识别失败为 null） */
   latex: string | null
   confidence: 'high' | 'medium' | 'low' | null
-  status: 'none' | 'ok' | 'failed'
+  status: 'none' | 'ok' | 'review' | 'failed'
   warnings: string[]
   error: string | null
 }

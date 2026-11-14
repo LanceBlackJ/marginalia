@@ -20,7 +20,8 @@ export interface Prefs {
   fontScale: number
   /** 文献库的显示方式：书架（默认）、列表、网格 */
   libraryLayout: 'shelf' | 'list' | 'grid'
-  librarySort: 'recent' | 'title' | 'author' | 'year' | 'imported'
+  libraryGroupByTag: boolean // 列表/卡片视图按标签分组（一篇有多个标签就出现在多组里）
+  librarySort: 'recent' | 'title' | 'author' | 'year' | 'imported' | 'manual'
   // ---- 阅读外观（“阅读外观”面板） ----
   theme: ThemeName
   /** 分块字体方案：标题、正文、摘要、图注、译文、参考文献、论文信息、等宽各有英文+中文字体。 */
@@ -46,6 +47,7 @@ export interface Prefs {
   autoTranslateWorks: boolean // 发现页里找到的论文自动翻译标题和摘要（会调用模型）
   autoTranslatePaper: boolean // 打开论文时自动翻译全文（会调用模型）
   showTranslation: boolean // 文字界面里显示译文（关掉就只看原文）
+  askThinking: 'auto' | 'on' | 'off' // 向 AI 提问时的思考模式：auto 用设置里的默认，on 开启，off 关闭
   askWeb: boolean // 向 AI 提问时，论文里没有的内容允许联网查资料（维基百科、OpenAlex）
   /** 阅读区右侧面板（AI 对话、术语、笔记……）里内容的缩放，1 = 原样；在面板上按 Ctrl+鼠标滚轮调整 */
   panelScale: number
@@ -59,6 +61,7 @@ export const DEFAULTS: Prefs = {
   defaultReadMode: 'continuous',
   fontScale: 1,
   libraryLayout: 'shelf',
+  libraryGroupByTag: false,
   librarySort: 'imported',
   theme: 'light',
   fontPlan: DEFAULT_FONT_PLAN,
@@ -81,6 +84,7 @@ export const DEFAULTS: Prefs = {
   autoTranslateWorks: true,
   autoTranslatePaper: true,
   showTranslation: true,
+  askThinking: 'auto',
   askWeb: true,
   panelScale: 1
 }
@@ -128,6 +132,7 @@ export function sanitizePrefs(raw: (Partial<Prefs> & { readFont?: unknown }) | n
     autoTranslateWorks: v.autoTranslateWorks !== false,
     autoTranslatePaper: v.autoTranslatePaper !== false,
     showTranslation: v.showTranslation !== false,
+    askThinking: v.askThinking === 'on' || v.askThinking === 'off' ? v.askThinking : 'auto',
     askWeb: v.askWeb !== false,
     panelScale: clamp(Number(v.panelScale) || DEFAULTS.panelScale, PANEL_SCALE_MIN, PANEL_SCALE_MAX),
     smartLayer: v.smartLayer !== false,

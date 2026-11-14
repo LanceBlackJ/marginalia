@@ -22,6 +22,7 @@ router = APIRouter(prefix="/papers", tags=["papers"])
 class PaperPatch(BaseModel):
     model_config = ConfigDict(extra="ignore")
     favorite: bool | None = None
+    finished: bool | None = None  # 标记 / 取消“已读完”
     title: str | None = None
     alias: str | None = None  # 备注名；空字符串清除
     reading_page: int | None = None
@@ -44,7 +45,7 @@ def list_papers(
     q: str | None = None,
     tag: str | None = None,
     view: Literal["all", "recent", "favorite"] = "all",
-    sort: Literal["recent", "title", "author", "year", "imported", "relevance"] = "imported",
+    sort: Literal["recent", "title", "author", "year", "imported", "relevance", "manual"] = "imported",
     order: Literal["asc", "desc"] = "desc",
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
@@ -69,6 +70,7 @@ def list_papers(
     has_supplement: bool | None = None,
     has_code: bool | None = None,
     favorite: bool | None = None,
+    finished: bool | None = None,
     imported_from: str | None = None,
     imported_to: str | None = None,
     ctx: AppContext = Depends(get_ctx),
@@ -80,7 +82,7 @@ def list_papers(
         "note_q": note_q, "annotation_q": annotation_q, "text_q": text_q, "card_q": card_q, "year_from": year_from,
         "year_to": year_to, "author": author, "venue": venue, "language": language, "read": read, "parse": parse,
         "has_notes": has_notes, "has_annotations": has_annotations, "has_supplement": has_supplement, "has_code": has_code,
-        "favorite": favorite, "imported_from": imported_from, "imported_to": imported_to,
+        "favorite": favorite, "finished": finished, "imported_from": imported_from, "imported_to": imported_to,
     }
     items, total = repo.list_papers(ctx, q=q, view=view, sort=sort, order=order, limit=limit, offset=offset, tag=tag, filters_=filters_)
     processing.attach_summaries(ctx, items)
@@ -148,6 +150,16 @@ def undo_reparse(paper_id: str, ctx: AppContext = Depends(get_ctx)):
 @router.get("/{paper_id}")
 def get_paper(paper_id: str, ctx: AppContext = Depends(get_ctx)):
     return repo.get_detail(ctx, paper_id)
+
+
+class ReorderBody(BaseModel):
+    ids: list[str]
+
+
+@router.post("/reorder")
+def reorder(body: ReorderBody, ctx: AppContext = Depends(get_ctx)):
+    """手动排序：按给出的顺序重新排这批论文。"""
+    return repo.reorder_papers(ctx, body.ids)
 
 
 @router.patch("/{paper_id}")
@@ -251,7 +263,7 @@ def fetch_fulltext(paper_id: str, ctx: AppContext = Depends(get_ctx)):
     detail = repo.get_detail(ctx, paper_id)
     if detail["has_pdf"]:
         raise ApiError("conflict", "该论文已有 PDF 文件", 409)
-    return {"job_id": ctx.jobs.submit("fetch_fulltext", f"获取全文：{detail['title'][:40]}", {"paper_id": paper_id}, paper_id)}
+    return {"job_id": ctx.jobs.submit("fetch_fulltext", f"获取全文：{detail['title']}", {"paper_id": paper_id}, paper_id)}
 
 
 @router.post("/{paper_id}/attach_pdf")

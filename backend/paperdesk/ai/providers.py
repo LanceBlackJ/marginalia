@@ -275,6 +275,8 @@ class LLMProvider:
         # 模型回退：{原模型: 备用模型}。重试耗尽后仍遇到 5xx/超时/连接错误、且还没吐出任何内容时，改用备用模型再试一次。
         # 认证失败、参数错误这类不可重试的错误不回退。每次回退都记在 fallback_events 里，调用方必须如实告知用户。
         self.fallbacks: dict[str, str] = {}
+        # 思考模式：auto 不发任何相关参数（模型自己决定）；on / off 明确开关。不认识这些参数的服务会拒绝请求，_adapt_payload 会去掉后重试
+        self.thinking = "auto"
         self.fallback_events: list[dict] = []
 
     def _fallback_for(self, model: str, err: LLMError) -> str | None:
@@ -444,6 +446,10 @@ class OpenAICompatibleProvider(LLMProvider):
             p["response_format"] = {"type": "json_object"}
         if stream:
             p["stream_options"] = {"include_usage": True}
+        if self.thinking in ("on", "off"):
+            on = self.thinking == "on"
+            p["chat_template_kwargs"] = {"enable_thinking": on}  # vLLM / Qwen / 开源 DeepSeek 一类
+            p["thinking"] = {"type": "enabled" if on else "disabled"}  # DeepSeek 官方 / Kimi / 智谱一类
         return p
 
     def _adapt_payload(self, payload: dict, body: str) -> bool:
@@ -470,6 +476,13 @@ class OpenAICompatibleProvider(LLMProvider):
             changed = True
         if "stream_options" in low and "stream_options" in payload:
             payload.pop("stream_options")
+            changed = True
+        # 思考开关：服务认不得的参数一个一个去掉；报错里点了名的先去，否则两个一起去
+        named = [k for k in ("chat_template_kwargs", "thinking") if k in payload and k in low]
+        if not named and any(w in low for w in ("unknown", "unrecognized", "extra inputs", "not permitted", "unsupported")):
+            named = [k for k in ("chat_template_kwargs", "thinking") if k in payload]
+        for k in named:
+            payload.pop(k)
             changed = True
         return changed
 
@@ -509,11 +522,16 @@ class AnthropicProvider(LLMProvider):
         p: dict = {"model": model, "messages": rest, "max_tokens": max_tokens or 4096, "stream": stream}
         if system:
             p["system"] = system
-        if temperature is not None:
+        if self.thinking == "on" and p["max_tokens"] > 2048:
+            p["thinking"] = {"type": "enabled", "budget_tokens": min(10000, p["max_tokens"] - 1024)}  # 开了思考就不能设温度
+        elif temperature is not None:
             p["temperature"] = temperature
         return p
 
     def _adapt_payload(self, payload: dict, body: str) -> bool:
+        if "thinking" in body.lower() and "thinking" in payload:
+            payload.pop("thinking")
+            return True
         if "temperature" in body.lower() and "temperature" in payload:
             payload.pop("temperature")
             return True

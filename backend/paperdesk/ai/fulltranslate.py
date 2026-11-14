@@ -196,7 +196,7 @@ def status(app: AppContext, paper_id: str, with_items: bool = True) -> dict:
         if hit:
             models.add(hit[1])
             if with_items:
-                items.append({"ord": p["ord"], "translation": hit[0]})
+                items.append({"ord": p["ord"], "translation": citeguard.tidy(hit[0])})
     done = sum(1 for p in todo if p["digest"] in cache)
     cells = _cells_todo(app, paper_id)
     cells_done = sum(1 for c in cells if c["digest"] in cache)
@@ -216,7 +216,7 @@ def enqueue(app: AppContext, paper_id: str) -> str | None:
         return None
     with app.db.session() as conn:
         title = conn.execute("SELECT title FROM papers WHERE id = ?", (paper_id,)).fetchone()["title"]
-    return app.jobs.submit("translate_paper", f"全文翻译：{title[:40]}", {"paper_id": paper_id}, paper_id)
+    return app.jobs.submit("translate_paper", f"全文翻译：{title}", {"paper_id": paper_id}, paper_id)
 
 
 def _batches(todo: list[dict]) -> list[list[dict]]:
@@ -280,6 +280,7 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
     )
 
     def save(p: dict, out: str) -> None:
+        out = citeguard.tidy(out)
         with app.db.session() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO translations(paper_id, text_hash, target, source_text, translation, model, created_at) "

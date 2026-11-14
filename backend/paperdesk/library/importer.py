@@ -21,6 +21,9 @@ from . import online
 # 段落的文字来源：text = PDF 文字层；ocr = 扫描页的本地 OCR（可能有识别错误，界面要提示）
 register_column("ocr", "passages", "source", "TEXT NOT NULL DEFAULT 'text'")
 register_column("math", "passages", "math_json", "TEXT")  # 行内公式 [{src, tex}]（JSON）；旧论文重新解析后才有
+register_column("grid", "figures", "grid_json", "TEXT")  # MinerU 给出的表格结构（JSON）；表格识别优先用它
+register_column("finished", "papers", "finished_at", "TEXT")  # 标记“已读完”的时间；没标记为空
+register_column("manual", "papers", "sort_order", "REAL")  # 手动排序的位置（越小越靠前）；没排过的为空，排在后面
 register_column("italic", "passages", "italic_json", "TEXT")  # 原文斜体的文字片段（JSON 数组）；旧论文重新解析后才有
 register_column("bold", "passages", "bold_json", "TEXT")  # 原文加粗的文字片段（JSON 数组）；旧论文重新解析后才有
 # 解析器版本（见 parsing.pdf_parser.PARSER_VERSION）：旧库里的论文是 1，提示“有新版解析，可重新解析”
@@ -330,8 +333,9 @@ def _store_parsed(conn, paper_id: str, parsed: ParsedDoc) -> None:
         ],
     )
     conn.executemany(
-        "INSERT INTO figures(paper_id, page, x0, y0, x1, y1, kind, label, caption_ord, inner_ord) VALUES (?,?,?,?,?,?,?,?,?,?)",
-        [(paper_id, f.page, *f.bbox, f.kind, f.label, f.caption_ord, f.inner_ord) for f in parsed.figures],
+        "INSERT INTO figures(paper_id, page, x0, y0, x1, y1, kind, label, caption_ord, inner_ord, grid_json) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        [(paper_id, f.page, *f.bbox, f.kind, f.label, f.caption_ord, f.inner_ord,
+          json.dumps(f.grid, ensure_ascii=False) if getattr(f, "grid", None) else None) for f in parsed.figures],
     )
     for e in parsed.equations:
         cur = conn.execute(

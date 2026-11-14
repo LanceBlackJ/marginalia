@@ -39,7 +39,7 @@ def _trim_pad(page: pymupdf.Page, bbox: tuple[float, float, float, float], clip:
     return out
 
 
-def render_clip(path: Path, page_no: int, bbox: tuple[float, float, float, float] | None, dpi: int = 150, pad: float = 3.0) -> bytes:
+def render_clip(path: Path, page_no: int, bbox: tuple[float, float, float, float] | None, dpi: int = 150, pad: float = 3.0, upright: bool = True) -> bytes:
     """渲染第 page_no 页（1 起）的 bbox 区域（显示坐标，PDF point，左上角原点）；bbox 为 None 表示整页。"""
     with PDF_LOCK:
         try:
@@ -65,10 +65,72 @@ def render_clip(path: Path, page_no: int, bbox: tuple[float, float, float, float
             longest = max(clip.width, clip.height) * scale
             if longest > MAX_SIDE_PX:
                 scale *= MAX_SIDE_PX / longest
-            pix = page.get_pixmap(matrix=pymupdf.Matrix(scale, scale), clip=clip, alpha=False)
+            mat = pymupdf.Matrix(scale, scale)
+            turn = region_rotation(page, clip) if upright else 0
+            if turn:
+                mat = mat.prerotate(turn)  # 整体旋转了 90° 的横排表格：截图转正，读者和视觉模型都不用歪着头
+            pix = page.get_pixmap(matrix=mat, clip=clip, alpha=False)
             return pix.tobytes("png")
         finally:
             doc.close()
+
+
+def text_rotation(page: pymupdf.Page, clip: pymupdf.Rect) -> int:
+    """区域里的文字是不是整体旋转着排的：返回把它转正需要的顺时针角度（0 / 90 / 270）。
+    按字数加权，大部分文字竖着读才转；只有零星竖排的文字（坐标轴标题）不转。"""
+    weight = {0: 0, 90: 0, 270: 0}
+    try:
+        blocks = page.get_text("dict", clip=clip).get("blocks", [])
+    except Exception:  # noqa: BLE001  读不出文字就不转
+        return 0
+    for b in blocks:
+        for ln in b.get("lines", []):
+            n = sum(len(s.get("text", "").strip()) for s in ln.get("spans", []))
+            if not n:
+                continue
+            dx, dy = ln.get("dir", (1, 0))
+            if abs(dx) >= abs(dy):
+                weight[0] += n
+            elif dy < 0:
+                weight[90] += n  # 自下而上读（逆时针转了 90°）
+            else:
+                weight[270] += n  # 自上而下读（顺时针转了 90°）
+    total = sum(weight.values())
+    if total < 20:
+        return 0
+    best = max(weight, key=weight.get)  # type: ignore[arg-type]
+    return best if best and weight[best] / total >= 0.6 else 0
+
+
+def image_rotation(page: pymupdf.Page, clip: pymupdf.Rect) -> int:
+    """读取覆盖区域的嵌入图片旋转矩阵，补上纯图片表格没有文字层时的方向判断。"""
+    best_area = 0.0
+    best_turn = 0
+    try:
+        infos = page.get_image_info()
+    except Exception:  # noqa: BLE001
+        return 0
+    for info in infos:
+        rect = pymupdf.Rect(info.get("bbox", (0, 0, 0, 0))) & clip
+        area = rect.get_area()
+        if area < 0.45 * clip.get_area() or area <= best_area:
+            continue
+        matrix = info.get("transform")
+        try:
+            a, b, c, d = tuple(matrix)[:4]
+        except (TypeError, ValueError):
+            continue
+        if abs(b) <= abs(a) or abs(c) <= abs(d):
+            continue
+        # PyMuPDF 的图片矩阵：b<0,c>0 表示内容顺时针旋转 90°，反之为 270°。
+        best_turn = 90 if b < 0 and c > 0 else 270 if b > 0 and c < 0 else 0
+        best_area = area
+    return best_turn
+
+
+def region_rotation(page: pymupdf.Page, clip: pymupdf.Rect) -> int:
+    """优先用文字层判断，纯图片区域再看图片对象自身的旋转矩阵。"""
+    return text_rotation(page, clip) or image_rotation(page, clip)
 
 
 MAX_SVG_BYTES = 14_000_000
@@ -76,7 +138,8 @@ MAX_SVG_BYTES = 14_000_000
 
 def render_svg(path: Path, page_no: int, bbox: tuple[float, float, float, float], pad: float = 3.0) -> str:
     """把某页的一个区域导出成矢量图（SVG），而不是截图：线条和文字是真正的矢量，嵌入的位图保持原始分辨率，放大不会糊。
-    文字转成路径，所以不依赖浏览器里有没有 PDF 里的字体。bbox 是显示坐标（PDF point，左上角原点）。"""
+    文字转成路径，所以不依赖浏览器里有没有 PDF 里的字体。横排区域交给 render_clip 转正后输出 PNG，避免 SVG 仍横着显示。
+    bbox 是显示坐标（PDF point，左上角原点）。"""
     with PDF_LOCK:
         try:
             doc = pymupdf.open(str(path))
@@ -92,6 +155,8 @@ def render_svg(path: Path, page_no: int, bbox: tuple[float, float, float, float]
                 raise RenderError("区域无效或超出页面")
             if pad > 0:
                 clip = _trim_pad(page, bbox, clip)
+            if region_rotation(page, clip):
+                raise RenderError("区域内表格是横排，已切换为转正后的图片")
             try:
                 svg = page.get_svg_image(text_as_path=True)
             except Exception as exc:  # noqa: BLE001

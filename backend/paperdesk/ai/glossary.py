@@ -133,7 +133,7 @@ def enqueue(app: AppContext, paper_id: str) -> str | None:
         return running["id"]
     if _row(app, paper_id) is not None or not eligible(app, paper_id):
         return None
-    return app.jobs.submit(JOB_TYPE, f"术语表：{(paper['title'] or '')[:40]}", {"paper_id": paper_id}, paper_id)
+    return app.jobs.submit(JOB_TYPE, f"术语表：{(paper['title'] or '')}", {"paper_id": paper_id}, paper_id)
 
 
 async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> None:

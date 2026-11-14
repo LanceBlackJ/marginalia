@@ -91,6 +91,9 @@ def clean_latex(raw: str) -> tuple[str, str, list[str]]:
         if re.search(r"[一-鿿]", latex) or (not re.search(r"[\\^_={}]", latex) and len(latex.split()) >= 6):
             return "", "low", ["模型没有返回 LaTeX 公式"]
     latex = latex.strip()
+    # 只修复模型常见的排版空格，不猜测缺失的数学符号。
+    latex = re.sub(r"\\(tan|cot|sin|cos|log|exp)\s+h\b", r"\\\1h", latex)
+    latex = re.sub(r"\\(mathrm|mathbf|mathbb|mathcal|operatorname|text)\s*\{\s*([^{}]+?)\s*\}", r"\\\1{\2}", latex)
     for pat in (r"^\$\$(.*)\$\$$", r"^\\\[(.*)\\\]$", r"^\$(.*)\$$", r"^\\\((.*)\\\)$"):
         mm = re.match(pat, latex, re.S)
         if mm:
@@ -206,7 +209,9 @@ async def transcribe_equation(app: AppContext, paper_id: str, equation_id: int, 
             warnings = [*warnings, "两次独立转写的结果不一致，模型可能漏掉或认错了符号。" + note
                         + (f"差异：{diff}" if diff else "") + "请对照原图确认。"]
             confidence = "low"
-    status = "ok" if latex else "failed"
+    # 两次独立转写不一致时，任一候选都不能冒充最终答案；调用方会回退原图。
+    review = confidence == "low" or any("不一致" in w or "没能判定" in w for w in warnings)
+    status = "review" if latex and review else ("ok" if latex else "failed")
     error = None if latex else "模型没有返回可用的 LaTeX，可以重试或手动查看原文。"
     with app.db.session() as conn:
         conn.execute(

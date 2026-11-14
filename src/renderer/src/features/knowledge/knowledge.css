@@ -339,6 +339,112 @@
 .pd-notes-list li:last-child {
   border-bottom: 0;
 }
+.pd-notes-article-browser {
+  margin-top: var(--sp-2xl);
+}
+.pd-notes-browser-head {
+  padding-bottom: var(--sp-sm);
+  border-bottom: 2px solid var(--text);
+}
+.pd-notes-browser-head h2,
+.pd-notes-paper-head h2 {
+  margin: 0;
+  font-size: var(--fs-section);
+  font-weight: 600;
+  line-height: 1.4;
+}
+.pd-notes-browser-head p,
+.pd-notes-paper-head p {
+  margin: 4px 0 0;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+}
+.pd-notes-article-list {
+  border-top: 1px solid var(--border);
+}
+.pd-notes-article {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-lg);
+  padding: var(--sp-md) 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pd-notes-article:hover {
+  color: var(--text-2);
+}
+.pd-notes-article-main {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-sm);
+}
+.pd-notes-article-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.pd-notes-article-meta {
+  flex: none;
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+}
+.pd-notes-paper-view {
+  margin-top: var(--sp-xl);
+}
+.pd-notes-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-small);
+  cursor: pointer;
+}
+.pd-notes-back:hover {
+  color: var(--text);
+}
+.pd-notes-paper-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-lg);
+  margin-top: var(--sp-lg);
+  padding-bottom: var(--sp-sm);
+  border-bottom: 2px solid var(--text);
+}
+.pd-notes-paper-head h2 {
+  overflow-wrap: anywhere;
+}
+.pd-notes-paper-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-md);
+  margin-top: var(--sp-xl);
+}
+@media (max-width: 680px) {
+  .pd-notes-article,
+  .pd-notes-paper-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .pd-notes-article-meta {
+    padding-left: 24px;
+  }
+}
 .pd-notes-text {
   margin: 6px 0 0;
   white-space: pre-wrap;

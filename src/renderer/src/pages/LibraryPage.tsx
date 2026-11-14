@@ -12,7 +12,7 @@ import { ExportDialog, type ExportScope } from '@/features/library/ExportDialog'
 import { FolderRail } from '@/features/library/FolderRail'
 import { FilterChips, FilterPanel } from '@/features/library/FilterPanel'
 import { DeleteFolderDialog, MoveDialog, SaveViewDialog } from '@/features/library/LibraryDialogs'
-import { descendantIds, filtersToQuery, folderPath, hasTextQuery, isEmptyFilters, normalizeFilters, parseFilters, serializeFilters } from '@/features/library/filterModel'
+import { descendantIds, filtersToQuery, groupByTag, folderPath, hasTextQuery, isEmptyFilters, normalizeFilters, parseFilters, serializeFilters } from '@/features/library/filterModel'
 import { useFacets, useFolders } from '@/features/library/useLibraryMeta'
 import { Bookshelf } from '@/features/library/Bookshelf'
 import { PaperCard, PaperRow, PaperTableHeader, RecentItem, type PaperItemActions } from '@/features/library/PaperItems'
@@ -28,14 +28,15 @@ import '@/features/library/library.css'
 import '@/features/library/folders.css'
 
 type View = 'all' | 'recent' | 'favorite'
-type Sort = 'recent' | 'title' | 'author' | 'year' | 'imported' | 'relevance'
+type Sort = 'recent' | 'title' | 'author' | 'year' | 'imported' | 'relevance' | 'manual'
 
 const SORT_OPTIONS = [
   { value: 'imported', label: '导入时间' },
   { value: 'recent', label: '最近阅读' },
   { value: 'title', label: '标题' },
   { value: 'author', label: '作者' },
-  { value: 'year', label: '年份' }
+  { value: 'year', label: '年份' },
+  { value: 'manual', label: '手动排序（可拖动）' }
 ]
 
 function ImportMenuButton({ primary = true }: { primary?: boolean }) {
@@ -193,6 +194,21 @@ export function LibraryPage() {
     [navigate]
   )
 
+  const toggleFinished = useCallback(
+    async (p: PaperSummary): Promise<void> => {
+      const was = p.finished_at ?? null
+      list.patchLocal(p.id, { finished_at: was ? null : new Date().toISOString() })
+      try {
+        await api.papers.patch(p.id, { finished: !was })
+        if (filters.finished) list.reload()
+      } catch (err) {
+        list.patchLocal(p.id, { finished_at: was })
+        toast.error('标记失败', errorMessage(err))
+      }
+    },
+    [list, filters.finished]
+  )
+
   const toggleFavorite = useCallback(
     async (p: PaperSummary): Promise<void> => {
       list.patchLocal(p.id, { favorite: !p.favorite })
@@ -348,11 +364,34 @@ export function LibraryPage() {
     })
   }, [])
 
+  // 拖动调整顺序：以当前看到的顺序为底，把拖的论文挪到目标前/后，存成手动顺序并切到“手动排序”
+  const reorder = useCallback(
+    (dragIds: string[], target: PaperSummary, after: boolean): void => {
+      const cur = list.items.map((p) => p.id)
+      const moving = cur.filter((id) => dragIds.includes(id))
+      const rest = cur.filter((id) => !dragIds.includes(id))
+      const at = rest.indexOf(target.id)
+      if (at < 0 || moving.length === 0) return
+      rest.splice(after ? at + 1 : at, 0, ...moving)
+      void libraryApi
+        .reorderPapers(rest)
+        .then(() => {
+          setSortChoice('manual')
+          prefs.set({ librarySort: 'manual' })
+          list.reload()
+        })
+        .catch((err) => toast.error('调整顺序失败', errorMessage(err)))
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [list.items, list.reload]
+  )
+
   const actions: PaperItemActions = useMemo(
     () => ({
       onOpen: openProfile,
       onRead: open,
       onToggleFavorite: (p) => void toggleFavorite(p),
+      onToggleFinished: (p) => void toggleFinished(p),
       onDelete: setToDelete,
       onEditTags: setTagging,
       onExport: (p) => setExporting({ label: `《${p.title.slice(0, 30)}》`, paperIds: [p.id] }),
@@ -360,9 +399,12 @@ export function LibraryPage() {
       onMove: (p) => setMoving(selected.has(p.id) ? [...selected] : [p.id]),
       onReparse: (p) => setReparseIds(selected.has(p.id) ? [...selected] : [p.id]),
       selected,
-      onToggleSelect: toggleSelect
+      onToggleSelect: toggleSelect,
+      onReorder: reorder,
+      onPickTag: (t) => setFilters({ ...filters, tags: [...new Set([...(filters.tags ?? []), t.id])] })
     }),
-    [open, openProfile, toggleFavorite, selected, toggleSelect]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [open, openProfile, toggleFavorite, toggleFinished, selected, toggleSelect, reorder, filters, setFilters]
   )
 
   // 导出（引文与阅读笔记）：只有一个标签条件时按该标签导出，否则导出全部
@@ -371,7 +413,8 @@ export function LibraryPage() {
     setExporting(only ? { label: `标签：${tagNames[only] ?? '所选标签'}`, tagId: only } : { label: '全部文献' })
   }
   const recents = recentQuery.items.filter((p) => p.last_opened_at).slice(0, 3)
-  const showRecent = view === 'all' && !q && !filterActive && recents.length > 0
+  // “继续阅读”是书架的入口；列表模式保持 Zotero 式的纯管理视图，不在表格前插阅读卡片。
+  const showRecent = prefs.libraryLayout === 'shelf' && view === 'all' && !q && !filterActive && recents.length > 0
   const isEmptyLibrary = !list.loading && !list.error && list.total === 0 && !q && view === 'all' && !filterActive
   const anyNarrowing = Boolean(q) || filterActive
   const activeCount = Object.keys(normalizeFilters(filters)).length
@@ -456,6 +499,17 @@ export function LibraryPage() {
                     style={{ width: 120 }}
                   />
                 )}
+                {prefs.libraryLayout !== 'shelf' && (
+                  <Button
+                    size="sm"
+                    variant={prefs.libraryGroupByTag ? 'primary' : 'ghost'}
+                    aria-pressed={prefs.libraryGroupByTag}
+                    title="按标签分组：一篇论文有几个标签就出现在几组里"
+                    onClick={() => prefs.set({ libraryGroupByTag: !prefs.libraryGroupByTag })}
+                  >
+                    按标签分组
+                  </Button>
+                )}
                 <Segmented<'shelf' | 'list' | 'grid'>
                   variant="text"
                   aria-label="视图"
@@ -537,6 +591,7 @@ export function LibraryPage() {
                 papers={list.items}
                 folders={meta.folders.items}
                 grouped={!q && !filterActive && view === 'all'}
+                readingMode
                 actions={{
                   onOpen: openProfile,
                   onToggleFavorite: actions.onToggleFavorite,
@@ -549,19 +604,32 @@ export function LibraryPage() {
                   }
                 }}
               />
-            ) : prefs.libraryLayout === 'list' ? (
-              <div className="pd-lib-list" role="table">
-                <PaperTableHeader />
-                {list.items.map((p) => (
-                  <PaperRow key={p.id} paper={p} actions={actions} />
-                ))}
-              </div>
             ) : (
-              <div className="pd-lib-grid">
-                {list.items.map((p) => (
-                  <PaperCard key={p.id} paper={p} actions={actions} />
+              <>
+                {(prefs.libraryGroupByTag ? groupByTag(list.items) : [{ id: '', name: '', items: list.items }]).map((g) => (
+                  <section key={g.id} className="pd-lib-group">
+                    {g.name && (
+                      <h2 className="pd-lib-group-title">
+                        {g.name} <span className="pd-muted">{g.items.length}</span>
+                      </h2>
+                    )}
+                    {prefs.libraryLayout === 'list' ? (
+                      <div className="pd-lib-list" role="table">
+                        <PaperTableHeader />
+                        {g.items.map((p) => (
+                          <PaperRow key={p.id} paper={p} actions={actions} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="pd-lib-grid">
+                        {g.items.map((p) => (
+                          <PaperCard key={p.id} paper={p} actions={actions} />
+                        ))}
+                      </div>
+                    )}
+                  </section>
                 ))}
-              </div>
+              </>
             )}
           </div>
         </div>

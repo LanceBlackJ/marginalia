@@ -145,7 +145,7 @@ export interface PaperListQuery {
   q?: string
   tag?: string
   view?: 'all' | 'recent' | 'favorite'
-  sort?: 'recent' | 'title' | 'author' | 'year' | 'imported' | 'relevance'
+  sort?: 'recent' | 'title' | 'author' | 'year' | 'imported' | 'relevance' | 'manual'
   order?: 'asc' | 'desc'
   limit?: number
   offset?: number
@@ -170,6 +170,7 @@ export interface PaperListQuery {
   has_supplement?: boolean
   has_code?: boolean
   favorite?: boolean
+  finished?: boolean
   imported_from?: string
   imported_to?: string
 }

@@ -14,6 +14,8 @@ export interface ParaRefs {
   text: readonly CitationMarker[]
   /** 译文用：后端没有标过位置的方括号编号（译文里破折号、括号、逗号常被改写），按这些确实存在的编号再认一遍 */
   loose?: ReadonlySet<number>
+  /** 译文：数字贴在汉字后面的上标角标（“……能力1–3。”）也按 sup 里的编号认 */
+  zh?: boolean
 }
 
 /** 一个显示块可能由几个相邻段落拼成：把它们各自的引用信息合并起来；都没有就返回 null。 */
@@ -175,4 +177,34 @@ export function matchLabel(level: 'high' | 'medium' | 'low'): string {
 /** 这条参考文献在界面里的标题行：优先解析出的标题，没有就用原文开头。 */
 export function refHeadline(ref: RefItem): string {
   return ref.title || ref.raw.replace(/^\s*\d+[.\]]?\s*/, '').slice(0, 110)
+}
+
+// 译文里的上标角标：数字直接贴在汉字或全角标点后面（“……的能力1–3。”），后面是句末标点、空白或结尾
+const ZH_SUP = /(\d{1,3}(?:\s*[,，、]\s*\d{1,3}|\s*[–—-]\s*\d{1,3}){0,6})(?=[。，；：！？、）」”）(（【《〈「『\s—–-]|$)/g
+// 数字前面是这些字时，数字是“图 2”“第 3 节”“式 5”这类编号，不是引用角标
+const NOT_CITE_BEFORE = /[图表式节章第项条段附录例组号版步轮]$/
+
+/**
+ * 译文里的引用角标：原文的上标数字（“…occur1–3.”）翻成中文后，数字还贴在汉字后面，没有上标样式也没有链接。
+ * 只有这段原文里后端确认过的参考文献编号（valid）才认，并且数字要贴在汉字或全角标点后面——
+ * “提高了 5 倍”“共 3 个”（后面是汉字）、“图 2”“第 3 节”（前面是编号字）都不会被当成角标。
+ */
+export function splitCjkSup(text: string, valid: ReadonlySet<number>): RefPiece[] {
+  if (valid.size === 0) return [{ text }]
+  const out: RefPiece[] = []
+  let cursor = 0
+  for (const m of text.matchAll(ZH_SUP)) {
+    const at = m.index ?? 0
+    const before = text.slice(0, at)
+    if (!/[　-〿一-鿿＀-￯]$/.test(before) || NOT_CITE_BEFORE.test(before)) continue
+    const group = m[1].replace(/[，、]/g, ',').replace(/[—]/g, '-')
+    const nums = expandNumbers(group)
+    if (nums.length === 0 || !nums.every((n) => valid.has(n))) continue
+    if (at > cursor) out.push({ text: text.slice(cursor, at) })
+    out.push({ text: m[1], refs: nums })
+    cursor = at + m[1].length
+  }
+  if (out.length === 0) return [{ text }]
+  if (cursor < text.length) out.push({ text: text.slice(cursor) })
+  return out
 }

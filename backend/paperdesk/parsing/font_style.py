@@ -18,14 +18,14 @@ PAD = 3.0
 
 def _is_bold(sp: dict) -> bool:
     f = sp["font"].lower()
-    return bool(sp["flags"] & 16) or "bold" in f or "semibold" in f or "-bd" in f
+    return bool(sp["flags"] & 16) or "bold" in f or "semibold" in f or "-bd" in f or bool(re.search(r"[.-]b$", f))  # AdvOTxxxx.B 这类字体名用后缀表示粗体
 
 
 def _is_italic(sp: dict) -> bool:
     import re
 
     f = sp["font"].lower()
-    return bool(sp["flags"] & 2) or bool(re.search(r"italic|-it\d*$|oblique", f))
+    return bool(sp["flags"] & 2) or bool(re.search(r"italic|-it\d*$|oblique|[.-]i$|[.-]it$", f))  # AdvOTxxxx.I 这类字体名用后缀表示斜体
 
 
 def _runs(page, pred) -> list[tuple[str, tuple[float, float, float, float]]]:
@@ -49,19 +49,57 @@ def _runs(page, pred) -> list[tuple[str, tuple[float, float, float, float]]]:
                     cur, box = "", None
             if cur:
                 out.append((cur, box))
-    return [(t, tuple(b)) for t, b in out if len(t) >= 2 and any(ch.isalnum() for ch in t)]
+    # 至少有一个两个字符以上的词：公式里的 “d i” 这类单字母碎片不是斜体强调，按文字去配会误中 “involved in”
+    return [(t, tuple(b)) for t, b in out if len(t) >= 2 and any(ch.isalnum() for ch in t) and any(len(w) >= 2 for w in t.split())]
 
 
 def _respace(page, p) -> None:
     """MinerU 在旋转的表格页上会丢空格（“Table1|Evaluationof…”）：文字层里有空格，且字母完全一致时用文字层的。"""
     t = p.text
-    if len(t) < 25 or t.count(" ") / len(t) > 0.04:
+    if len(t) < 25 or not any(len(w) >= 40 for w in t.split(" ")):  # 没有“一长串粘在一起”的词：不用还原
         return
-    x0, y0, x1, y1 = p.bbox
-    got = " ".join(page.get_text("text", clip=pymupdf.Rect(x0 - 1, y0 - 1, x1 + 1, y1 + 1)).split())
-    squash = lambda x: re.sub(r"[\s|]+", "", x).lower()
-    if got and got.count(" ") > t.count(" ") and squash(got) == squash(t):
-        p.text = got
+    index = _page_index(page)
+    fixed = [_respace_chunk(index, c) for c in t.split(" ")]  # 题注和表脚注是用空格拼在一起的：各自单独还原
+    out = " ".join(fixed)
+    if out.count(" ") > t.count(" "):
+        p.text = out
+
+
+def _squash_keep(s: str) -> str:
+    return re.sub(r"[\s|]+", "", s).lower()
+
+
+def _page_index(page) -> tuple[str, list[int], str]:
+    """整页文字层：(去掉空白和竖线后的小写文字, 每个字符在原文里的位置, 原文)。同一页只建一次。"""
+    cached = getattr(page, "_pd_text_index", None)
+    if cached:
+        return cached
+    raw = page.get_text("text")
+    chars, pos = [], []
+    for i, ch in enumerate(raw):
+        if ch.isspace() or ch == "|":
+            continue
+        chars.append(ch.lower())
+        pos.append(i)
+    index = ("".join(chars), pos, raw)
+    try:
+        page._pd_text_index = index
+    except Exception:  # noqa: BLE001  缓存不了就算了
+        pass
+    return index
+
+
+def _respace_chunk(index: tuple[str, list[int], str], chunk: str) -> str:
+    """chunk 是一段丢了空格的文字：在整页文字层里找到它，用带空格的原文代替；找不到（或有歧义）原样返回。"""
+    key = _squash_keep(chunk)
+    if len(key) < 12:
+        return chunk
+    flat, pos, raw = index
+    at = flat.find(key)
+    if at < 0 or flat.find(key, at + 1) >= 0:
+        return chunk
+    seg = raw[pos[at] : pos[at + len(key) - 1] + 1]
+    return " ".join(seg.split())
 
 
 def annotate(parsed: ParsedDoc, path: Path) -> None:

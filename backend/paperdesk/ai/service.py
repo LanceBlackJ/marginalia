@@ -19,7 +19,7 @@ from ..util import ApiError, utcnow
 from . import attachments as attach_mod, cards, citeguard, embeddings, evidence, prompts, retrieval, textcache, usage as usage_log, websearch
 from .providers import LLMError, LLMProvider, Usage, build_provider, estimate_messages_tokens, estimate_tokens
 from .router import TaskType, can_escalate, choose_model, classify
-from .settings import SECRET_NAME, load_settings
+from .settings import SECRET_NAME, context_scale, load_settings
 
 Event = tuple[str, dict]
 QUICK_INTENTS = {"explain", "summarize", "term"}
@@ -43,6 +43,7 @@ class AskRequest:
     conversation_id: str | None = None  # 属于哪个对话；不填就用最近的一个
     attachments: list[dict] | None = None  # 截图/图片、PDF、文本文件：[{name, mime, data(base64)}]
     edit_card_id: str | None = None  # 修改并重新回答这张卡片（只能是对话里最后一张）：原地改写，失败时还原
+    thinking: str | None = None  # 这一次提问的思考模式（auto/on/off）；不填用设置里的默认
 
 
 def llm_error_event(err: LLMError, card_id: str | None = None) -> Event:
@@ -57,11 +58,13 @@ class AIService:
         self.app = app
 
     # ---- 基础 ----
-    def provider(self, cfg: dict | None = None) -> tuple[LLMProvider, dict]:
+    def provider(self, cfg: dict | None = None, thinking: str | None = None) -> tuple[LLMProvider, dict]:
         cfg = cfg or load_settings(self.app)
         key = self.app.secrets.get(SECRET_NAME)
         if not key:
             raise LLMError("no_api_key", "尚未保存 API Key，请先在设置 → AI 模型中填写。", status=400)
+        if not cfg["base_url"]:
+            raise LLMError("not_configured", "尚未填写 API 地址，请先在设置 → AI 模型中填写。", status=400)
         if not (cfg["fast_model"] or cfg["strong_model"]):
             raise LLMError("not_configured", "尚未配置模型名称，请先在设置 → AI 模型中填写。", status=400)
         prov = build_provider(
@@ -69,6 +72,7 @@ class AIService:
             transport=self.app.async_transport,
         )
         # 强模型暂时不可用（5xx/超时/连接错误）时自动改用快速模型，并如实告知；两个模型相同或缺一个时不回退
+        prov.thinking = thinking or cfg.get("thinking", "auto")
         if cfg["strong_model"] and cfg["fast_model"] and cfg["strong_model"] != cfg["fast_model"]:
             prov.fallbacks = {cfg["strong_model"]: cfg["fast_model"]}
         return prov, cfg
@@ -262,7 +266,7 @@ class AIService:
             paper = self._paper(req.paper_id)
             if not paper["n_passages"]:
                 raise ApiError("bad_request", "这篇论文没有可检索的文字内容，暂时无法使用 AI 问答。")
-            provider, cfg = self.provider()
+            provider, cfg = self.provider(thinking=req.thinking)
             sel = req.selection if req.selection and (req.selection.get("text") or "").strip() else None
             sel_text = (sel or {}).get("text", "")
             task = classify(req.intent, req.question, len(sel_text))
@@ -280,7 +284,7 @@ class AIService:
                 with self.app.db.session() as conn:
                     snapshot = cards.edit_target(conn, req.paper_id, req.edit_card_id)  # 不是最后一张、还在生成等情况在这里报错
                 conv_id = snapshot["conversation_id"]
-            history = cards.recent_history(self.app, conv_id, exclude_id=req.edit_card_id if snapshot else None)  # 这个对话的前几轮问答：新问题常是接着问的
+            history = cards.recent_history(self.app, conv_id, limit=int(cfg.get("history_turns", 4)), exclude_id=req.edit_card_id if snapshot else None)  # 这个对话的前几轮问答：新问题常是接着问的
             # 很短的追问（“为什么呢”“它是什么意思”）单独检索找不到东西：把上一个问题接上一起检索
             rq = question
             if history and len(question) < 20 and not sel_text:
@@ -294,7 +298,7 @@ class AIService:
                     extra_terms = await self._plan_terms(provider, cfg, rq, sel_text, paper["title"], req.paper_id)
                 except LLMError:
                     extra_terms = []  # 检索词扩展只是增强，失败不影响主流程
-            budget = 24000 if choice.tier == "strong" else 14000
+            budget = int((24000 if choice.tier == "strong" else 14000) * context_scale(cfg))
             # 补充材料：只有用户授权后才会被检索和发送；未授权时只判断“这次是否需要”，并以事件提示用户
             supp_docs = supp_retrieval.list_docs(self.app, req.paper_id) if supp_grants.is_granted(self.app, req.paper_id) else []
             pack = retrieval.build_context(

@@ -279,6 +279,12 @@
   line-height: 1.7;
   overflow-wrap: anywhere;
 }
+.pd-refdrawer-titletr {
+  padding-left: 10px;
+  border-left: 2px solid var(--text);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
 
 /* 悬停在引用角标上的小卡片：标题粗体，作者年份来源淡一点，底下一个“查看摘要” */
 .pd-refhover {

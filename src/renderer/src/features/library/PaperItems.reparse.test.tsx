@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import type { PaperSummary } from '@/lib/types'
-import { PaperRow, type PaperItemActions } from './PaperItems'
+import { PaperRow, paperInfoText, type PaperItemActions } from './PaperItems'
 
 afterEach(cleanup)
 
@@ -69,5 +69,13 @@ describe('文库行：有新版解析的提示', () => {
   it('没有提供 onReparse 时不显示提示（不出现点了没反应的按钮）', () => {
     renderRow(paper(), actions({ onReparse: undefined }))
     expect(screen.queryByText(/有新版解析/)).toBeNull()
+  })
+})
+
+describe('论文信息复制', () => {
+  it('生成稳定的题录信息，不混入内部状态', () => {
+    expect(paperInfoText(paper({ title: 'Network resilience', alias: '我的版本', authors: ['A. Author', 'B. Author'], year: 2024, venue: 'Nature', doi: '10.1234/example' }))).toBe(
+      '标题：Network resilience\n备注名：我的版本\n作者：A. Author；B. Author\n年份：2024\n来源：Nature\nDOI：10.1234/example'
+    )
   })
 })

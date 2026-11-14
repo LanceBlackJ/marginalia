@@ -60,6 +60,11 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace("­", "")).strip()
 
 
+def _has_unrecoverable_text(text: str) -> bool:
+    """PDF 字体映射损坏时会产生 replacement character；不要据此编造字段。"""
+    return "�" in text or "\ufffd" in text
+
+
 def detect_style(texts: list[str]) -> str:
     """'numeric'：多数条目以编号开头；'author-year'：以“姓氏, 名首字母”开头；否则 'unknown'。"""
     numbered = sum(1 for t in texts if _NUM_PREFIX.match(t))
@@ -179,6 +184,12 @@ def split_entries(passages: list[dict], page_widths: dict[int, float] | None = N
     uniq.sort(key=lambda e: e.index)
     for e in uniq:
         parse_fields(e, style)
+        if _has_unrecoverable_text(e.raw):
+            e.messy = True
+            # raw 保留给用户对照；损坏字段不进入翻译或联网匹配。
+            e.authors = []
+            e.title = ""
+            e.venue = ""
     if acl:
         # 全名格式的每一条都有“. 年份.”：没有年份的是附录等混进来的正文段落，不是参考文献；去掉后重新编号，保持连续
         uniq = [e for e in uniq if e.year]

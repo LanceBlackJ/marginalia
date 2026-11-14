@@ -326,3 +326,45 @@
 .pd-book-tagbtn:hover {
   color: var(--text);
 }
+
+/* 已读完：封面左下角的黑底小标，压在阅读进度条上面 */
+.pd-book-done {
+  position: absolute;
+  left: 0;
+  bottom: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+/* 拖动调整顺序：落点是目标书的左边或右边的一条粗黑线（带两端的小横杠，一眼能看出插在哪），被拖的书变淡 */
+.pd-shelf-slot {
+  position: relative;
+}
+.pd-shelf-slot[data-drop-at='before']::before,
+.pd-shelf-slot[data-drop-at='after']::after {
+  content: '';
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 5px;
+  background: var(--text);
+  border-radius: 3px;
+  z-index: 5;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.pd-shelf-slot[data-drop-at='before']::before {
+  left: -8px;
+}
+.pd-shelf-slot[data-drop-at='after']::after {
+  right: -8px;
+}
+.pd-book[data-dragging] {
+  opacity: 0.35;
+}

@@ -10,7 +10,7 @@ SECRET_NAME = "api_key"
 
 DEFAULTS: dict[str, Any] = {
     "provider_kind": "openai_compatible",
-    "base_url": "http://aigw.dlut.edu.cn/v1",  # 默认指向校园网关（OpenAI 兼容）；换服务商时在设置里修改
+    "base_url": "",  # 默认留空（不把任何网关地址写进代码）：在设置 → AI 模型里填写服务商的 API 地址
     # 默认的模型组合来自真实网关上的实测（2026-10-30）：快速模型首字约 1–2 秒且输出干净；
     # 强模型回答结构最贴合要求（区分“作者明确陈述/AI 推断”）。换用其它服务商时需要改成对应的模型名。
     "fast_model": "DeepSeek-V4-Flash-0731-W8A8",
@@ -28,6 +28,10 @@ DEFAULTS: dict[str, Any] = {
     "temperature": 0.2,
     # 思考型模型（如 MiniMax-M2.7）的思考也计入输出额度，4096 / 16000 都可能被思考用光、正文为空，所以默认放到上限 64000（只按实际生成的字数计费）
     "max_output_tokens": 64000,
+    # 上下文：每次请求最多带入多少论文原文（字数）、对话里带入前几轮问答。其它位置的预算按“上下文字数 / 24000”同比缩放
+    "thinking": "auto",  # 思考模式：auto 由模型自己决定 / on 开启 / off 关闭（回答更快、更省）
+    "context_chars": 24000,
+    "history_turns": 4,
     "auto_analyze": True,
     "price_per_mtok": {},
     "monthly_budget": None,
@@ -48,6 +52,7 @@ GATEWAY_PRICES: dict[str, dict[str, float]] = {
 }
 PROVIDER_KINDS = ("openai_compatible", "anthropic")
 MODES = ("auto", "fast", "strong")
+THINKING_MODES = ("auto", "on", "off")
 DEFAULT_BASE_URLS = {
     "openai_compatible": "https://api.openai.com/v1",
     "anthropic": "https://api.anthropic.com",
@@ -55,6 +60,17 @@ DEFAULT_BASE_URLS = {
 
 
 OLD_DEFAULT_MAX_OUTPUT = (4096, 16000)  # 以前的默认值：界面保存设置时会把它们原样存下来
+
+
+BASE_CONTEXT_CHARS = 24000
+
+
+def context_scale(cfg: dict) -> float:
+    """各处写死的上下文预算（默认值是按 24000 字调的）随“上下文字数”设置同比缩放。"""
+    try:
+        return max(4000, int(cfg.get("context_chars") or BASE_CONTEXT_CHARS)) / BASE_CONTEXT_CHARS
+    except (TypeError, ValueError):
+        return 1.0
 
 
 def load_settings(app: AppContext) -> dict:
@@ -72,7 +88,7 @@ def load_settings(app: AppContext) -> dict:
 def public_settings(app: AppContext) -> dict:
     data = load_settings(app)
     data["has_api_key"] = app.secrets.has(SECRET_NAME)
-    data["configured"] = data["has_api_key"] and bool(data["fast_model"] or data["strong_model"])
+    data["configured"] = data["has_api_key"] and bool(data["base_url"]) and bool(data["fast_model"] or data["strong_model"])
     return data
 
 
@@ -91,8 +107,8 @@ def save_settings(app: AppContext, incoming: dict) -> dict:
         raise ApiError("bad_request", "不支持的模型提供商类型")
     if cur["mode"] not in MODES:
         raise ApiError("bad_request", "不支持的模型调度模式")
-    cur["base_url"] = str(cur["base_url"] or "").strip().rstrip("/") or DEFAULT_BASE_URLS[cur["provider_kind"]]
-    if not cur["base_url"].startswith(("http://", "https://")):
+    cur["base_url"] = str(cur["base_url"] or "").strip().rstrip("/")
+    if cur["base_url"] and not cur["base_url"].startswith(("http://", "https://")):
         raise ApiError("bad_request", "API 地址必须以 http:// 或 https:// 开头")
     cur["semantic_retrieval"] = bool(cur.get("semantic_retrieval", True))
     for k in ("fast_model", "strong_model", "vision_model", "vision_model_2", "embedding_model"):
@@ -102,11 +118,15 @@ def save_settings(app: AppContext, incoming: dict) -> dict:
         cur["max_retries"] = max(0, min(6, int(cur["max_retries"])))
         cur["temperature"] = max(0.0, min(2.0, float(cur["temperature"])))
         cur["max_output_tokens"] = max(256, min(64000, int(cur["max_output_tokens"])))
+        cur["context_chars"] = max(4000, min(400000, int(cur["context_chars"])))
+        cur["history_turns"] = max(0, min(20, int(cur["history_turns"])))
         if cur["monthly_budget"] is not None:
             cur["monthly_budget"] = max(0.0, float(cur["monthly_budget"]))
     except (TypeError, ValueError) as exc:
         raise ApiError("bad_request", "数值类设置无效") from exc
     cur["auto_analyze"] = bool(cur["auto_analyze"])
+    if cur["thinking"] not in THINKING_MODES:
+        raise ApiError("bad_request", "不支持的思考模式")
     prices = cur.get("price_per_mtok") or {}
     if not isinstance(prices, dict):
         raise ApiError("bad_request", "价格配置格式无效")

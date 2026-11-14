@@ -52,7 +52,7 @@ export interface EquationAnswerExtras {
   symbols: SymbolEntry[]
   relations: string | null
   derivation: string | null
-  equation?: { id: number; number: string | null; page: number; latex: string | null; confidence: Confidence | null; warnings: string[] }
+  equation?: { id: number; number: string | null; page: number; latex: string | null; confidence: Confidence | null; status?: 'ok' | 'review' | 'failed'; warnings: string[] }
 }
 
 export type EquationCard = InsightCard & { answer: CardAnswer & EquationAnswerExtras }
@@ -179,6 +179,10 @@ export interface TableData {
   verified_ratio: number | null
   verifiable: boolean
   warnings: string[]
+  /** MinerU 给的表头原结构：每格 {t 文字, rs 跨几行, cs 跨几列}，null 是被别的格子占着的位置 */
+  head?: Array<Array<{ t: string; rs: number; cs: number } | null>>
+  /** 正文里合并了的单元格 [行, 列, 跨几行, 跨几列]（行号不含表头） */
+  spans?: number[][]
 }
 
 export interface ModuleMapping {
@@ -233,5 +237,5 @@ export interface FigureAnswer {
 
 export interface VisionStatus {
   figures: Array<{ figure_id: number; status: AnalysisStatus; kind: string; job_id: string | null }>
-  equations: Array<{ equation_id: number; status: 'ok' | 'failed'; confidence: Confidence | null }>
+  equations: Array<{ equation_id: number; status: 'ok' | 'review' | 'failed'; confidence: Confidence | null }>
 }

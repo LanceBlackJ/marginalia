@@ -9,7 +9,10 @@ from typing import Iterable
 
 from .context import AppContext
 from .materials.labels import supp_label_fts
+from .parsing import inline_math
+from .parsing.pdf_text_repair import repair_reference_passages
 from .parsing.pdf_parser import LIGATURES
+from .parsing.layout import clean_caption_text
 from .util import ApiError, loads
 
 PASSAGE_SQL = """
@@ -24,7 +27,7 @@ def _sec_id(row: sqlite3.Row) -> str | None:
     return None if v is None else str(v)
 
 
-def passage_dict(row: sqlite3.Row, *, with_text: bool = True) -> dict:
+def passage_dict(row: sqlite3.Row, *, with_text: bool = True, bar_variables: set[str] | None = None) -> dict:
     d = {
         "ord": row["ord"],
         "page": row["page"],
@@ -35,18 +38,55 @@ def passage_dict(row: sqlite3.Row, *, with_text: bool = True) -> dict:
         "bbox": [row["x0"], row["y0"], row["x1"], row["y1"]],
     }
     if with_text:
-        d["text"] = row["text"]
+        raw_text = inline_math.normalize_math_text(row["text"], bar_variables)
+        d["text"] = clean_caption_text(raw_text) if row["kind"] == "caption" else raw_text
         d["bold"] = _bold_of(row)
         d["italic"] = _bold_of(row, "italic_json")
-        d["math"] = _math_of(row)
+        d["math"] = _math_of(row, bar_variables)
     return d
 
 
-def _math_of(row: sqlite3.Row) -> list[dict]:
+def _math_of(row: sqlite3.Row, bar_variables: set[str] | None = None) -> list[dict]:
     raw = row["math_json"] if "math_json" in row.keys() else None
     from .parsing.inline_math import flatten_runs
 
-    return flatten_runs(loads(raw, [])) if raw else []
+    runs = flatten_runs(loads(raw, [])) if raw else []
+    out = []
+    for r in runs:
+        item = dict(r)
+        if item.get("tex"):
+            item["tex"] = inline_math.normalize_tex(item["tex"], bar_variables)
+        if item.get("src"):
+            item["src"] = inline_math.normalize_math_text(item["src"], bar_variables)
+        out.append(item)
+    return out
+
+
+def _display_texts(app: AppContext, paper_id: str, rows: list[sqlite3.Row]) -> tuple[dict[int, str], set[str]]:
+    """为阅读器准备文本；参考文献仅在检测到字体损坏时走一次保守回退。"""
+    refs = [
+        {"ord": r["ord"], "page": r["page"] if "page" in r.keys() else None, "text": r["text"]}
+        for r in rows
+        if r["kind"] == "reference"
+    ]
+    repair_reference_passages(app.paths.paper_dir(paper_id) / "original.pdf", refs)
+    raw_texts = [str(r["text"] or "") for r in rows]
+    bar_variables: set[str] = set()
+    for text in raw_texts:
+        bar_variables.update(inline_math._bar_variables(text))
+    if not bar_variables:
+        # 单段接口也必须使用整篇论文的字体证据，否则单独请求“\frac{d^2}{d}”
+        # 时看不到另一页已经明确出现的 d̄，无法恢复丢失的分母横线。
+        with app.db.session() as conn:
+            all_texts = conn.execute("SELECT text FROM passages WHERE paper_id = ?", (paper_id,)).fetchall()
+        for r in all_texts:
+            bar_variables.update(inline_math._bar_variables(str(r["text"] or "")))
+    repaired = {r["ord"]: inline_math.normalize_math_text(r["text"], bar_variables) for r in refs}
+    out: dict[int, str] = {}
+    for r in rows:
+        text = repaired.get(r["ord"], inline_math.normalize_math_text(r["text"], bar_variables))
+        out[r["ord"]] = clean_caption_text(text) if r["kind"] == "caption" else text
+    return out, bar_variables
 
 
 def _bold_of(row: sqlite3.Row, col: str = "bold_json") -> list[str]:
@@ -85,7 +125,13 @@ def page_passages(app: AppContext, paper_id: str, page: int) -> dict:
         rows = conn.execute(
             PASSAGE_SQL + " WHERE p.paper_id = ? AND p.page = ? ORDER BY p.ord", (paper_id, page)
         ).fetchall()
-    return {"page": page, "width": info["width"], "height": info["height"], "items": [passage_dict(r) for r in rows]}
+    texts, bar_variables = _display_texts(app, paper_id, list(rows))
+    items = []
+    for r in rows:
+        item = passage_dict(r, bar_variables=bar_variables)
+        item["text"] = texts[r["ord"]]
+        items.append(item)
+    return {"page": page, "width": info["width"], "height": info["height"], "items": items}
 
 
 def full_text(app: AppContext, paper_id: str) -> dict:
@@ -93,9 +139,10 @@ def full_text(app: AppContext, paper_id: str) -> dict:
     with app.db.session() as conn:
         _ensure_paper(conn, paper_id)
         rows = conn.execute(PASSAGE_SQL + " WHERE p.paper_id = ? ORDER BY p.ord", (paper_id,)).fetchall()
+    texts, bar_variables = _display_texts(app, paper_id, list(rows))
     items = [
-        {"ord": r["ord"], "page": r["page"], "kind": r["kind"], "section_title": r["section_title"], "section_id": _sec_id(r), "source": r["source"], "text": r["text"],
-         "bbox": [r["x0"], r["y0"], r["x1"], r["y1"]], "bold": _bold_of(r), "italic": _bold_of(r, "italic_json"), "math": _math_of(r)}
+        {"ord": r["ord"], "page": r["page"], "kind": r["kind"], "section_title": r["section_title"], "section_id": _sec_id(r), "source": r["source"], "text": texts[r["ord"]],
+         "bbox": [r["x0"], r["y0"], r["x1"], r["y1"]], "bold": _bold_of(r), "italic": _bold_of(r, "italic_json"), "math": _math_of(r, bar_variables)}
         for r in rows
     ]
     return {"count": len(items), "chars": sum(len(i["text"]) for i in items), "items": items, "revision": revision(app, paper_id)}
@@ -105,10 +152,12 @@ def revision(app: AppContext, paper_id: str) -> str:
     """这篇论文当前这一版段落的“版本号”：段落序号、长度、开头文字有任何变化（例如重新解析之后序号整体前移）它就变。
     阅读页拿着旧版段落去配新版的译文会整体错位；两边各带一个版本号，对不上就重新载入。"""
     with app.db.session() as conn:
-        rows = conn.execute("SELECT ord, length(text) AS n, substr(text, 1, 16) AS head FROM passages WHERE paper_id = ? ORDER BY ord", (paper_id,)).fetchall()
+        rows = conn.execute("SELECT ord, kind, text FROM passages WHERE paper_id = ? ORDER BY ord", (paper_id,)).fetchall()
+    texts, _ = _display_texts(app, paper_id, list(rows))
     h = hashlib.sha1()
     for r in rows:
-        h.update(f"{r['ord']}:{r['n']}:{r['head']}\n".encode("utf-8"))
+        text = texts[r["ord"]]
+        h.update(f"{r['ord']}:{len(text)}:{text[:16]}\n".encode("utf-8"))
     return h.hexdigest()[:12]
 
 
@@ -118,7 +167,10 @@ def get_passage(app: AppContext, paper_id: str, ord_: int) -> dict:
         row = conn.execute(PASSAGE_SQL + " WHERE p.paper_id = ? AND p.ord = ?", (paper_id, ord_)).fetchone()
     if row is None:
         raise ApiError("not_found", "段落不存在", 404)
-    return passage_dict(row)
+    texts, bar_variables = _display_texts(app, paper_id, [row])
+    item = passage_dict(row, bar_variables=bar_variables)
+    item["text"] = texts[ord_]
+    return item
 
 
 # ---- 文本归一化与匹配 ----

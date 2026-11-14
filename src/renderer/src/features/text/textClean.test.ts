@@ -44,7 +44,7 @@ describe('stripBroken and tidySpaces', () => {
 
 describe('citation superscripts', () => {
   const vocab = buildVocab([
-    para(0, 'complex networks and information flow in systems with the ANC measure. The ANC value and the ANC score. We train resnet models on graphs.'),
+    para(0, 'complex networks and information flow in systems with the ANC measure. The ANC value and the ANC score. We train resnet models on graphs. These methods are useful methods.'),
     para(1, 'resnet blocks are used.')
   ])
   const render = (t: string): string => splitCitations(t, vocab).map((p) => (p.sup ? `^${p.text}^` : p.text)).join('')
@@ -52,6 +52,7 @@ describe('citation superscripts', () => {
   it('turns digits glued to a word of the paper into superscripts', () => {
     expect(render('describe interactive systems1,2, such as networks8 and information3.')).toBe('describe interactive systems^1,2^, such as networks^8^ and information^3^.')
     expect(render('accumulated normalized connectivity (ANC29) is')).toBe('accumulated normalized connectivity (ANC^29^) is')
+    expect(render('recently emerged machine learning methods4,9—predominantly focus')).toBe('recently emerged machine learning methods^4,9^—predominantly focus')
   })
 
   it('leaves identifiers, maths tokens and unknown words alone', () => {

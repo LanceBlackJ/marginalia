@@ -238,6 +238,15 @@ describe('行内公式', () => {
     expect(mathRanges('nothing', undefined)).toEqual([])
   })
 
+  it('normalizes legacy font markers and repairs a verified lost bar before locating', () => {
+    const text = String.raw`公式 \frac{d^2}{d} 与节点级d\cdot s`
+    const r = mathRanges(text, [
+      { src: String.raw`\frac{d^2}{d}`, tex: String.raw`\frac{d^2}{\bar{d}}` },
+      { src: String.raw`d\cdot s`, tex: String.raw`d\cdot s` }
+    ])
+    expect(r.map(([, , t]) => t)).toEqual([String.raw`\frac{d^2}{\bar{d}}`, String.raw`d\cdot s`])
+  })
+
   it('替换成公式分段，文字总长不变；被高亮切开的公式保持原样', () => {
     const text = 'a vi 2 V b'
     const out = applyMath([{ text }], mathRanges(text, runs))
@@ -263,6 +272,17 @@ describe('被栏尾/页尾切断的段落', () => {
   it('换了页同样接上；小写开头不管换没换栏都接', () => {
     expect(continuesAcrossPage(left, item(2, 11, 'paragraph', 'S', 'Face community, thereby', [57, 86, 300, 110]))).toBe(true)
     expect(continuesAcrossPage(left, item(2, 10, 'paragraph', 'S', 'and then the next step', [57, 660, 300, 700]))).toBe(true)
+  })
+
+  it('页尾的半句和下页的后半句中间夹着被挪来的图/表注：跳过它们接回正文；括号结尾也算没写完', () => {
+    const para = item(1, 3, 'paragraph', 'S', long + ' as shown (Fig. 2)', [57, 530, 300, 700])
+    const cap = item(2, 4, 'caption', 'S', 'Fig. 2 | A caption', [57, 90, 300, 160])
+    const rest = item(3, 4, 'paragraph', 'S', 'and the results are stable across settings.', [57, 170, 300, 200])
+    const doc = buildDoc([para, cap, rest], [], { showNoise: false })
+    const passages = doc.blocks.filter((b) => b.type === 'passage') as Array<{ parts: TextItem[] }>
+    expect(passages).toHaveLength(2) // 接上的正文 + 图注
+    expect(passages[0].parts).toHaveLength(2)
+    expect(blockText(passages[0].parts)).toContain('(Fig. 2) and the results')
   })
 
   it('不该接的不接：上一段已经句末收尾、同栏里紧跟着的新段落、上一段太短', () => {

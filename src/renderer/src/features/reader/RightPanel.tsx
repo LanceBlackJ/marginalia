@@ -11,6 +11,7 @@ import { MindMapPanel } from '@/features/mindmap/MindMapPanel'
 import { MaterialsPanel } from '@/features/materials/MaterialsPanel'
 import { ContextBar } from './ContextBar'
 import { onCtrlWheel } from './ctrlWheel'
+import { usePanelScrollMemory } from './panelScrollMemory'
 import { useReaderStore, type RightTab } from './readerStore'
 
 export function RightPanel() {
@@ -20,6 +21,7 @@ export function RightPanel() {
   const isSupplement = useReaderStore((s) => s.paper?.role === 'supplement')
   const scale = usePrefs((s) => s.panelScale)
   const asideRef = useRef<HTMLElement>(null)
+  const paperId = useReaderStore((s) => s.paperId)
   const [dragging, setDragging] = useState(false)
   const startRef = useRef<{ x: number; w: number } | null>(null)
 
@@ -40,6 +42,8 @@ export function RightPanel() {
 
   // 面板里是哪个，由最右边的图标栏（RightRail）选；补充材料自己的阅读器里没有“材料”
   const activeTab: RightTab = tab === 'materials' && isSupplement ? 'ai' : tab
+
+  usePanelScrollMemory(asideRef, paperId, activeTab)
 
   // 在面板上按 Ctrl+鼠标滚轮：整个面板里的字一起放大/缩小（每格 10%，80%–160%），设置会记住
   useEffect(() => {

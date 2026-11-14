@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronRight, FolderInput, MoreHorizontal, Star, Tag as TagIcon } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, FolderInput, MoreHorizontal, Star, Tag as TagIcon } from 'lucide-react'
 import { useContextMenu } from '@/components/ui'
 import { api } from '@/lib/api'
 import { formatAuthors } from '@/lib/format'
@@ -8,8 +8,9 @@ import { paperName } from '@/lib/paperName'
 import type { PaperSummary } from '@/lib/types'
 import type { FolderItem } from '@/lib/types.library'
 import { useBlobUrl } from '@/features/figures/useBlobUrl'
+import { DRAG_PAPERS } from './filterModel'
 import { FolderQuickMenu } from './FolderQuickMenu'
-import { paperMenuItems, type PaperItemActions } from './PaperItems'
+import { dragHandlers, paperMenuItems, type PaperItemActions } from './PaperItems'
 import { buildFolderTree, flattenTree, folderPath } from './filterModel'
 import './bookshelf.css'
 
@@ -56,7 +57,7 @@ function Book({ paper, folders, actions }: { paper: PaperSummary; folders: Folde
   const cm = useContextMenu()
   const items = actions.more ? paperMenuItems(paper, actions.more, navigate) : []
   return (
-    <div className="pd-book" ref={ref} onContextMenu={(e) => cm.open(e, items)}>
+    <div className="pd-book" ref={ref} onContextMenu={(e) => cm.open(e, items)} {...(actions.more ? dragHandlers(paper, { ...actions.more, onReorder: undefined }, 'x') : {})}>
       {cm.element}
       <button type="button" className="pd-book-cover" onClick={() => actions.onOpen(paper)} title={name} aria-label={`打开《${name}》`}>
         {cover.url ? (
@@ -70,6 +71,12 @@ function Book({ paper, folders, actions }: { paper: PaperSummary; folders: Folde
         {paper.status === 'parsing' && <span className="pd-book-flag">解析中</span>}
         {paper.status === 'metadata_only' && <span className="pd-book-flag">无全文</span>}
         {paper.status === 'failed' && <span className="pd-book-flag">解析失败</span>}
+        {paper.finished_at && (
+          <span className="pd-book-done" title={`已读完 · ${paper.finished_at.slice(0, 10)}`}>
+            <CheckCircle2 size={11} />
+            已读完
+          </span>
+        )}
         {progress > 0 && <span className="pd-book-progress" style={{ width: `${progress}%` }} aria-hidden="true" />}
       </button>
       <button
@@ -162,6 +169,87 @@ export function sectionsFor(papers: PaperSummary[], folders: FolderItem[], group
   return out
 }
 
+/**
+ * 阅读模式的书架分层：书架首先回答“下一本读什么”，而不是复刻文献管理器的文件夹表格。
+ * 文件夹仍由左侧树负责筛选；进入某个文件夹后，这里只保留阅读顺序，不再重复嵌套文件夹。
+ */
+export function readingSectionsFor(papers: PaperSummary[], grouped: boolean): Section[] {
+  const time = (v: string | null | undefined): number => {
+    const n = v ? Date.parse(v) : 0
+    return Number.isFinite(n) ? n : 0
+  }
+  const readingRank = (p: PaperSummary): number => (p.finished_at || p.read_progress >= 0.999 ? 2 : p.read_progress > 0 ? 0 : 1)
+  const ordered = [...papers].sort((a, b) => {
+    const rank = readingRank(a) - readingRank(b)
+    if (rank !== 0) return rank
+    const primary = rank === 0 ? time(b.last_opened_at) - time(a.last_opened_at) : rank === 1 ? time(b.imported_at) - time(a.imported_at) : time(b.finished_at) - time(a.finished_at)
+    return primary || a.title.localeCompare(b.title, 'zh')
+  })
+  if (!grouped) return [{ key: 'reading-all', title: null, papers: ordered }]
+  const groups: Array<[string, string, number]> = [
+    ['reading', '继续阅读', 0],
+    ['unread', '待读', 1],
+    ['finished', '已读完', 2]
+  ]
+  return groups
+    .map(([key, title, rank]) => ({ key, title, papers: ordered.filter((p) => readingRank(p) === rank) }))
+    .filter((s) => s.papers.length > 0)
+}
+
+/**
+ * 整行都能接收拖放：书和书之间的空隙、第一本的左边、最后一本的右边也算——
+ * 只认书本身的话，“放到这一行最前面 / 最后面”落在空白处就没有任何效果。按横向位置找最近的一本，在它前面或后面。
+ */
+function rowDrop(row: PaperSummary[], onReorder: PaperItemActions['onReorder']) {
+  if (!onReorder) return {}
+  const clearMarks = (root: ParentNode): void => root.querySelectorAll<HTMLElement>('[data-drop-at]').forEach((el) => delete el.dataset.dropAt)
+  /** 鼠标最近的那本书（所在格子）和在它的前面还是后面 */
+  const locate = (e: DragEvent<HTMLElement>): { slot: HTMLElement; index: number; after: boolean } | null => {
+    const slots = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('.pd-shelf-books .pd-shelf-slot'))
+    if (slots.length === 0) return null
+    let index = 0
+    let bestDist = Infinity
+    slots.forEach((s, i) => {
+      const r = s.getBoundingClientRect()
+      const d = Math.abs(e.clientX - (r.left + r.width / 2))
+      if (d < bestDist) {
+        index = i
+        bestDist = d
+      }
+    })
+    const r = slots[index].getBoundingClientRect()
+    return { slot: slots[index], index, after: e.clientX > r.left + r.width / 2 }
+  }
+  return {
+    onDragOver: (e: DragEvent<HTMLElement>) => {
+      if (!Array.from(e.dataTransfer.types).includes(DRAG_PAPERS)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      const hit = locate(e)
+      clearMarks(document)
+      if (hit) hit.slot.dataset.dropAt = hit.after ? 'after' : 'before' // 落点：目标书的左边或右边画一条粗线
+    },
+    onDragLeave: (e: DragEvent<HTMLElement>) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) clearMarks(e.currentTarget)
+    },
+    onDrop: (e: DragEvent<HTMLElement>) => {
+      const raw = e.dataTransfer.getData(DRAG_PAPERS)
+      clearMarks(document)
+      if (!raw || row.length === 0) return
+      e.preventDefault()
+      const hit = locate(e)
+      if (!hit) return
+      const target = row[Math.min(hit.index, row.length - 1)]
+      try {
+        const ids = JSON.parse(raw) as string[]
+        if (ids.length > 0 && !ids.includes(target.id)) onReorder(ids, target, hit.after)
+      } catch {
+        /* 不是我们的拖拽数据 */
+      }
+    }
+  }
+}
+
 function Shelf({ papers, folders, actions }: { papers: PaperSummary[]; folders: FolderItem[]; actions: BookshelfActions }) {
   const wrap = useRef<HTMLDivElement>(null)
   const [perRow, setPerRow] = useState(6)
@@ -183,7 +271,12 @@ function Shelf({ papers, folders, actions }: { papers: PaperSummary[]; folders: 
   return (
     <div className="pd-shelf-rows" ref={wrap}>
       {rows.map((row, ri) => (
-        <section className="pd-shelf-row" key={ri} role="presentation">
+        <section
+          className="pd-shelf-row"
+          key={ri}
+          role="presentation"
+          {...rowDrop(row, actions.more?.onReorder)}
+        >
           <div className="pd-shelf-books">
             {row.map((p) => (
               <div className="pd-shelf-slot" key={p.id} role="listitem">
@@ -206,8 +299,8 @@ function Shelf({ papers, folders, actions }: { papers: PaperSummary[]; folders: 
 }
 
 /** 书架：封面是论文第一页的缩略图，立在隔板上；每个文件夹是一层，点封面打开这篇论文的详情页。 */
-export function Bookshelf({ papers, folders, grouped, actions }: { papers: PaperSummary[]; folders: FolderItem[]; grouped: boolean; actions: BookshelfActions }) {
-  const sections = useMemo(() => sectionsFor(papers, folders, grouped), [papers, folders, grouped])
+export function Bookshelf({ papers, folders, grouped, actions, readingMode = false }: { papers: PaperSummary[]; folders: FolderItem[]; grouped: boolean; actions: BookshelfActions; readingMode?: boolean }) {
+  const sections = useMemo(() => (readingMode ? readingSectionsFor(papers, grouped) : sectionsFor(papers, folders, grouped)), [papers, folders, grouped, readingMode])
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
   const toggle = (k: string): void =>
     setClosed((s) => {

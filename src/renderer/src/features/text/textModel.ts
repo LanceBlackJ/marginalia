@@ -3,6 +3,7 @@ import type { TextItem } from '@/lib/api.text'
 import type { BBox, OutlineItem } from '@/lib/types'
 import { splitFront, type FrontInfo } from './frontMatter'
 import { joinParts } from './textClean'
+import { isSafeInlineTex, normalizeInlineText, normalizeInlineTex } from './inlineMath'
 
 export type ReadView = 'text' | 'both' | 'target' | 'pdf' | 'split'
 export const READ_VIEWS: ReadView[] = ['text', 'both', 'target', 'pdf', 'split']
@@ -44,7 +45,8 @@ export function headingLevels(outline: OutlineItem[]): Map<string, number> {
   return out
 }
 
-const SENTENCE_END = /[.?!:;”"’)\]]\s*$/
+// 句末：. ? ! 之后可以再跟右括号或引号；括号、引号本身不算（“…as shown (Fig. 2)” 后面还可能接小写的下半句）
+const SENTENCE_END = /(?:[.?!][)\]”"’]*|[:;])\s*$/
 
 /** 下一段确实换了页，或换了栏（同一页里跑到右边那一栏的上方）。 */
 function crossesPageOrColumn(prev: TextItem, next: TextItem): boolean {
@@ -125,7 +127,16 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
         pageStart = false // 页码标在标题上，不重复标在紧随其后的段落
       }
     }
-    const prev = blocks[blocks.length - 1]
+    // 图、表注会被挪到首次提到它的段落后面，正好夹在“页尾的半句”和“下一页的后半句”中间：续接时跳过这些浮动块，接回前面的正文段
+    let prev = blocks[blocks.length - 1]
+    if (it.kind === 'paragraph') {
+      for (let k = blocks.length - 1; k >= 0; k--) {
+        const b = blocks[k]
+        if (b.type === 'passage' && (b.parts[b.parts.length - 1].kind === 'caption' || b.parts[b.parts.length - 1].kind === 'figure_text')) continue
+        prev = b
+        break
+      }
+    }
     if (!opts.raw && prev?.type === 'passage' && continuesAcrossPage(prev.parts[prev.parts.length - 1], it)) {
       prev.parts.push(it)
       continue
@@ -309,24 +320,28 @@ function applyFlag(segs: Seg[], ranges: Array<[number, number]>, key: 'bold' | '
 /** 行内公式：把解析时还原的 {src, tex} 按顺序定位到显示文字里。很短的片段（单个变量）要求前后不是字母数字，避免命中词中间的字母；找不到的跳过。 */
 export function mathRanges(text: string, runs: Array<{ src: string; tex: string }> | undefined): Array<[number, number, string]> {
   const out: Array<[number, number, string]> = []
-  const alnum = /[\p{L}\p{N}]/u
+  // 公式可以紧贴中文（“节点级d\\cdot s公式”）。边界只需要防止嵌进
+  // 英文标识符/数字，不应把中文当成英文变量的一部分而跳过公式。
+  const wordChar = /[A-Za-z0-9_]/
   let cur = 0
   for (const r of runs ?? []) {
-    if (!r.src || !r.tex) continue
+    const src = normalizeInlineText(r.src ?? '')
+    const tex = normalizeInlineTex(r.tex ?? '')
+    if (!src || !tex || !isSafeInlineTex(tex)) continue
     let from = cur
     for (;;) {
-      const i = text.indexOf(r.src, from)
+      const i = text.indexOf(src, from)
       if (i < 0) break
       const before = i > 0 ? text[i - 1] : ''
-      const after = text[i + r.src.length] ?? ''
-      const head = alnum.test(r.src[0])
-      const tail = alnum.test(r.src[r.src.length - 1])
-      if ((head && alnum.test(before)) || (tail && alnum.test(after))) {
+      const after = text[i + src.length] ?? ''
+      const head = wordChar.test(src[0])
+      const tail = wordChar.test(src[src.length - 1])
+      if ((head && wordChar.test(before)) || (tail && wordChar.test(after))) {
         from = i + 1
         continue
       }
-      out.push([i, i + r.src.length, r.tex])
-      cur = i + r.src.length
+      out.push([i, i + src.length, tex])
+      cur = i + src.length
       break
     }
   }
@@ -420,12 +435,11 @@ export function buildPlain(items: TextItem[], trans: Map<number, string>, view: 
 
 /** 当前页：最后一个“顶部已经越过阅读线”的页（tops 为各页分节相对容器顶部的位置，按页码升序）。 */
 export function pageAtLine(tops: Array<{ page: number; top: number }>, line: number): number {
-  let cur = tops.length ? tops[0].page : 1
-  for (const t of tops) {
-    if (t.top <= line) cur = t.page
-    else break
-  }
-  return cur
+  if (tops.length === 0) return 1
+  // 不依赖顺序：阅读线上方最近的那个（位置相同取后面的）；都在线下面就取最靠上的
+  let best: { page: number; top: number } | null = null
+  for (const t of tops) if (t.top <= line && (!best || t.top >= best.top)) best = t
+  return (best ?? tops.reduce((m, t) => (t.top < m.top ? t : m))).page
 }
 
 export const TEXT_SIZES = [14, 15, 16, 17, 18, 20, 22]

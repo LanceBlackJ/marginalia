@@ -3,11 +3,11 @@ import { processingCell } from './processingModel'
 import { paperName } from '@/lib/paperName'
 import type { DragEvent, KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BookOpen, Code2, Download, FolderInput, FolderClosed, MoreHorizontal, Network, Quote, RefreshCw, Star, Tag as TagIcon, Trash2 } from 'lucide-react'
-import { IconButton, Menu, ProgressBar, Tag, useContextMenu, type MenuItem } from '@/components/ui'
+import { BookOpen, CheckCircle2, Code2, Copy, Download, FolderInput, FolderClosed, MoreHorizontal, Network, Quote, RefreshCw, Star, Tag as TagIcon, Trash2 } from 'lucide-react'
+import { IconButton, Menu, ProgressBar, Tag, toast, useContextMenu, type MenuItem } from '@/components/ui'
 import { formatAuthors, formatPercent, formatRelativeTime } from '@/lib/format'
 import { foldTags } from '@/lib/tags'
-import type { PaperSummary } from '@/lib/types'
+import type { PaperSummary, PaperTag } from '@/lib/types'
 import type { MatchSnippet } from '@/lib/types.library'
 import { DRAG_PAPERS, dragPaperIds, splitSnippet } from './filterModel'
 import { canReparse, needsReparse, REPARSE_HINT, REPARSE_HINT_DETAIL } from './reparseModel'
@@ -30,14 +30,83 @@ export interface PaperItemActions {
   /** 勾选：用于批量移动；不提供则不显示勾选框 */
   selected?: ReadonlySet<string>
   onToggleSelect?: (p: PaperSummary) => void
+  /** 拖动调整顺序：把 dragIds 放到 target 的前面（after=false）或后面（after=true） */
+  onReorder?: (dragIds: string[], target: PaperSummary, after: boolean) => void
+  /** 标记 / 取消“已读完” */
+  onToggleFinished?: (p: PaperSummary) => void
+  /** 点标签：按这个标签筛选 */
+  onPickTag?: (tag: PaperTag) => void
+}
+
+/** 复制适合粘贴到笔记、邮件或文献管理器的基础题录信息；不把内部状态和路径混进去。 */
+export function paperInfoText(paper: PaperSummary): string {
+  const lines = [`标题：${paper.title}`]
+  if (paper.alias?.trim()) lines.push(`备注名：${paper.alias.trim()}`)
+  if (paper.authors.length > 0) lines.push(`作者：${paper.authors.join('；')}`)
+  if (paper.year !== null) lines.push(`年份：${paper.year}`)
+  if (paper.venue || paper.source_folder) lines.push(`来源：${paper.venue ?? paper.source_folder}`)
+  if (paper.doi) lines.push(`DOI：${paper.doi}`)
+  return lines.join('\n')
+}
+
+export async function copyPaperInfo(paper: PaperSummary): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(paperInfoText(paper))
+    toast.success('已复制论文信息')
+  } catch {
+    toast.error('复制失败', '请检查剪贴板权限后重试')
+  }
 }
 
 /** 拖拽论文（已勾选的会一起拖走）到左侧文件夹。 */
-function dragHandlers(paper: PaperSummary, actions: PaperItemActions) {
+/** axis：行 / 卡片上下排列看鼠标的纵向位置（y），书架上书是横着排的看横向位置（x） */
+export function dragHandlers(paper: PaperSummary, actions: PaperItemActions, axis: 'x' | 'y' = 'y') {
   if (!actions.onMove) return {}
+  const reorder = actions.onReorder
+  const clear = (el: HTMLElement): void => {
+    delete el.dataset.dropAt
+  }
   return {
     draggable: true,
+    // 拖到别的论文上：按鼠标在上半还是下半，插到它前面或后面（拖到左边文件夹上仍是“移动到文件夹”，不受影响）
+    onDragOver: reorder
+      ? (e: DragEvent<HTMLElement>) => {
+          if (!Array.from(e.dataTransfer.types).includes(DRAG_PAPERS)) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          const r = e.currentTarget.getBoundingClientRect()
+          e.currentTarget.dataset.dropAt = (axis === 'x' ? e.clientX > r.left + r.width / 2 : e.clientY > r.top + r.height / 2) ? 'after' : 'before'
+        }
+      : undefined,
+    onDragLeave: reorder
+      ? (e: DragEvent<HTMLElement>) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) clear(e.currentTarget) // 划过里面的图片、按钮不算离开
+        }
+      : undefined,
+    onDrop: reorder
+      ? (e: DragEvent<HTMLElement>) => {
+          const raw = e.dataTransfer.getData(DRAG_PAPERS)
+          const after = e.currentTarget.dataset.dropAt === 'after'
+          clear(e.currentTarget)
+          if (!raw) return
+          e.preventDefault()
+          e.stopPropagation() // 已经按这本书处理了：别让外面一整行的接收再处理一遍
+          try {
+            const ids = JSON.parse(raw) as string[]
+            if (ids.length > 0 && !ids.includes(paper.id)) reorder(ids, paper, after)
+          } catch {
+            /* 不是我们的拖拽数据 */
+          }
+        }
+      : undefined,
+    onDragEnd: (e: DragEvent<HTMLElement>) => {
+      clear(e.currentTarget)
+      delete e.currentTarget.dataset.dragging
+      document.querySelectorAll<HTMLElement>('[data-drop-at]').forEach((el) => delete el.dataset.dropAt)
+    },
     onDragStart: (e: DragEvent) => {
+      const el = e.currentTarget as HTMLElement
+      window.setTimeout(() => (el.dataset.dragging = '1'), 0) // 被拖的那个变淡（晚一拍，免得拖动时跟着的影像也是淡的）
       const ids = dragPaperIds(paper.id, actions.selected ?? new Set())
       e.dataTransfer.setData(DRAG_PAPERS, JSON.stringify(ids))
       e.dataTransfer.setData('text/plain', ids.length > 1 ? `${ids.length} 篇论文` : paper.title)
@@ -117,6 +186,17 @@ function ReparseHint({ paper, actions }: { paper: PaperSummary; actions: PaperIt
   )
 }
 
+/** 已读完的标记：黑底小角标 */
+function FinishedBadge({ paper }: { paper: PaperSummary }) {
+  if (!paper.finished_at) return null
+  return (
+    <span className="pd-finished-badge" title={`已读完 · ${paper.finished_at.slice(0, 10)}`}>
+      <CheckCircle2 size={11} />
+      已读完
+    </span>
+  )
+}
+
 function FolderBadge({ paper }: { paper: PaperSummary }) {
   if (!paper.folder_path) return null
   return (
@@ -128,16 +208,32 @@ function FolderBadge({ paper }: { paper: PaperSummary }) {
 }
 
 /** 标签：黑白细边小标记；多于 3 个时折叠成 “+N”（完整列表在 title 里）。 */
-export function PaperTags({ paper }: { paper: PaperSummary }) {
+export function PaperTags({ paper, onPick }: { paper: PaperSummary; onPick?: (tag: PaperTag) => void }) {
   const tags = paper.tags ?? []
   if (tags.length === 0) return null
   const { visible, rest } = foldTags(tags)
   return (
     <div className="pd-taglist pd-taglist--row">
       {visible.map((t) => (
-        <span key={t.id} className="pd-ptag">
-          {t.name}
-        </span>
+        onPick ? (
+          <button
+            key={t.id}
+            type="button"
+            className="pd-ptag pd-ptag--btn"
+            title={`只看标签“${t.name}”的论文`}
+            onClick={(e) => {
+              e.stopPropagation()
+              onPick(t)
+            }}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            {t.name}
+          </button>
+        ) : (
+          <span key={t.id} className="pd-ptag">
+            {t.name}
+          </span>
+        )
       ))}
       {rest.length > 0 && (
         <span className="pd-ptag pd-ptag--more" title={rest.map((t) => t.name).join('、')}>
@@ -210,9 +306,13 @@ export function paperMenuItems(paper: PaperSummary, actions: PaperItemActions, n
       disabled: paper.status !== 'ready',
       onSelect: () => (actions.onRead ?? actions.onOpen)(paper)
     },
+    { key: 'copy-info', label: '复制论文信息', icon: <Copy size={15} />, onSelect: () => void copyPaperInfo(paper) },
     { key: 'mindmap', label: '思维导图工作区', icon: <Network size={15} />, disabled: paper.status !== 'ready', onSelect: () => navigate(`/mindmap/${paper.id}`) },
     { key: 'code', label: '代码工作区', icon: <Code2 size={15} />, disabled: paper.status === 'parsing', onSelect: () => navigate(`/code/${paper.id}`) },
     ...(actions.onMove ? [{ key: 'move', label: '移动到文件夹…', icon: <FolderInput size={15} />, onSelect: () => actions.onMove?.(paper) }] : []),
+    ...(actions.onToggleFinished
+      ? [{ key: 'finished', label: paper.finished_at ? '取消“已读完”标记' : '标记为已读完', icon: <CheckCircle2 size={15} />, onSelect: () => actions.onToggleFinished?.(paper) }]
+      : []),
     { key: 'tags', label: '标签…', icon: <TagIcon size={15} />, onSelect: () => actions.onEditTags(paper) },
     ...(actions.onCite ? [{ key: 'cite', label: '生成引用…', icon: <Quote size={15} />, onSelect: () => actions.onCite?.(paper) }] : []),
     { key: 'export', label: '导出引文与笔记…', icon: <Download size={15} />, onSelect: () => actions.onExport(paper) },
@@ -303,8 +403,9 @@ export function PaperRow({ paper, actions }: { paper: PaperSummary; actions: Pap
           {!!paper.supplement_count && <span> · 补充材料 {paper.supplement_count}</span>}
         </div>
         <div className="pd-paper-tagrow">
+          <FinishedBadge paper={paper} />
           <FolderBadge paper={paper} />
-          <PaperTags paper={paper} />
+          <PaperTags paper={paper} onPick={actions.onPickTag} />
           <ReparseHint paper={paper} actions={actions} />
         </div>
         <PaperMatches paper={paper} />
@@ -364,8 +465,9 @@ export function PaperCard({ paper, actions }: { paper: PaperSummary; actions: Pa
       </div>
       <div className="pd-paper-meta pd-ellipsis">{meta}</div>
       <div className="pd-paper-tagrow">
-        <FolderBadge paper={paper} />
-        <PaperTags paper={paper} />
+        <FinishedBadge paper={paper} />
+          <FolderBadge paper={paper} />
+        <PaperTags paper={paper} onPick={actions.onPickTag} />
         <ReparseHint paper={paper} actions={actions} />
       </div>
       <PaperMatches paper={paper} />

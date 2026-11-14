@@ -45,10 +45,10 @@ describe('Composer 紧凑输入区', () => {
     expect(useReaderStore.getState().selection).toBeNull()
   })
 
-  it('@、联网、附件和发送在输入框盒子内部的同一排', () => {
+  it('@、联网、思考、附件和发送在输入框盒子内部的同一排', () => {
     const { container } = view()
     const bar = container.querySelector('.pd-composer-box .pd-composer-bar')!
-    expect(bar.querySelectorAll('button').length).toBe(4)
+    expect(bar.querySelectorAll('button').length).toBe(5)
     expect(bar.querySelector('.pd-send')).toBeTruthy()
   })
 

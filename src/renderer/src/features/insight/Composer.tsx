@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, AtSign, Globe, Paperclip, Square, X } from 'lucide-react'
+import { ArrowUp, AtSign, Brain, Globe, Paperclip, Square, X } from 'lucide-react'
 import { IconButton, Tooltip, toast } from '@/components/ui'
 import { ACCEPT, readAttachments, type Attach } from './attach'
 import { truncate } from '@/lib/format'
@@ -43,6 +43,7 @@ export function Composer() {
   const removeQueued = useInsightStore((s) => s.removeQueued)
   const sendQueuedNow = useInsightStore((s) => s.sendQueuedNow)
   const askWeb = usePrefs((s) => s.askWeb)
+  const askThinking = usePrefs((s) => s.askThinking)
   const setPrefs = usePrefs((s) => s.set)
 
   const paperId = useReaderStore((s) => s.paperId)
@@ -305,6 +306,13 @@ export function Composer() {
             size="sm"
             selected={askWeb}
             onClick={() => setPrefs({ askWeb: !askWeb })}
+          />
+          <IconButton
+            icon={<Brain size={14} />}
+            label={askThinking === 'on' ? '思考模式：开启（点一下改成关闭）' : askThinking === 'off' ? '思考模式：关闭（点一下改回默认）' : '思考模式：按设置里的默认（点一下开启）'}
+            size="sm"
+            selected={askThinking === 'on'}
+            onClick={() => setPrefs({ askThinking: askThinking === 'auto' ? 'on' : askThinking === 'on' ? 'off' : 'auto' })}
           />
           <IconButton icon={<Paperclip size={14} />} label="附件：截图、PDF、文本文件（也可以直接粘贴、拖进来）" size="sm" onClick={() => pickRef.current?.click()} />
           <input

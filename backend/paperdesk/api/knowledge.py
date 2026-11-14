@@ -184,7 +184,7 @@ def extract_(body: ExtractBody, ctx: AppContext = Depends(get_ctx)):
         p = conn.execute("SELECT title FROM papers WHERE id = ?", (body.paper_id,)).fetchone()
     if p is None:
         raise ApiError("not_found", "论文不存在", 404)
-    return {"job_id": ctx.jobs.submit("kb_extract", f"整理知识：{p['title'][:30]}", {"paper_id": body.paper_id}, body.paper_id)}
+    return {"job_id": ctx.jobs.submit("kb_extract", f"整理知识：{p['title']}", {"paper_id": body.paper_id}, body.paper_id)}
 
 
 @router.get("/kb/candidates")

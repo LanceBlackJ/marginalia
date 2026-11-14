@@ -7,7 +7,7 @@ from typing import Callable
 
 import pymupdf
 
-from . import font_style, mineru_adapter, mineru_client
+from . import font_style, inline_letters, list_restore, mineru_adapter, mineru_client, section_templates
 from .pdf_parser import _PARSE_LOCK, ParsedDoc, PdfError, parse_pdf
 
 log = logging.getLogger("paperdesk.parse")
@@ -42,6 +42,9 @@ def parse_with_mineru(path: Path, say: Callable[[str], None] | None = None) -> P
         parsed = mineru_adapter.build(mid, sizes, meta_raw)
         if len(parsed.passages) < 5:
             return None
+        section_templates.apply(parsed.sections)  # 按出版社版式修正章节层级（Results / Methods 下面是小节）
+        list_restore.restore_lists_safe(parsed, path)
+        inline_letters.add_letters_safe(parsed, path)  # 行内单个字母的变量（N、s、d…）补成公式
         font_style.annotate_safe(parsed, path)
         return parsed
     except Exception as exc:  # noqa: BLE001  MinerU 只是增强，任何失败都不影响导入

@@ -64,7 +64,7 @@ export interface EquationLatexItem {
   equation_id: number
   latex: string | null
   confidence: 'high' | 'medium' | 'low' | null
-  status: 'none' | 'ok' | 'failed'
+  status: 'none' | 'ok' | 'review' | 'failed'
   warnings: string[]
   error?: string | null
 }
@@ -91,8 +91,14 @@ export interface TableData {
   warnings: string[]
   /** 图内数据网格：并排的几块子表（标题、列名、行）。普通表格没有这个字段。 */
   blocks?: Array<{ title: string; columns: string[]; rows: string[][]; confidence: number }>
+  /** 视觉模型明确标为看不清的单元格数量。 */
+  unreadable?: number
   /** 文字层重建的可信度（0–1）；视觉模型转录的结果没有这个字段。 */
   layout?: { confidence: number; blocks: number }
+  /** MinerU 给的表头原结构：每格 {t 文字, rs 跨几行, cs 跨几列}，null 是被别的格子占着的位置 */
+  head?: Array<Array<{ t: string; rs: number; cs: number } | null>>
+  /** 正文里合并了的单元格 [行, 列, 跨几行, 跨几列]（行号不含表头） */
+  spans?: number[][]
 }
 
 export interface TableAnalysisItem {
@@ -107,11 +113,14 @@ export interface TableAnalysisItem {
   bbox: [number, number, number, number]
   status: 'none' | 'pending' | 'running' | 'ready' | 'failed'
   /** text：行文字自带分隔符、直接建表；layout：文字层词坐标重建；vision：视觉模型转录 */
-  source: 'text' | 'layout' | 'vision' | null
+  source: 'text' | 'layout' | 'vision' | 'mineru' | null
   error: string | null
   model: string | null
   data: TableData | null
 }
+
+/** 表格截图/矢量图的渲染规则变更时递增，避免浏览器继续显示旧的横排图片。 */
+const TABLE_RENDER_REV = 3
 
 export interface TablesAnalysis {
   total: number
@@ -169,11 +178,11 @@ export const textApi = {
   },
   /** 表格区域的截图（本地渲染，不调用模型），用于“对照原图”。 */
   tableImage: async (paperId: string, captionOrd: number, dpi = 150): Promise<Blob> =>
-    (await apiFetch(`/api/papers/${paperId}/tables/${captionOrd}/image`, { query: { dpi } })).blob(),
+    (await apiFetch(`/api/papers/${paperId}/tables/${captionOrd}/image`, { query: { dpi, rev: TABLE_RENDER_REV } })).blob(),
   /** 表格区域的矢量图（SVG）：放大不糊；导不出来才退回截图。 */
   tableVector: async (paperId: string, captionOrd: number, dpi = 150): Promise<Blob> => {
     try {
-      return await (await apiFetch(`/api/papers/${paperId}/tables/${captionOrd}/image`, { query: { vector: true } })).blob()
+      return await (await apiFetch(`/api/papers/${paperId}/tables/${captionOrd}/image`, { query: { vector: true, rev: TABLE_RENDER_REV } })).blob()
     } catch {
       return textApi.tableImage(paperId, captionOrd, dpi)
     }

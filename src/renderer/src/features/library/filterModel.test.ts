@@ -16,8 +16,7 @@ import {
   parseFilters,
   reorderIds,
   serializeFilters,
-  splitSnippet
-} from './filterModel'
+  splitSnippet, groupByTag } from './filterModel'
 
 const f = (id: string, name: string, parent: string | null = null, sort = 0): FolderItem => ({
   id,
@@ -137,5 +136,24 @@ describe('拖拽与命中片段', () => {
     expect(splitSnippet('…这里的 Attention 机制…', [5, 14])).toEqual(['…这里的 ', 'Attention', ' 机制…'])
     expect(splitSnippet('短', [-3, 99])).toEqual(['', '短', ''])
     expect(splitSnippet('abc', [2, 1])).toEqual(['ab', '', 'c'])
+  })
+})
+
+
+describe('groupByTag', () => {
+  const t = (id: string) => ({ id, name: id })
+  it('一篇有几个标签就出现在几组里，没标签的放最后，组按篇数从多到少', () => {
+    const items = [
+      { id: 'a', tags: [t('X'), t('Y')] },
+      { id: 'b', tags: [t('Y')] },
+      { id: 'c', tags: [] },
+      { id: 'd' }
+    ]
+    const g = groupByTag(items)
+    expect(g.map((x) => [x.name, x.items.map((i) => i.id)])).toEqual([
+      ['Y', ['a', 'b']],
+      ['X', ['a']],
+      ['无标签', ['c', 'd']]
+    ])
   })
 })

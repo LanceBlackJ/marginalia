@@ -20,7 +20,7 @@ _LIG_CHARS = frozenset("ﬀﬁﬂﬃﬄ")
 # 数学字体：自定义编码的“带数字后缀”字体变体（MinionPro-It2 / Regular3…）、CM 数学字体、STIX、Symbol 等
 MATH_FONT_RE = re.compile(
     r"((?<!glosa)math|symbol|stix|cmmi|cmsy|cmex|cmmib|cmbsy|msam|msbm|mnsymbol|extension|mtextra|euclid|"
-    r"lmmath|latinmodern-math|cambria\s*math)|-(?:regular|italic|it)\d+(?:\+\d+)?$",
+    r"lmmath|latinmodern-math|cambria\s*math|advmacmth|advp4)|-(?:regular|italic|it)\d+(?:\+\d+)?$",
     re.I,
 )
 MATH_CHARS = set("∑∏∫√∞≈≤≥≠∈∉⊂⊆⊃⊇∪∩∂∇∀∃±×÷∘→←↔⇒⇐⇔⟨⟩⟦⟧αβγδεζηθικλμνξπρστυφχψωΓΔΘΛΞΠΣΦΨΩ¼ðÞ")
@@ -34,6 +34,19 @@ _CAPTION_HEAD = re.compile(
 
 
 _ROMAN_TABLE = re.compile(r"^\s*(?:TABLE|FIG\.?|FIGURE)\s+[IVX]{1,5}\s*(?:\.|:)?\s*$")  # IEEE：“TABLE I” 单独一行，标题在下一行
+_PANEL_BEFORE_CAPTION = re.compile(
+    r"^\s*[A-Fa-f]\s+(?=(?:Fig(?:ure)?\.?|Table|TABLE)\s*[A-Z]?\d+)", re.I
+)
+
+
+def clean_caption_text(text: str) -> str:
+    """去掉复合图面板标签误粘到图注前面的情况。
+
+    复合图的最后一个面板常在同一文字块里先出现 ``F``，随后才是
+    ``Fig. 2 | ...``。这不是图注正文，不能让它进入阅读器、翻译和图表问答。
+    只清理“单个 A–F + 图表编号”这一种强特征，避免改动正常图注内容。
+    """
+    return _PANEL_BEFORE_CAPTION.sub("", text, count=1).strip()
 
 
 def is_caption(text: str) -> bool:
@@ -198,6 +211,11 @@ def clean_text(text: str) -> str:
     # 它只是 √ 的画法，不是文字，先换成 √ 再处理连字
     text = re.sub(r"p(?:ﬃ){2,}", "√", text)
     text = re.sub(r"p(?:ffi){3,}", "√", text)
+    # AdvOT/Nature 的上横线字形有时单独以 U+0001/U+0003 输出，紧跟变量本体。
+    # 这是确定的覆盖字形，不是未知字符；先还原成可继续参与公式渲染的 TeX。
+    text = re.sub(r"[\x01\x03]\s*([A-Za-z])", r"\\bar{\1}", text)
+    # 同一套字体的另一种 ToUnicode 顺序把横线放在变量后面（d¯i，视觉上是 d̄_i）。
+    text = re.sub(r"([A-Za-z])[¯ˉ‾]", r"\\bar{\1}", text)
     text = _LIG_RE.sub(lambda m: LIGATURES[m.group(0)], text)
     text = _ACCENT_RE.sub(_compose_accent, text)
     text = text.translate(_FULLWIDTH)
@@ -328,6 +346,14 @@ def extract_spans(page: pymupdf.Page) -> list[Span]:
                             y1 += dy
                         x0 = max(x0, c0["bbox"][0])
                 font = sp["font"]
+                font_low = font.lower()
+                # AdvMacMthSyN 是 Nature/AdvOT 常见的自定义数学符号字体，
+                # 其 ToUnicode 映射把括号和减号输出成了私有码位。按字体解码，
+                # 不依赖具体论文里的公式内容。
+                if "advmacmthsy" in font_low:
+                    text = text.translate({0xF0: "(", 0xDE: ")", 0x02: "-"})
+                elif "advp4" in font_low and text.strip() in ("\x01", "\x03"):
+                    text = "¯"
                 if "cmex" in font.lower() and len(text.strip()) == 1 and text.strip() not in "PXQ" and (x1 - x0) >= 0.7 * float(sp["size"]):
                     text = "√"  # CMEX10 里的根号（控制字符码，clean_text 会把它当空白丢掉，式子就少了一个根号）
                 elif "cmex" in font.lower() and text.strip() in ("R", "Z"):

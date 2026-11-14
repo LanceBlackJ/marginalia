@@ -3,7 +3,7 @@ import { errorMessage } from '@/lib/api'
 import { referencesApi } from '@/lib/api.references'
 import type { CitationMarker, RefContext, RefItem, RefResolution, SummarizeDone } from '@/lib/types.references'
 import type { ParaRefs } from './refModel'
-import { MAX_TRANSLATE_CHARS } from '@/components/selectTranslateModel'
+import { MAX_TRANSLATE_CHARS, shouldOfferTranslate } from '@/components/selectTranslateModel'
 import { friendlyTranslateError, streamTranslate } from '@/lib/translateText'
 
 export interface Rect {
@@ -40,6 +40,9 @@ interface RefState {
   /** 摘要的中文译文（按参考文献编号）：同一篇的摘要只翻译一次，再次打开直接显示 */
   abstractTr: Record<number, TrState>
   translateAbstract: (index: number, force?: boolean) => Promise<void>
+  /** 查到参考文献题录后自动翻译标题，英文原题仍保留。 */
+  titleTr: Record<number, TrState>
+  translateTitle: (index: number, force?: boolean) => Promise<void>
   paperId: string | null
   status: 'idle' | 'loading' | 'ready' | 'error'
   style: string
@@ -80,6 +83,7 @@ interface RefState {
 
 const empty = {
   abstractTr: {} as Record<number, TrState>,
+  titleTr: {} as Record<number, TrState>,
   paperId: null,
   status: 'idle' as const,
   style: 'unknown',
@@ -105,6 +109,7 @@ function clearHoverTimer(): void {
 
 const controllers = new Map<number, AbortController>()
 const trControllers = new Map<number, AbortController>()
+const titleControllers = new Map<number, AbortController>()
 
 export const useRefStore = create<RefState>((set, get) => ({
   ...empty,
@@ -135,12 +140,40 @@ export const useRefStore = create<RefState>((set, get) => ({
     )
   },
 
+  translateTitle: async (index, force = false) => {
+    const paperId = get().paperId
+    const title = get().resolutions[index]?.data?.title?.trim()
+    if (!paperId || !title || !shouldOfferTranslate(title)) return
+    const cur = get().titleTr[index]
+    if (!force && cur && (cur.status === 'done' || cur.status === 'streaming')) return
+    titleControllers.get(index)?.abort()
+    const ctrl = new AbortController()
+    titleControllers.set(index, ctrl)
+    const put = (patch: Partial<TrState>): void =>
+      set((s) => ({ titleTr: { ...s.titleTr, [index]: { ...(s.titleTr[index] ?? { text: '' }), status: 'streaming', ...patch } as TrState } }))
+    set((s) => ({ titleTr: { ...s.titleTr, [index]: { status: 'streaming', text: '' } } }))
+    await streamTranslate(
+      paperId,
+      title.slice(0, MAX_TRANSLATE_CHARS),
+      {
+        onMeta: (m) => put({ model: m.model, cached: m.cached }),
+        onDelta: (d) => put({ text: (get().titleTr[index]?.text ?? '') + d }),
+        onDone: (r) => put({ status: 'done', text: r.translation, model: r.model, cached: r.cached }),
+        onError: (e) => put({ status: 'error', error: friendlyTranslateError(e) })
+      },
+      ctrl.signal,
+      force
+    )
+  },
+
   load: async (paperId) => {
     if (get().paperId === paperId && get().status !== 'error') return
     controllers.forEach((c) => c.abort())
     controllers.clear()
     trControllers.forEach((c) => c.abort())
     trControllers.clear()
+    titleControllers.forEach((c) => c.abort())
+    titleControllers.clear()
     set({ ...empty, paperId, status: 'loading' })
     try {
       const [refs, cits] = await Promise.all([referencesApi.list(paperId), referencesApi.citations(paperId)])
@@ -170,6 +203,8 @@ export const useRefStore = create<RefState>((set, get) => ({
     controllers.clear()
     trControllers.forEach((c) => c.abort())
     trControllers.clear()
+    titleControllers.forEach((c) => c.abort())
+    titleControllers.clear()
     set({ ...empty })
   },
 
@@ -204,6 +239,7 @@ export const useRefStore = create<RefState>((set, get) => ({
       const data = await referencesApi.resolve(paperId, index, force)
       if (get().paperId !== paperId) return
       set((s) => ({ resolutions: { ...s.resolutions, [index]: { status: 'ready', data } } }))
+      if (data.found && data.title) void get().translateTitle(index)
     } catch (err) {
       if (get().paperId === paperId) set((s) => ({ resolutions: { ...s.resolutions, [index]: { status: 'error', error: errorMessage(err) } } }))
     }
@@ -215,7 +251,10 @@ export const useRefStore = create<RefState>((set, get) => ({
     if (!paperId || !cur || cur.status !== 'ready') return
     try {
       const data = await referencesApi.resolve(paperId, index, false)
-      if (get().paperId === paperId) set((s) => ({ resolutions: { ...s.resolutions, [index]: { status: 'ready', data } } }))
+      if (get().paperId === paperId) {
+        set((s) => ({ resolutions: { ...s.resolutions, [index]: { status: 'ready', data } } }))
+        if (data.found && data.title) void get().translateTitle(index)
+      }
     } catch {
       /* 刷新不了就保持原样 */
     }

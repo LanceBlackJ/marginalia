@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import { AlertCircle, Bookmark as BookmarkIcon, ChevronDown, ChevronRight, Compass, Languages, StickyNote } from 'lucide-react'
 import { toast, useContextMenu, type MenuItem } from '@/components/ui'
 import { Button, Dialog, EmptyState, ProgressBar, Skeleton } from '@/components/ui'
@@ -19,7 +19,7 @@ import { useSearchStore } from '@/features/reader/searchStore'
 import { visionApi } from '@/lib/api.vision'
 import type { Note } from '@/lib/types'
 import { regionKindLabel, textApi, type FigureRegion, type RegionKind, type TableAnalysisItem, type TableTranslation, type TextItem } from '@/lib/api.text'
-import { splitInlineMath } from './inlineMath'
+import { isSafeInlineTex, normalizeInlineText, splitInlineMath } from './inlineMath'
 import { misplacedCount, misplacedSet, numericColumns, tableToMarkdown, tableToTsv, unverifiedCount, unverifiedSet } from './tableModel'
 import { useTextStore, type EquationInfo } from './textStore'
 import { usePrefs } from '@/stores/prefsStore'
@@ -30,6 +30,18 @@ import { buildVocab, cleanDisplay, parseCaption, parseCaptionZh, splitCitations,
 import { FrontBlock } from './FrontBlock'
 import { TocRail, type TocTable } from './TocRail'
 import { activeSectionOnScroll } from '@/features/reader/outlinePos'
+
+/**
+ * 元素相对阅读区顶部的位置。长文按块渲染（content-visibility:auto），远处没渲染的块里的元素，浏览器给出的位置是乱的
+ * （和块外的元素前后矛盾）：这种情况改用它所在块的位置，误差只是“块内偏移”，目录高亮和跳转才不会被带偏。
+ */
+function topWithin(node: HTMLElement, rootTop: number): number {
+  const chunk = node.closest<HTMLElement>('.pd-tchunk')
+  if (chunk && typeof node.checkVisibility === 'function' && !node.checkVisibility({ contentVisibilityAuto: true })) {
+    return chunk.getBoundingClientRect().top - rootTop
+  }
+  return node.getBoundingClientRect().top - rootTop
+}
 import { onCtrlWheel } from '@/features/reader/ctrlWheel'
 import { FigureDataBlock } from './FigureDataBlock'
 import { FigLabelMenu } from './FigLabelMenu'
@@ -46,7 +58,8 @@ import { useTextPrefs } from './textPrefs'
 import { readTextSelection } from './textSelection'
 import { RefMarker, RefEntryHandlers } from './RefMarker'
 import { RefLayer } from './RefLayer'
-import { mergeParaRefs, splitByMarkers, splitLooseBrackets, splitSupDigits, type ParaRefs } from './refModel'
+import { expandNumbers, mergeParaRefs, splitByMarkers, splitCjkSup, splitLooseBrackets, splitSupDigits, type ParaRefs } from './refModel'
+import { tableDisplayReason, tablePrefersImage } from './tableDisplay'
 import { useRefStore } from './refStore'
 import './text.css'
 
@@ -73,6 +86,13 @@ function withMath(text: string): ReactElement[] | string {
   const parts = splitInlineMath(text)
   if (parts.length === 1 && 'text' in parts[0]) return text
   return parts.map((m, i) => ('tex' in m ? <ClickTex key={i} tex={m.tex} /> : <span key={i}>{m.text}</span>))
+}
+
+/** 没有词汇表时也要保留链接识别，同时把翻译里裸露的 LaTeX 交给 KaTeX。 */
+function withLinksAndMath(text: string): ReactElement | ReactElement[] {
+  const parts = splitInlineMath(text)
+  if (parts.length === 1 && 'text' in parts[0]) return <Linkified text={text} />
+  return parts.map((m, i) => ('tex' in m ? <ClickTex key={i} tex={m.tex} /> : <Linkified key={i} text={m.text} />))
 }
 
 /** 行内公式：点一下在页面中间放大显示（正在选中文字时不触发）。 */
@@ -232,7 +252,7 @@ function plainPieces(text: string, vocab: Vocab | null, key: number, refs: ParaR
   if (!vocab) {
     return (
       <span key={key}>
-        <Linkified text={text} />
+        {withLinksAndMath(text)}
       </span>
     )
   }
@@ -243,7 +263,28 @@ function plainPieces(text: string, vocab: Vocab | null, key: number, refs: ParaR
   // 链接要在引用角标和行内数学之前切出来：网址、DOI 里的数字不能被当成角标拆开
   const citePieces = (txt: string): ReactElement[] =>
     splitCitations(txt, vocab).map((p, i) => {
-      if (!p.sup) return <span key={i}><FigText text={p.text} render={withMath} /></span>
+      if (!p.sup) {
+        // 译文：贴在汉字后面的数字角标，也要和原文一样是上标、可点开
+        const zh = refs?.zh ? splitCjkSup(p.text, refs.sup) : null
+        if (zh && zh.some((z) => z.refs)) {
+          return (
+            <span key={i}>
+              {zh.map((z, j) =>
+                z.refs ? (
+                  <sup key={j} className="pd-tp-cite">
+                    <RefMarker refs={z.refs}>{z.text}</RefMarker>
+                  </sup>
+                ) : (
+                  <span key={j}>
+                    <FigText text={z.text} render={withMath} />
+                  </span>
+                )
+              )}
+            </span>
+          )
+        }
+        return <span key={i}><FigText text={p.text} render={withMath} /></span>
+      }
       const sup = refs && refs.sup.size > 0 ? splitSupDigits(p.text, refs.sup) : []
       return (
         <sup key={i} className="pd-tp-cite">
@@ -307,7 +348,7 @@ function renderSegs(segs: Seg[], vocab: Vocab | null, refs: ParaRefs | null = nu
 }
 
 function renderSeg(s: Seg, i: number, vocab: Vocab | null, refs: ParaRefs | null): ReactElement {
-  if (s.tex) return <ClickTex key={i} tex={s.tex} />
+  if (s.tex && isSafeInlineTex(s.tex)) return <ClickTex key={i} tex={s.tex} />
   if (s.term) {
     const term = s.term
     const g = useGlossaryStore.getState().terms.find((t) => t.term === term)
@@ -376,14 +417,18 @@ function FormulaBlock({ item, eq, paperId, running, runError }: FormulaProps) {
   const near = useNearViewport(ref)
   const refreshEquations = useTextStore((s) => s.refreshEquations)
   const startEquations = useTextStore((s) => s.startEquations)
-  const [showImg, setShowImg] = useState(false)
+  // 原始 PDF 里的公式是可验证的矢量证据；识别结果只有在通过质量闸门后才允许替代它。
+  const [showImg, setShowImg] = useState(true)
   const [retrying, setRetrying] = useState(false)
-  const hasTex = !!eq?.latex
+  // review 只是候选结果，不能直接排版；原图是不会伪造内容的兜底。
+  const hasTex = !!eq?.latex && eq.status === 'ok'
   const { tex, tag } = splitTag(eq?.latex ?? '')
   const shownNumber = eq?.number ?? tag
-  const suspicious = hasTex && (eq?.confidence === 'low' || (eq?.warnings.length ?? 0) > 0)
+  const usableTex = hasTex && eq?.confidence === 'high' && (eq.warnings.length ?? 0) === 0 && tex.trim().length > 2 && !/^\\tag\s*\{[^}]*\}$/.test(tex.trim())
+  const suspicious = hasTex && !usableTex
   const failed = !!eq && !hasTex && eq.status === 'failed'
-  const wantImg = !!eq && (showImg || !hasTex)
+  const showTex = !!usableTex && !showImg
+  const wantImg = !!eq && !showTex
   const { url } = useBlobUrl(wantImg && near && eq ? () => textApi.equationVector(paperId, eq.id) : null, [paperId, eq?.id, wantImg, near])
 
   const explain = (): void => {
@@ -412,7 +457,7 @@ function FormulaBlock({ item, eq, paperId, running, runError }: FormulaProps) {
   }
   return (
     <div className="pd-tp-formula" ref={ref}>
-      {hasTex ? (
+      {showTex ? (
         <div className="pd-tp-eqrow">
           <div className="pd-tp-eqmath">
             <Tex latex={tex} display />
@@ -421,7 +466,9 @@ function FormulaBlock({ item, eq, paperId, running, runError }: FormulaProps) {
         </div>
       ) : (
         <div className="pd-tp-eqwait">
-          {failed ? (
+          {suspicious ? (
+            <p className="pd-tp-note">识别结果未通过完整性校验，已显示原始矢量公式。</p>
+          ) : failed ? (
             <p className="pd-tp-note">
               公式识别失败：{eq.error ?? '模型没有返回可用的结果'}。
               <button type="button" className="pd-tp-link" disabled={retrying} onClick={() => void retry()}>
@@ -440,14 +487,13 @@ function FormulaBlock({ item, eq, paperId, running, runError }: FormulaProps) {
           ) : (
             <p className="pd-tp-note">等待识别公式…</p>
           )}
-          {url && <ZoomImage src={url} alt={`公式${eq.number ? ` (${eq.number})` : ''}`} className="pd-tp-eqimg pd-tp-eqimg--small" />}
+          {url && <ZoomImage src={url} alt={`公式${eq.number ? ` (${eq.number})` : ''}`} className="pd-tp-eqimg" />}
         </div>
       )}
-      {showImg && hasTex && url && <ZoomImage src={url} alt={`公式${eq.number ? ` (${eq.number})` : ''}原图`} className="pd-tp-eqimg" />}
       <div className="pd-tp-formula-tools">
-        {suspicious && (
+        {usableTex && (
           <button type="button" className="pd-tp-link" onClick={() => setShowImg((v) => !v)}>
-            {showImg ? '收起原图' : '识别可能有误，点此对照原图'}
+            {showImg ? '显示已校验的识别公式' : '显示原始矢量公式'}
           </button>
         )}
         <button type="button" className="pd-tp-link" onClick={explain}>
@@ -498,13 +544,37 @@ function FigureInline({ fig, paperId }: { fig: FigureRegion; paperId: string }) 
 }
 
 /** 表格单元格：译文模式显示中文（没有译文的格子显示原文）；对照模式原文在上、中文在下。 */
+// 表格单元格里的上标：^{3}、^{24}、^{1,2}。是参考文献编号的话渲染成可点开的引用，不是的（d^{2}）就是普通上标
+const CELL_SUP = /\^\{?\s*(\d{1,3}(?:\s*[,，–-]\s*\d{1,3})*)\s*\}?/g
+function CellRich({ text }: { text: string }) {
+  const valid = useRefStore((s) => s.valid)
+  if (!text.includes('^')) return <span className="pd-fd-cell-text">{text}</span>
+  const out: ReactElement[] = []
+  let cursor = 0
+  let k = 0
+  for (const m of text.matchAll(CELL_SUP)) {
+    const at = m.index ?? 0
+    if (at > cursor) out.push(<span key={k++}>{text.slice(cursor, at)}</span>)
+    const nums = expandNumbers(m[1].replace(/，/g, ',')).filter((n) => valid.has(n))
+    out.push(
+      <sup key={k++} className="pd-tp-cite">
+        {nums.length > 0 ? <RefMarker refs={nums}>{m[1]}</RefMarker> : m[1]}
+      </sup>
+    )
+    cursor = at + m[0].length
+  }
+  if (cursor < text.length) out.push(<span key={k++}>{text.slice(cursor)}</span>)
+  return <span className="pd-fd-cell-text">{out}</span>
+}
+
 function CellText({ v, zh, view }: { v: string; zh: string | null; view: TextView }) {
-  if (!zh || view === 'text') return <>{v}</>
-  if (view === 'target') return <span title={`原文：${v}`}>{zh}</span>
+  const same = !!zh && zh.replace(/\s+/g, '').toLowerCase() === v.replace(/\s+/g, '').toLowerCase() // 数字、人名、模型名：译文和原文一样，不再重复显示一遍
+  if (!zh || same || view === 'text') return <CellRich text={v} />
+  if (view === 'target') return <span className="pd-fd-cell-text" title={`原文：${v}`}>{zh}</span>
   return (
     <>
-      {v}
-      <span className="pd-tp-celltr">{zh}</span>
+      <CellRich text={v} />
+      <span className="pd-tp-celltr pd-fd-cell-text">{zh}</span>
     </>
   )
 }
@@ -529,9 +599,21 @@ interface TableBlockProps {
  * “对照原图”折叠项显示表格区域的截图。识别结果由视觉模型转录，不能当作原文。
  */
 function TableBlock({ paperId, t, running, runError, onRetry, view = 'text', tr }: TableBlockProps) {
-  const [showImg, setShowImg] = useState(false)
-  const { url } = useBlobUrl(showImg ? () => textApi.tableVector(paperId, t.caption_ord) : null, [paperId, t.caption_ord, showImg])
+  const defaultImage = tablePrefersImage(t)
+  const [showImg, setShowImg] = useState(defaultImage)
+  const tableWrap = useRef<HTMLDivElement>(null)
+  useEffect(() => setShowImg(defaultImage), [defaultImage, t.caption_ord])
   const data = t.status === 'ready' ? t.data : null
+  const imageVisible = showImg || !data
+  const { url } = useBlobUrl(imageVisible ? () => textApi.tableVector(paperId, t.caption_ord) : null, [paperId, t.caption_ord, imageVisible])
+  const tableLayoutKey = useMemo(
+    () => JSON.stringify({ columns: data?.columns ?? [], head: data?.head ?? null, rowCount: data?.rows.length ?? 0 }),
+    [data]
+  )
+  // 识别结果回来后，表格宽度可能变化；不能沿用旧 DOM 的横向滚动位置，否则会从中间列开始显示，造成“第一行缺列”的错觉。
+  useLayoutEffect(() => {
+    if (!showImg && tableWrap.current) tableWrap.current.scrollLeft = 0
+  }, [showImg, t.caption_ord, tableLayoutKey])
   const bodyOrds = t.body_ords.join(' ')
   const copy = async (kind: 'tsv' | 'md'): Promise<void> => {
     if (!data) return
@@ -543,6 +625,16 @@ function TableBlock({ paperId, t, running, runError, onRetry, view = 'text', tr 
     }
   }
   const num = useMemo(() => (data ? numericColumns(data) : []), [data])
+  // 正文里合并的单元格：origin 是左上角那格（带 rowSpan / colSpan），covered 是被它占着、不用再画的位置
+  const { spanOrigin, coveredCells } = useMemo(() => {
+    const origin = new Map<string, [number, number]>()
+    const covered = new Set<string>()
+    for (const [r, c, rs, cs] of data?.spans ?? []) {
+      origin.set(`${r},${c}`, [rs, cs])
+      for (let dr = 0; dr < rs; dr++) for (let dc = 0; dc < cs; dc++) if (dr || dc) covered.add(`${r + dr},${c + dc}`)
+    }
+    return { spanOrigin: origin, coveredCells: covered }
+  }, [data])
   const bad = useMemo(() => (data ? unverifiedSet(data) : new Set<string>()), [data])
   const mis = useMemo(() => (data ? misplacedSet(data) : new Set<string>()), [data])
   const nBad = data ? unverifiedCount(data) : 0
@@ -551,51 +643,74 @@ function TableBlock({ paperId, t, running, runError, onRetry, view = 'text', tr 
   if (!data) {
     const active = t.status === 'pending' || t.status === 'running' || (running && t.status === 'none')
     return (
-      <div className="pd-tp-table pd-tp-table--wait" data-ords={bodyOrds}>
+      <div className="pd-tp-table pd-tp-table--image" data-ords={bodyOrds}>
+        {url ? <ZoomImage src={url} alt={`${t.label} 原图`} className="pd-tp-table-image" /> : <Skeleton height={120} />}
         {active ? (
-          <p className="pd-tp-note">正在识别表格，下面先显示从 PDF 提取出的行文字</p>
+          <p className="pd-tp-note">正在识别表格，当前先显示原图，避免错误识别覆盖原文。</p>
         ) : t.status === 'failed' ? (
           <p className="pd-tp-note">
-            表格识别失败：{t.error ?? '模型没有返回可用的结果'}。
+            表格识别失败，当前显示原图：{t.error ?? '模型没有返回可用的结果'}。
             <button type="button" className="pd-tp-link" onClick={onRetry}>
               重试
             </button>
           </p>
         ) : runError ? (
           <p className="pd-tp-note">
-            表格还没有识别：{runError}
+            表格暂时没有结构化结果，当前显示原图：{runError}
             <button type="button" className="pd-tp-link" onClick={onRetry}>
               重试识别
             </button>
           </p>
         ) : (
-          <p className="pd-tp-note">等待识别表格…</p>
+          <p className="pd-tp-note">等待识别表格，当前显示原图…</p>
         )}
       </div>
     )
   }
   return (
     <div className="pd-tp-table" data-ords={bodyOrds}>
-      <div className="pd-fd-wrap" tabIndex={0} aria-label={`${t.label} 表格`}>
+      {showImg ? (
+        <div className="pd-tp-table-image-wrap">
+          {url ? <ZoomImage src={url} alt={`${t.label} 原图`} className="pd-tp-table-image" /> : <Skeleton height={120} />}
+          <p className="pd-tp-note">{tableDisplayReason(t)}。可切换到识别结果进行复制或检索。</p>
+        </div>
+      ) : (
+        <div ref={tableWrap} className="pd-fd-wrap" tabIndex={0} aria-label={`${t.label} 表格`}>
         <table>
           <thead>
-            <tr>
-              {data.columns.map((c, ci) => (
-                <th key={ci} scope="col" className={num[ci] ? 'pd-num' : undefined}>
-                  <CellText v={c} zh={tr?.columns[ci] ?? null} view={view} />
-                </th>
-              ))}
-            </tr>
+            {data.head && data.head.length > 0 ? (
+              data.head.map((hr, hi) => (
+                <tr key={hi}>
+                  {hr.map((c, ci) =>
+                    c === null ? null : (
+                      <th key={ci} scope={c.cs > 1 ? 'colgroup' : 'col'} rowSpan={c.rs > 1 ? c.rs : undefined} colSpan={c.cs > 1 ? c.cs : undefined} className={num[ci] ? 'pd-num' : undefined}>
+                        <CellRich text={c.t} />
+                      </th>
+                    )
+                  )}
+                </tr>
+              ))
+            ) : (
+              <tr>
+                {data.columns.map((c, ci) => (
+                  <th key={ci} scope="col" className={num[ci] ? 'pd-num' : undefined}>
+                    <CellText v={c} zh={tr?.columns[ci] ?? null} view={view} />
+                  </th>
+                ))}
+              </tr>
+            )}
           </thead>
           <tbody>
             {data.rows.map((r, ri) => (
               <tr key={ri}>
                 {data.columns.map((_c, ci) => {
+                  if (coveredCells.has(`${ri},${ci}`)) return null // 被合并单元格占着的位置
+                  const span = spanOrigin.get(`${ri},${ci}`)
                   const v = r[ci] ?? ''
                   const flagged = bad.has(`${ri},${ci}`)
                   const misplaced = mis.has(`${ri},${ci}`)
                   return (
-                    <td key={ci} className={num[ci] ? 'pd-num' : undefined}>
+                    <td key={ci} className={num[ci] ? 'pd-num' : undefined} rowSpan={span && span[0] > 1 ? span[0] : undefined} colSpan={span && span[1] > 1 ? span[1] : undefined}>
                       {misplaced ? (
                         <span className="pd-tp-mis" title="位置存疑：这个值在 PDF 文字层里出现过，但不在这一行/列的位置，可能填错了格子，请对照原图">
                           {v}
@@ -614,38 +729,42 @@ function TableBlock({ paperId, t, running, runError, onRetry, view = 'text', tr 
             ))}
           </tbody>
         </table>
-      </div>
-      {data.notes && <p className="pd-tp-note">注：{data.notes}</p>}
+        </div>
+      )}
+      {!showImg && data.notes && <p className="pd-tp-note">注：{data.notes}</p>}
       <div className="pd-fd-actions">
-        <span>
-          {t.source === 'text'
-            ? '按文字层建表'
-            : t.source === 'layout'
-              ? `按文字层坐标还原${data.layout && data.layout.confidence < 0.9 ? `，可信度 ${Math.round(data.layout.confidence * 100)}%，可能有误，请对照原图` : ''}`
-              : '视觉模型转录'}
-          {nBad > 0 ? ` · ${nBad} 个单元格未能与文字层核对，已用虚线标出` : nMis === 0 && data.verified_ratio !== null ? ' · 已与文字层核对' : ''}
-        </span>
-        <button type="button" className="pd-fd-act" onClick={() => void copy('tsv')}>
-          复制为 TSV
-        </button>
-        <button type="button" className="pd-fd-act" onClick={() => void copy('md')}>
-          复制为 Markdown
-        </button>
+        {showImg ? <span>原图主视图，结构化识别结果仅供参考</span> : <span>
+            {t.source === 'mineru'
+              ? 'MinerU 表格结构（含合并单元格）'
+              : t.source === 'text'
+              ? '按文字层建表'
+              : t.source === 'layout'
+                ? `按文字层坐标还原${data.layout && data.layout.confidence < 0.9 ? `，可信度 ${Math.round(data.layout.confidence * 100)}%，可能有误，请对照原图` : ''}`
+                : '视觉模型转录'}
+            {nBad > 0 ? ` · ${nBad} 个单元格未能与文字层核对，已用虚线标出` : nMis === 0 && data.verified_ratio !== null ? ' · 已与文字层核对' : ''}
+          </span>}
+        {!showImg && <>
+          <button type="button" className="pd-fd-act" onClick={() => void copy('tsv')}>
+            复制为 TSV
+          </button>
+          <button type="button" className="pd-fd-act" onClick={() => void copy('md')}>
+            复制为 Markdown
+          </button>
+        </>}
         <button type="button" className="pd-fd-act" onClick={() => setShowImg((v) => !v)} aria-expanded={showImg}>
-          {showImg ? '收起原图' : '对照原图'}
+          {showImg ? '查看识别结果' : '查看原图'}
         </button>
       </div>
-      {nMis > 0 && (
+      {!showImg && nMis > 0 && (
         <p className="pd-tp-note pd-tp-note--mis" role="status">
           {nMis} 个单元格位置存疑，已用点状下划线加问号标出，请对照原图。
         </p>
       )}
-      {(() => {
+      {!showImg && (() => {
         // “N 个单元格位置存疑”界面上已经单独写了一句，后端告警里的同一条不再重复
         const rest = data.warnings.filter((w) => !/个单元格位置存疑/.test(w))
         return rest.length > 0 ? <p className="pd-tp-note">{rest.join(' ')}</p> : null
       })()}
-      {showImg && (url ? <ZoomImage src={url} alt={`${t.label} 原图`} className="pd-tp-figimg" /> : <Skeleton height={120} />)}
     </div>
   )
 }
@@ -692,7 +811,7 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
   const refs = useMemo(() => mergeParaRefs(parts.map((p) => p.ord), paraRefsMap), [parts, paraRefsMap])
   // 译文里的方括号编号常被改写（破折号、全角括号…），后端按原文记的标记文字对不上：译文再按“编号确实存在”认一遍
   const validRefs = useRefStore((s) => s.valid)
-  const trRefs = useMemo<ParaRefs | null>(() => (validRefs.size > 0 ? { sup: refs?.sup ?? new Set<number>(), text: refs?.text ?? [], loose: validRefs } : refs), [refs, validRefs])
+  const trRefs = useMemo<ParaRefs | null>(() => ({ sup: refs?.sup ?? new Set<number>(), text: refs?.text ?? [], loose: validRefs.size > 0 ? validRefs : undefined, zh: true }), [refs, validRefs])
   const isCaption = item.kind === 'caption' || !!table
   // 这一段怎么读：选中它（或点左边的小按钮）后，在它下面显示；正文段落才有
   const paraOrd = useParaStore((s) => s.ord)
@@ -703,7 +822,7 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
   const showTr = translatable && view !== 'text' && tr !== undefined
   const plain = marks.length === 0 && !query
   const raw = blockText(parts)
-  const text = vocab ? cleanDisplay(raw) : raw
+  const text = normalizeInlineText(vocab ? cleanDisplay(raw) : raw)
   const cap = vocab && isCaption && plain ? parseCaption(text) : null
   // 图注开头的“图 3 / 表 2”可点：查看，或让 AI 解析（只有论文里真有对应的图/表时）
   const capKey = labelKey(fig?.kind === 'figure' ? fig.label : table && table.kind !== 'figure_data' ? table.label : null)
@@ -723,7 +842,7 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
   ]
     .filter(Boolean)
     .join(' ')
-  const trText = tr === undefined ? undefined : vocab ? stripBroken(tr) : tr
+  const trText = tr === undefined ? undefined : normalizeInlineText(vocab ? stripBroken(tr) : tr)
   // 译文和原文一样渲染：行内公式、原文加粗里保留下来的词、引用角标的悬浮卡片、链接、搜索命中；图注拆成“编号 + 加粗标题句”，段落可以首句加粗
   const trCap = trText !== undefined && vocab && isCaption ? parseCaptionZh(trText) : null
   const trFirst = trText !== undefined && vocab && boldFirst && item.kind === 'paragraph' && !query && bold.length === 0 && maths.length === 0 ? splitFirstSentenceZh(trText) : null
@@ -738,6 +857,7 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
       data-ord={item.ord}
       data-ords={parts.length > 1 ? parts.map((p) => p.ord).join(' ') : undefined}
       data-page={item.page}
+      data-floating={item.kind === 'caption' || item.kind === 'figure_text' || !!table ? '' : undefined}
       data-hit={hit}
       data-flash={flash === null ? undefined : flash % 2}
       data-paraon={paraOn || undefined}
@@ -795,7 +915,7 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
                 {renderSegs([{ text: first.rest }], vocab, refs)}
               </p>
             ) : (
-              <p className="pd-tp-p">{renderSegs(applyTerms(applyMath(applyItalic(applyBold(segmentsFor(text, marks, query), bold), ital), maths), glossTerms ?? []), vocab, refs)}</p>
+              <p className={text.includes('\n') ? 'pd-tp-p pd-tp-p--lines' : 'pd-tp-p'}>{renderSegs(applyTerms(applyMath(applyItalic(applyBold(segmentsFor(text, marks, query), bold), ital), maths), glossTerms ?? []), vocab, refs)}</p>
             ))}
           {showTr &&
             trText !== undefined &&
@@ -994,7 +1114,7 @@ export function TextReader() {
     if (!target) return true
     guardUntil.current = performance.now() + 900
     const go = (): void => {
-      const top = target!.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - (ord !== null && ord !== undefined ? READ_LINE + 20 : 12)
+      const top = topWithin(target!, el.getBoundingClientRect().top) + el.scrollTop - (ord !== null && ord !== undefined ? READ_LINE + 20 : 12)
       el.scrollTo({ top: Math.max(0, top) })
     }
     go()
@@ -1004,9 +1124,9 @@ export function TextReader() {
       window.setTimeout(go, 120)
     })
     // 重开论文恢复阅读位置：长文档里上方分组的真实高度要更久才稳定，稍后再校正几次；用户已经自己滚动了就不再动
-    if (ord !== null && ord !== undefined && !j.flash && !j.bbox) {
+    if (!j.flash && !j.bbox) {
       let last = -1
-      for (const ms of [350, 800, 1600]) {
+      for (const ms of [250, 500, 900, 1500, 2400]) { // 按标题跳转同样：远处的块渲染出来后高度变了，位置要再校正
         window.setTimeout(() => {
           if (last >= 0 && Math.abs(el.scrollTop - last) > 60) return
           go()
@@ -1044,7 +1164,7 @@ export function TextReader() {
       const top = el.getBoundingClientRect().top
       if (performance.now() >= guardUntil.current) {
         jumpSec.current = null // 用户自己在滚：不再偏向刚点过的章节
-        const tops = Array.from(el.querySelectorAll<HTMLElement>('[data-page]')).map((p) => ({ page: Number(p.dataset.page), top: p.getBoundingClientRect().top - top }))
+        const tops = Array.from(el.querySelectorAll<HTMLElement>('[data-page]:not([data-floating])')).map((p) => ({ page: Number(p.dataset.page), top: topWithin(p, top) }))
         if (tops.length) {
           const st0 = useReaderStore.getState()
           const pg = pageAtLine(tops, READ_LINE)
@@ -1055,7 +1175,7 @@ export function TextReader() {
         }
       }
       // 当前小节：按正文里标题的实际位置算（阅读线上方最近的标题），左边目录据此高亮——小节在大章节标题之后，所以停在小节里就是小节
-      const secs = Array.from(el.querySelectorAll<HTMLElement>('[data-sec]')).map((h) => ({ title: h.dataset.secKey ?? h.dataset.sec ?? '', top: h.getBoundingClientRect().top - top }))
+      const secs = Array.from(el.querySelectorAll<HTMLElement>('[data-sec]')).map((h) => ({ title: h.dataset.secKey ?? h.dataset.sec ?? '', top: topWithin(h, top) }))
       // 滚到最底部时，最后一节（参考文献等）的标题不可能再顶到阅读线上：直接算最后一节，不然点“参考文献”高亮会停在上一节
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 4 && el.scrollTop > 0
       useReaderStore.getState().setActiveSectionTitle(activeSectionOnScroll(secs, READ_LINE + 40, atBottom, jumpSec.current, el.clientHeight))

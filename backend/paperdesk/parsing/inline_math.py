@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+import unicodedata
 
 GREEK = {
     "α": "\\alpha", "β": "\\beta", "γ": "\\gamma", "δ": "\\delta", "ε": "\\epsilon", "ϵ": "\\epsilon", "ζ": "\\zeta", "η": "\\eta",
@@ -59,6 +60,86 @@ _RADICAND_END = re.compile(r"\s*(?:[+\-=<>,;]|\\(?:cdot|times|pm|leq?|geq?|neq|a
 _NEEDS_BASE = re.compile(r"[=+\-,(|]$|\\(?:in|to|cdot|times|setminus|le|ge|ldots)$|\{$")
 _TRAILING_OP = re.compile(r"(?:[+\-]|\\times|\\cdot)$")
 MAX_CLUSTER_SPANS = 28
+
+
+def _bar_variables(text: str) -> set[str]:
+    """收集这段文本中明确出现过上横线的单字母变量。"""
+    out = set(re.findall(r"[\x01\x03]\s*([A-Za-z])", text))
+    out.update(re.findall(r"([A-Za-z])[¯ˉ‾]", text))
+    out.update(re.findall(r"\\bar\s*(?:\{\s*)?([A-Za-z])", text))
+    return out
+
+
+def _restore_bar_denominators(tex: str, variables: set[str]) -> str:
+    """只在文档已明确使用同一上横线变量时，恢复重复公式中丢失的分母横线。"""
+    if not variables:
+        return tex
+
+    def repl(m: re.Match[str]) -> str:
+        numerator, variable, suffix = m.group(1), m.group(2), m.group(3) or ""
+        if variable not in variables:
+            return m.group(0)
+        return f"\\frac{{{numerator}}}{{\\bar{{{variable}}}{suffix}}}"
+
+    return re.sub(
+        r"\\frac\{([^{}]*)\}\{([A-Za-z])((?:\^\{[^{}]*\}|\^[A-Za-z0-9*])?)\}",
+        repl,
+        tex,
+    )
+
+
+def normalize_tex(tex: str | None, bar_variables: set[str] | None = None) -> str:
+    """把 PDF/翻译模型常见的轻微公式噪声规范化成可渲染的 TeX。
+
+    这里不猜公式内容，只修复不会改变数学含义的编码噪声：Unicode 规范化、
+    控制字符表示的上横线、命令和标识符被错误拆开的情况，以及右花括号前
+    混入的引号。真正无法判断的公式保留原样，交给前端显示原文或视觉识别。
+    """
+    t = unicodedata.normalize("NFKC", str(tex or "")).strip()
+    # Nature/AdvOT 数学字体的 overbar glyph 常被提取为 U+0001 + d。
+    # 它是覆盖在变量上方的独立字形，不是正文控制字符。
+    t = re.sub(r"[\x01\x03]\s*([A-Za-z])", r"\\bar{\1}", t)
+    # 公式转写模型偶尔把右花括号前的引号当成公式字符：!(N-K)!''}
+    t = re.sub(r"'+(?=\s*[}])", "", t)
+    # 字体映射会把“∂Ball”拆成“∂ β all”。
+    # 从数学命令的首字母恢复被拆开的首字母，适用于任意同类标识符，
+    # 不绑定某篇论文或某个变量名。
+    def _join_identifier(m: re.Match[str]) -> str:
+        return f"\\partial {m.group(1)[0].upper()}{m.group(2)}"
+
+    t = re.sub(r"\\partial\s+\\([A-Za-z]+)\s+([A-Za-z]{2,})(?=\s*[([{|])", _join_identifier, t)
+    t = _restore_bar_denominators(t, bar_variables or set())
+    t = re.sub(r"\s+", " ", t)
+    return t
+
+
+def normalize_math_text(text: str | None, bar_variables: set[str] | None = None) -> str:
+    """规范化文本层里被数学字体编码污染的片段。
+
+    只把明确的数学上横线字形还原为 TeX；其它控制字符仍按普通文本清理，
+    避免把未知字形擅自变成公式。
+    """
+    t = str(text or "")
+    variables = set(bar_variables or ()) | _bar_variables(t)
+    # 两种字体编码的上横线顺序不同：有的在变量前输出控制字符，
+    # 有的在变量后输出 U+00AF。两者都只在变量本身明确可定位时恢复。
+    t = re.sub(r"[\x01\x03]\s*([A-Za-z])", r"\\bar{\1}", t)
+    t = re.sub(r"([A-Za-z])[¯ˉ‾]", r"\\bar{\1}", t)
+    # 某些 OCR/版面模型把独立上横线读成 ^d；只有文档中确实存在 d̄
+    # 的证据时才修复，避免把普通幂运算擅自改成上横线。
+    if variables:
+        for v in sorted(variables):
+            t = re.sub(rf"(?<![A-Za-z0-9\\])\^{re.escape(v)}\b", rf"\\bar{{{v}}}", t)
+    t = _restore_bar_denominators(t, variables)
+    # 文本层也可能直接保存翻译模型留下的 TeX；即使没有对应 math_json，
+    # 复制/搜索时也不能把同一类确定的噪声继续带到界面。
+    t = re.sub(r"'+(?=\s*[}])", "", t)
+    t = re.sub(
+        r"\\partial\s+\\([A-Za-z]+)\s+([A-Za-z]{2,})(?=\s*[([{|])",
+        lambda m: f"\\partial {m.group(1)[0].upper()}{m.group(2)}",
+        t,
+    )
+    return t
 
 
 def _is_italic(s) -> bool:
@@ -257,10 +338,21 @@ def flatten_runs(runs: list[dict] | None) -> list[dict]:
     out: list[dict] = []
     for r in runs or []:
         if not r.get("tex") and r.get("parts"):
+            # 即使候选不安全也保留 tex 给翻译占位符保护；读取/渲染层会用 safe_tex 拒绝伪公式。
             out.extend(r["parts"])
         else:
             out.append(r)
     return out
+
+
+_GREEK_COMMAND = r"(?:alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|chi|psi|omega)"
+
+
+def safe_tex(tex: str | None) -> bool:
+    """字体映射异常形成“希腊命令 + 裸英文单词”时，不静默渲染伪公式。"""
+    if not tex:
+        return False
+    return re.search(rf"\\{_GREEK_COMMAND}\s+[A-Za-z]{{2,}}\b", tex) is None
 
 
 def _cm_text_math(s, t: str) -> bool:

@@ -26,7 +26,8 @@ export const FLAG_FILTERS = [
   { key: 'has_annotations', label: '有批注或高亮' },
   { key: 'has_supplement', label: '有补充材料' },
   { key: 'has_code', label: '已获取代码' },
-  { key: 'favorite', label: '已收藏' }
+  { key: 'favorite', label: '已收藏' },
+  { key: 'finished', label: '已读完' }
 ] as const
 
 const clean = (s: string | undefined): string => (s ?? '').trim()
@@ -47,7 +48,7 @@ export function normalizeFilters(f: PaperFilters): PaperFilters {
   if (typeof f.year_to === 'number' && Number.isFinite(f.year_to)) out.year_to = f.year_to
   if (f.read) out.read = f.read
   if (f.parse) out.parse = f.parse
-  for (const k of ['has_notes', 'has_annotations', 'has_supplement', 'has_code', 'favorite'] as const) {
+  for (const k of ['has_notes', 'has_annotations', 'has_supplement', 'has_code', 'favorite', 'finished'] as const) {
     if (f[k] === true) out[k] = true // 只提供“必须有”；不提供“必须没有”，避免界面上多出难懂的三态
   }
   if (f.imported_from) out.imported_from = f.imported_from
@@ -87,7 +88,7 @@ export function filtersToQuery(f: PaperFilters): Partial<PaperListQuery> {
   if (n.language) q.language = n.language
   if (n.read) q.read = n.read
   if (n.parse) q.parse = n.parse
-  for (const k of ['has_notes', 'has_annotations', 'has_supplement', 'has_code', 'favorite'] as const) if (n[k]) q[k] = true
+  for (const k of ['has_notes', 'has_annotations', 'has_supplement', 'has_code', 'favorite', 'finished'] as const) if (n[k]) q[k] = true
   if (n.imported_from) q.imported_from = n.imported_from
   if (n.imported_to) q.imported_to = nextDay(n.imported_to)
   return q
@@ -120,7 +121,7 @@ export function parseFilters(raw: string | null | undefined): PaperFilters {
     for (const k of ['year_from', 'year_to'] as const) if (typeof o[k] === 'number') f[k] = o[k] as number
     if (o.read === 'unread' || o.read === 'reading' || o.read === 'done') f.read = o.read
     if (typeof o.parse === 'string' && PARSE_OPTIONS.some((p) => p.value === o.parse)) f.parse = o.parse as ParseState
-    for (const k of ['has_notes', 'has_annotations', 'has_supplement', 'has_code', 'favorite'] as const) if (o[k] === true) f[k] = true
+    for (const k of ['has_notes', 'has_annotations', 'has_supplement', 'has_code', 'favorite', 'finished'] as const) if (o[k] === true) f[k] = true
     return normalizeFilters(f)
   } catch {
     return {}
@@ -272,4 +273,25 @@ export function splitSnippet(text: string, hit: [number, number]): [string, stri
   const a = Math.max(0, Math.min(text.length, hit[0]))
   const b = Math.max(a, Math.min(text.length, hit[1]))
   return [text.slice(0, a), text.slice(a, b), text.slice(b)]
+}
+
+/**
+ * 按标签分组：一篇论文有几个标签就出现在几组里；没有标签的放最后一组。
+ * 组按篇数从多到少（同样多按标签名），组内保持传入的顺序（也就是当前排序）。
+ */
+export function groupByTag<T extends { tags?: Array<{ id: string; name: string }> }>(items: readonly T[]): Array<{ id: string; name: string; items: T[] }> {
+  const groups = new Map<string, { id: string; name: string; items: T[] }>()
+  const none: T[] = []
+  for (const it of items) {
+    const tags = it.tags ?? []
+    if (tags.length === 0) none.push(it)
+    for (const t of tags) {
+      const g = groups.get(t.id) ?? { id: t.id, name: t.name, items: [] }
+      g.items.push(it)
+      groups.set(t.id, g)
+    }
+  }
+  const out = [...groups.values()].sort((a, b) => b.items.length - a.items.length || a.name.localeCompare(b.name, 'zh'))
+  if (none.length > 0) out.push({ id: '__none', name: '无标签', items: none })
+  return out
 }

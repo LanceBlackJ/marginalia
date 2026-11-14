@@ -19,7 +19,10 @@ export function ContextBar({ children }: { children?: ReactNode }) {
   const paper = useReaderStore((s) => s.paper)
   const currentPage = useReaderStore((s) => s.currentPage)
   const outline = useReaderStore((s) => s.outline)
-  const section = sectionAt(outline, currentPage)
+  // 文字阅读器里按标题的实际位置算出的当前小节（和左边目录的高亮同一个来源）；没有（PDF 视图等）才按页码估
+  const activeTitle = useReaderStore((s) => s.activeSectionTitle)
+  const active = activeTitle ? (activeTitle.startsWith('#') ? outline.find((o) => `#${o.id}` === activeTitle)?.title : activeTitle) : null
+  const section = active ?? sectionAt(outline, currentPage)
   return (
     <div className="pd-context" aria-label="当前位置" title={paper?.title}>
       <div className="pd-context-line">

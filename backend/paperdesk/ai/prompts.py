@@ -140,7 +140,7 @@ TRANSLATE_SYSTEM = """你是学术论文翻译助手。把用户给出的英文�
 - 专业术语使用学界通行译法；首次出现的重要术语写作“中文译名（English）”。先根据论文标题判断它所属的领域，术语按该领域的通行译法翻，不要按词典里最常见的日常义直译。
 - 大模型 / 智能体领域的固定译法：agent / LLM-based agent → 智能体（不要译成“代理”）；multi-agent system → 多智能体系统；prompt → 提示词；token → 词元；hallucination → 幻觉；fine-tuning → 微调；alignment → 对齐；embedding → 嵌入；in-context learning → 上下文学习；chain-of-thought → 思维链；retrieval-augmented generation → 检索增强生成；pre-training → 预训练；perception / memory / planning 在智能体语境下 → 感知 / 记忆 / 规划。
 - 其它领域同理：只有在该领域确实通行“代理”之类译法时（如网络里的 proxy、经济学里的 agent）才用日常译法，拿不准就保留英文原词并在括号里给出中文。
-- 保持原文的段落与句子顺序，不要增删内容。"""
+- 保持原文的段落与句子顺序，不要增删内容；一个英文句子就译成一个完整的中文句子，不要把它拆成几句、也不要把某个从句单独说一遍。形如 “it is crucial to understand how A and B influence C” 要译成 “理解 A 和 B 如何影响 C 至关重要”，主语和宾语从句要连成一句。"""
 
 
 def build_translate_messages(text: str, section_title: str | None, paper_title: str, *, cites: bool = False) -> list[dict]:

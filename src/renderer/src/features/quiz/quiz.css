@@ -246,3 +246,19 @@
   font-weight: 500;
   vertical-align: 2px;
 }
+
+/* 多选：已勾选、该选没选 */
+.pd-quiz-opt[data-state='picked'] {
+  border-color: var(--text);
+}
+.pd-quiz-opt[data-state='missed'] {
+  border-style: dashed;
+  border-color: var(--text);
+}
+.pd-quiz-submit {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-md);
+  margin-top: var(--sp-md);
+  font-size: var(--fs-aux);
+}

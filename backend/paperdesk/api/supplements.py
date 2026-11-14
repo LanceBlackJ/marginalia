@@ -209,7 +209,7 @@ def attach_existing_paper(paper_id: str, body: AttachPaperBody, ctx: AppContext 
 @router.post("/papers/{paper_id}/supplements/discover")
 def discover_supplements(paper_id: str, ctx: AppContext = Depends(get_ctx)):
     d = _main_paper(ctx, paper_id)
-    job_id = ctx.jobs.submit("supplement_discover", f"寻找补充材料：{d['title'][:40]}", {"paper_id": paper_id}, paper_id)
+    job_id = ctx.jobs.submit("supplement_discover", f"寻找补充材料：{d['title']}", {"paper_id": paper_id}, paper_id)
     return {"job_id": job_id}
 
 
@@ -346,7 +346,7 @@ def ai_analyze(asset_id: str, ctx: AppContext = Depends(get_ctx)):
     analyze.require_grant(ctx, a["paper_id"])
     if a["download_status"] != "done":
         raise ApiError("conflict", "文件还没有准备好", 409)
-    return {"job_id": ctx.jobs.submit("supplement_analyze", f"AI 分析：{a['filename'][:40]}", {"asset_id": asset_id}, a["paper_id"])}
+    return {"job_id": ctx.jobs.submit("supplement_analyze", f"AI 分析：{a['filename']}", {"asset_id": asset_id}, a["paper_id"])}
 
 
 @router.post("/supplements/{asset_id}/explain")
@@ -355,7 +355,7 @@ def ai_explain(asset_id: str, ctx: AppContext = Depends(get_ctx)):
     analyze.require_grant(ctx, a["paper_id"])
     if a["kind"] != "table" or a["download_status"] != "done":
         raise ApiError("bad_request", "只有已分析的数据集文件可以让 AI 解释")
-    return {"job_id": ctx.jobs.submit("supplement_explain", f"解释数据集：{a['filename'][:40]}", {"asset_id": asset_id}, a["paper_id"])}
+    return {"job_id": ctx.jobs.submit("supplement_explain", f"解释数据集：{a['filename']}", {"asset_id": asset_id}, a["paper_id"])}
 
 
 @router.post("/supplements/{asset_id}/extract")
@@ -363,4 +363,4 @@ def extract_zip(asset_id: str, ctx: AppContext = Depends(get_ctx)):
     a = store.get_asset(ctx, asset_id)
     if F.ext_of(a["filename"]) != ".zip" or a["download_status"] != "done":
         raise ApiError("bad_request", "只能解压已下载完成的 zip 文件")
-    return {"job_id": ctx.jobs.submit("supplement_extract", f"解压：{a['filename'][:40]}", {"asset_id": asset_id}, a["paper_id"])}
+    return {"job_id": ctx.jobs.submit("supplement_extract", f"解压：{a['filename']}", {"asset_id": asset_id}, a["paper_id"])}

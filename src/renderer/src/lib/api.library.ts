@@ -18,6 +18,8 @@ export const libraryApi = {
   /** 把论文移进文件夹；folderId=null 表示移回“未分类”。补充材料子论文会被跳过。 */
   movePapers: (paperIds: string[], folderId: string | null) =>
     post<{ ok: boolean; moved: number; skipped_supplements: number }>('/api/papers/move', { paper_ids: paperIds, folder_id: folderId }),
+  /** 手动排序：把这批论文按给出的顺序重新排（只给了筛选后的一部分也行） */
+  reorderPapers: (ids: string[]) => post<{ ok: boolean; count: number }>('/api/papers/reorder', { ids }),
   smartViews: () => get<{ items: SmartView[] }>('/api/smart-views'),
   createSmartView: (name: string, query: PaperFilters) => post<SmartView>('/api/smart-views', { name, query }),
   deleteSmartView: (id: string) => del<{ ok: boolean }>(`/api/smart-views/${id}`),

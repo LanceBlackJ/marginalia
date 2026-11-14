@@ -28,7 +28,7 @@ def register(manager: JobManager) -> None:
 def enqueue(app: AppContext, paper_id: str, pages: int) -> str:
     with app.db.session() as conn:
         title = conn.execute("SELECT title FROM papers WHERE id = ?", (paper_id,)).fetchone()["title"]
-    return app.jobs.submit(JOB_TYPE, f"识别扫描页文字：{title[:40]}（{pages} 页）", {"paper_id": paper_id}, paper_id)
+    return app.jobs.submit(JOB_TYPE, f"识别扫描页文字：{title}（{pages} 页）", {"paper_id": paper_id}, paper_id)
 
 
 def _set_note(app: AppContext, paper_id: str, note: str | None) -> None:

@@ -34,6 +34,23 @@ def test_numbered_references_fold_back_continuation_lines():
     assert "Conf. Robot." in blocks[0].text
 
 
+def test_reference_font_repair_uses_pdf_line_order_without_merging_columns(tmp_path):
+    import pymupdf
+
+    from paperdesk.parsing.pdf_text_repair import repair_reference_passages
+
+    pdf = tmp_path / "refs.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_textbox((50, 50, 540, 180), "References\n1. Gao, J. & Barabási, A.-L. Universal resilience patterns. Nature 530, 1–2 (2016).\n2. Albert, R. Error and attack tolerance. Nature 406, 3–4 (2000).", fontsize=10)
+    doc.save(str(pdf))
+    doc.close()
+    passages = [{"ord": 1, "page": 1, "text": "1. Gao, J. & Barab�si, A.-L. Universal resilience patterns. Nature 530, 1�2 (2016)."}]
+    repair_reference_passages(pdf, passages)
+    assert "Barabási" in passages[0]["text"]
+    assert "Albert" not in passages[0]["text"] and "�" not in passages[0]["text"]
+
+
 def test_hanging_indent_continuation_lines_belong_to_the_previous_reference():
     lines = [
         line(100, [(108, "Oana-Maria Camburu, Tim Rocktäschel, Thomas Lukasiewicz, Phil Blunsom. 2018. e-SNLI:", {"w": 390})]),
@@ -48,6 +65,12 @@ def test_roman_numeral_table_captions_are_captions():
     assert layout.is_caption("TABLE I")
     assert layout.is_caption("TABLE II COMPARISON OF CORRIDOR GENERATION METHODS")
     assert not layout.is_caption("Table 1 shows the results of our experiments on the dataset")
+
+
+def test_composite_panel_label_is_not_part_of_figure_caption():
+    assert layout.clean_caption_text("F Fig. 2 | Node removal performance.") == "Fig. 2 | Node removal performance."
+    assert layout.clean_caption_text("f Fig. 3 | Analysis of network-level resilience.") == "Fig. 3 | Analysis of network-level resilience."
+    assert layout.clean_caption_text("Fig. 4 | A figure with panel F.") == "Fig. 4 | A figure with panel F."
 
 
 def test_numbered_subsection_headings_with_a_control_glyph_or_long_italic_title():

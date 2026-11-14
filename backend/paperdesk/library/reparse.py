@@ -615,7 +615,7 @@ def enqueue(app: AppContext, paper_id: str, force: bool = False) -> str:
         row = conn.execute("SELECT title, role FROM papers WHERE id = ?", (paper_id,)).fetchone()
         if row["role"] == "supplement":
             raise ApiError("bad_request", "补充材料随主论文一起重新解析：请在主论文上操作")
-    return app.jobs.submit(JOB_TYPE, f"重新解析：{(row['title'] or '')[:40]}", {"paper_id": paper_id, "force": force}, paper_id)
+    return app.jobs.submit(JOB_TYPE, f"重新解析：{(row['title'] or '')}", {"paper_id": paper_id, "force": force}, paper_id)
 
 
 # ---------------------------------------------------------------- 任务

@@ -323,8 +323,12 @@ def reconstruct_text_table(words: list[Word], *, min_rows: int = 3, anchors: lis
             lines = lines[1:]
         if len(lines) < min_rows + 1:
             return None
-        body_lines = lines[1:]
-        cand = sorted({round(w[0], 1) for w in lines[0]})
+        # 表头可能在同一个单元格里折成多行（如 Food- / Bay- / Dry (128)）。
+        # 找到第一条含有多个数值的行作为表体起点，前面的整段都保留为多行表头。
+        data_start = next((i for i, ln in enumerate(lines[1:], 1) if sum(_is_num(w[4]) for w in ln) >= 2), 1)
+        header_lines = lines[:data_start]
+        body_lines = lines[data_start:]
+        cand = sorted({round(w[0], 1) for w in header_lines[0]})
         anchors = []
         for x in cand:
             hits = sum(1 for ln in body_lines if any(abs(w[0] - x) <= 1.5 for w in ln))
@@ -347,7 +351,7 @@ def reconstruct_text_table(words: list[Word], *, min_rows: int = 3, anchors: lis
                     anchors.append(x)
             if len(anchors) < 2:
                 return None
-        header_line: list | None = lines[0]
+        header_line: list | None = header_lines
     else:
         # 续页：没有表头，列沿用第一页的；所有行都是表体
         body_lines = lines
@@ -382,7 +386,8 @@ def reconstruct_text_table(words: list[Word], *, min_rows: int = 3, anchors: lis
             cont = bool(rows) and li > 0 and ys[li] - ys[li - 1] <= 1.15 * pitch and all(last_line[c] == li - 1 for c in by_col)
         if cont:
             for c, ws in by_col.items():
-                rows[-1][c] = (rows[-1][c] + " " + " ".join(ws)).strip()
+                # 保留单元格内部的视觉换行，前端会按原来的多行排版；复制 TSV/Markdown 时再统一压成空格。
+                rows[-1][c] = (rows[-1][c] + "\n" + " ".join(ws)).strip()
                 last_line[c] = li
         else:
             rows.append([" ".join(by_col.get(i, [])) for i in range(n)])
@@ -402,5 +407,5 @@ def reconstruct_text_table(words: list[Word], *, min_rows: int = 3, anchors: lis
         reasons.append("第一列是合并单元格，已向下填充")
     if header_line is not None and sum(1 for r in rows for c in r if not c) / max(1, len(rows) * n) > 0.35:
         return None
-    header = [" ".join(w[4] for w in header_line if col_of(w[0]) == i) for i in range(n)] if header_line is not None else []
+    header = ["\n".join(" ".join(w[4] for w in ln if col_of(w[0]) == i).strip() for ln in header_line if any(col_of(w[0]) == i for w in ln)).strip() for i in range(n)] if header_line is not None else []
     return {"columns": header, "rows": rows, "n_rows": len(rows), "n_cols": n, "confidence": 0.8, "reasons": reasons, "anchors": list(anchors)}

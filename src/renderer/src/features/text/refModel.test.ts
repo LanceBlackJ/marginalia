@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CitationMarker, RefItem, RefResolution } from '@/lib/types.references'
-import { bibtex, expandNumbers, matchLabel, placePopover, plainCitation, refHeadline, splitByMarkers, splitLooseBrackets, splitSupDigits } from './refModel'
+import { bibtex, expandNumbers, matchLabel, placePopover, plainCitation, refHeadline, splitByMarkers, splitCjkSup, splitLooseBrackets, splitSupDigits } from './refModel'
 
 const ref = (over: Partial<RefItem> = {}): RefItem => ({
   index: 1, ord: 5, page: 7, ords: [5], raw: '1. Rivera, A. & Chen, L. Cascade failure in layered networks. Phys. Rev. E 80, 41 (2009).',
@@ -118,5 +118,34 @@ describe('splitByMarkers 用前文定位短标记（PDF 链接识别的标记）
   it('没有前文时和以前一样按顺序找', () => {
     const r = splitByMarkers('see [3] and [4]', [{ kind: 'bracket', text: '[3]', start: 4, end: 7, refs: [3] }, { kind: 'bracket', text: '[4]', start: 12, end: 15, refs: [4] }])
     expect(r.filter((p) => p.refs).map((p) => p.refs)).toEqual([[3], [4]])
+  })
+})
+
+describe('译文里的引用角标', () => {
+  const valid = new Set([1, 2, 3, 4, 5, 6, 7, 9])
+  it('贴在汉字或全角标点后面、编号确实存在的数字，认成引用', () => {
+    const p = splitCjkSup('维持基本功能的能力1–3。韧性的丧失3–5。理解其整体系统韧性至关重要6。', valid)
+    expect(p.filter((x) => x.refs).map((x) => [x.text, x.refs])).toEqual([
+      ['1–3', [1, 2, 3]],
+      ['3–5', [3, 4, 5]],
+      ['6', [6]]
+    ])
+  })
+  it('数字后直接接英文破折号时仍保持为引用上标', () => {
+    expect(splitCjkSup('主要关注网络的拓扑结构的方法4,9——而非动力学。', valid)).toEqual([
+      { text: '主要关注网络的拓扑结构的方法' },
+      { text: '4,9', refs: [4, 9] },
+      { text: '——而非动力学。' }
+    ])
+  })
+  it('数字后接中文全角括号时仍保持为引用上标', () => {
+    expect(splitCjkSup('包括度中心性3（DC：d_i）、集体影响力7（CI）。', valid).filter((x) => x.refs).map((x) => [x.text, x.refs])).toEqual([
+      ['3', [3]],
+      ['7', [7]]
+    ])
+  })
+  it('“图 2”“第 3 节”“提高了 5 倍”“共 3 个”和不存在的编号都不是引用', () => {
+    expect(splitCjkSup('如图2，结果见第3节，提高了5倍，共3个。', valid).some((x) => x.refs)).toBe(false)
+    expect(splitCjkSup('这是一个结论99。', valid).some((x) => x.refs)).toBe(false)
   })
 })

@@ -187,6 +187,8 @@ def build_where(conn: sqlite3.Connection, f: dict[str, Any]) -> tuple[list[str],
         "SELECT 1 FROM papers c WHERE c.parent_id = p.id UNION ALL "
         "SELECT 1 FROM supplementary_assets s WHERE s.paper_id = p.id AND s.child_paper_id IS NULL",
     )
+    if f.get("finished") is not None:
+        where.append("p.finished_at IS NOT NULL" if f["finished"] else "p.finished_at IS NULL")
     if f.get("favorite") is not None:
         where.append("p.favorite = ?")
         args.append(1 if f["favorite"] else 0)
@@ -377,5 +379,6 @@ def facets(conn: sqlite3.Connection) -> dict[str, Any]:
                 "EXISTS (SELECT 1 FROM supplementary_assets s WHERE s.paper_id = p.id AND s.child_paper_id IS NULL)"
             ),
             "favorite": count("p.favorite = 1"),
+            "finished": count("p.finished_at IS NOT NULL"),
         },
     }

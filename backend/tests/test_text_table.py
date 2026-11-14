@@ -28,6 +28,66 @@ def test_text_table_with_merged_first_column_and_wrapped_last_cell():
     assert any("合并单元格" in r for r in t["reasons"])
 
 
+def test_multiline_header_is_kept_inside_the_same_cell():
+    words = []
+    words += _line(0, [(57, "Method"), (157, "Food-"), (257, "Food-")])
+    words += _line(12, [(157, "Bay-"), (257, "Bay-")])
+    words += _line(24, [(157, "Dry (128)"), (257, "Wet (128)")])
+    words += _line(40, [(57, "DC3"), (157, "0.48"), (257, "0.38")])
+    words += _line(53, [(57, "Ours"), (157, "0.31"), (257, "0.22")])
+    t = L.reconstruct_text_table(words, min_rows=2)
+    assert t
+    assert t["columns"] == ["Method", "Food-\nBay-\nDry (128)", "Food-\nBay-\nWet (128)"]
+    assert t["rows"] == [["DC3", "0.48", "0.38"], ["Ours", "0.31", "0.22"]]
+
+
+def test_text_layout_beats_panel_layout_when_panel_drops_multiline_headers(monkeypatch):
+    """同一张表两种重建都成功时，不能因为面板候选先命中就丢掉表头第一行。"""
+    from paperdesk.vision import table_batch as TB
+
+    panel = {
+        "columns": ["", "(829)", "Eris (1176)", "(4165)"],
+        "rows": [["DC3", "0.12", "0.10", "0.08"], ["CI7", "0.11", "0.09", "0.07"], ["Ours", "0.09", "0.07", "0.06"]],
+        "n_cols": 4, "n_rows": 3, "confidence": 1.0, "reasons": [],
+    }
+    text = {
+        "columns": ["Method", "Crime\n(829)", "Power-\nEris (1176)", "HI-II-\n14 (4165)"],
+        "rows": [*panel["rows"], ["This", "is", "a caption", "tail"]],
+        "n_cols": 4, "n_rows": 4, "confidence": 0.8, "reasons": [], "anchors": [0, 1, 2, 3],
+    }
+    monkeypatch.setattr(TB, "fetch_words", lambda *args, **kwargs: [])
+    monkeypatch.setattr(L, "reconstruct_panels", lambda *args, **kwargs: [panel])
+    monkeypatch.setattr(L, "reconstruct_text_table", lambda *args, **kwargs: text)
+
+    got = TB._reconstruct_part(None, "paper", 1, (0, 0, 100, 100), None)
+    assert got is not None
+    data, method = got
+    assert method == "text"
+    assert data["columns"] == text["columns"]
+    assert data["rows"] == panel["rows"]
+
+
+def test_layout_table_does_not_absorb_text_below_the_table(monkeypatch):
+    """表下注释紧贴表格时，不能被识别成最后一行数据。"""
+    from paperdesk.vision import table_batch as TB
+
+    words = []
+    words += _line(0, [(57, "Method"), (157, "Food-"), (257, "Food-")])
+    words += _line(12, [(157, "Bay-"), (257, "Bay-")])
+    words += _line(24, [(157, "Dry (128)"), (257, "Wet (128)")])
+    words += _line(40, [(57, "DC3"), (157, "0.48"), (257, "0.38")])
+    words += _line(53, [(57, "Ours"), (157, "0.31"), (257, "0.22")])
+    words += _line(66, [(57, "CI7"), (157, "0.29"), (257, "0.21")])
+    words += _line(80, [(57, "Note:"), (157, "lower is better")])
+
+    def fetch(_app, _paper_id, _page, bbox, pad=0.0):
+        return [w for w in words if w[1] <= bbox[3]]
+
+    monkeypatch.setattr(TB, "fetch_words", fetch)
+    got = TB.layout_caption_table(None, "paper", {"page": 1, "bbox": (50, 0, 300, 66), "caption_bbox": None, "parts": []})
+    assert got and got["rows"] == [["DC3", "0.48", "0.38"], ["Ours", "0.31", "0.22"], ["CI7", "0.29", "0.21"]]
+
+
 def test_ragged_text_is_not_a_table():
     words = []
     for i, x in enumerate((57, 80, 120, 71, 99)):

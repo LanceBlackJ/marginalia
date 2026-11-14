@@ -433,11 +433,12 @@
 }
 .pd-tp-fig {
   margin-top: 4px;
-  padding-left: 12px;
+  padding-left: 0;
 }
 .pd-tp-figimg {
   display: block;
-  max-width: 100%;
+  width: 100%;
+  max-width: none;
   margin-top: 8px;
   border: 1px solid var(--border);
 }
@@ -531,14 +532,28 @@
 /* ---- 图：默认内联显示，快滚到时才加载；点击放大 ---- */
 .pd-tp-fig {
   margin: 6px 0 10px;
+  padding-left: 0;
 }
 .pd-tp-fig .pd-tp-figimg {
   display: block;
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
-  max-width: 100%;
-  max-height: 420px;
-  object-fit: contain;
+  height: auto;
   border: 1px solid var(--border);
+}
+.pd-tp-fig > .pd-zoomimg,
+.pd-tp-table--image > .pd-zoomimg,
+.pd-tp-table-image-wrap > .pd-zoomimg {
+  display: block;
+  width: 100%;
+}
+.pd-tp-figimg,
+.pd-tp-table-image {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: none;
+  height: auto;
 }
 .pd-tp-figph {
   height: 160px;
@@ -556,6 +571,24 @@
 }
 .pd-tp-table--wait {
   margin: 4px 0;
+}
+.pd-tp-table--image {
+  margin: 8px 0 12px;
+}
+.pd-tp-table-image-wrap {
+  max-width: 100%;
+}
+.pd-tp-table-image {
+  display: block;
+  width: 100%;
+  max-width: none;
+  height: auto;
+  object-position: left top;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.pd-tp-table--image > .pd-tp-table-image {
+  width: 100%;
 }
 
 /* ---- 重新翻译这一段：平时很淡，悬停或键盘聚焦才明显 ---- */
@@ -626,6 +659,9 @@
 }
 
 .pd-tp-imath-click {
+  display: inline-block;
+  white-space: nowrap;
+  vertical-align: -0.12em;
   cursor: zoom-in;
 }
 .pd-tp-imath-click:hover {
@@ -705,4 +741,9 @@
 .pd-refhover-pager button:disabled {
   opacity: 0.35;
   cursor: default;
+}
+
+/* 缩略语表等“一条一行”的段落：保留原文的换行 */
+.pd-tp-p--lines {
+  white-space: pre-line;
 }

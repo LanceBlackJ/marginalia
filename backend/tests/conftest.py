@@ -16,6 +16,14 @@ import pdfgen  # noqa: E402
 from fakellm import FakeLLM  # noqa: E402
 
 @pytest.fixture(autouse=True)
+def _fake_gateway_default(monkeypatch):
+    """应用默认不带任何网关地址（不能把地址提交进仓库）；测试里统一给一个假地址，走的都是假传输，不会真的联网。"""
+    from paperdesk.ai import settings
+
+    monkeypatch.setitem(settings.DEFAULTS, "base_url", "https://llm.test/v1")
+
+
+@pytest.fixture(autouse=True)
 def _no_layout_model(monkeypatch):
     """测试里不下载、不运行真实的版面模型（需要联网和 75 MB 文件）；要测它的用例自己注入假引擎并打开开关。"""
     from paperdesk.library import layout_boxes

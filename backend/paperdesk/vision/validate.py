@@ -23,6 +23,12 @@ def clean(s) -> str:
     return re.sub(r"\s+", " ", str(s if s is not None else "")).strip()
 
 
+def clean_cell(s) -> str:
+    """清理表格单元格但保留单元格内部的换行。"""
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in re.split(r"\r?\n", str(s if s is not None else ""))]
+    return "\n".join(line for line in lines if line)
+
+
 def norm_text(s: str) -> str:
     return re.sub(r"[\W_]+", "", (s or "").translate(_MINUS).lower())
 
@@ -236,8 +242,8 @@ def validate_chart(raw: dict, source_text: str, caption: str) -> tuple[dict, lis
 # ---------------- 表格 ----------------
 def validate_table(raw: dict, source_text: str) -> tuple[dict, list[str]]:
     warnings: list[str] = []
-    columns = [clean(c) for c in (raw.get("columns") or [])]
-    rows = [[clean(c) for c in r] for r in (raw.get("rows") or []) if isinstance(r, list)]
+    columns = [clean_cell(c) for c in (raw.get("columns") or [])]
+    rows = [[clean_cell(c) for c in r] for r in (raw.get("rows") or []) if isinstance(r, list)]
     if not rows:
         raise ValueError("没有识别出表格的数据行。")
     ncols = max([len(columns), *(len(r) for r in rows)])

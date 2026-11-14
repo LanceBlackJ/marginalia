@@ -20,6 +20,7 @@ export function RefDrawer() {
   const sum = useRefStore((s) => (s.drawer !== null ? s.summaries[s.drawer] : undefined))
   const ctxs = useRefStore((s) => (s.drawer !== null ? s.contexts[s.drawer] : undefined))
   const tr = useRefStore((s) => (s.drawer !== null ? s.abstractTr[s.drawer] : undefined))
+  const titleTr = useRefStore((s) => (s.drawer !== null ? s.titleTr[s.drawer] : undefined))
   const translateAbstract = useRefStore((s) => s.translateAbstract)
   const resolve = useRefStore((s) => s.resolve)
   const summarize = useRefStore((s) => s.summarize)
@@ -68,6 +69,9 @@ export function RefDrawer() {
             <dl className="pd-refpop-meta" data-translatable>
               <dt>标题</dt>
               <dd>{res.title}</dd>
+              {titleTr?.status === 'streaming' && !titleTr.text && <dd className="pd-refdrawer-titletr"><Skeleton height={12} width="78%" /></dd>}
+              {titleTr?.text && <dd className="pd-refdrawer-titletr" data-translatable>{titleTr.text}</dd>}
+              {titleTr?.status === 'error' && <dd className="pd-refdrawer-dim pd-refdrawer-titletr">标题翻译失败：{titleTr.error}</dd>}
               {(res.authors?.length ?? 0) > 0 && (
                 <>
                   <dt>作者</dt>

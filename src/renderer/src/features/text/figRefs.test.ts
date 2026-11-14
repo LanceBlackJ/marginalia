@@ -45,3 +45,11 @@ describe('正文里的图表引用', () => {
     expect(out.filter((p) => 'key' in p)).toEqual([{ text: 'Fig. 5', key: 'fig 5' }])
   })
 })
+
+describe('译文里的中文图表引用', () => {
+  it('“图 2”“表1”“补充图 S1”“扩展数据图 3”都认，只有论文里真有的才可点', () => {
+    const has = (k: string): boolean => ['fig 2', 'table 1', 'supplementary fig S1', 'extended data fig 3'].includes(k)
+    const p = splitFigRefs('如图 2 和表1所示，另见补充图 S1、扩展数据图 3，但图 9 不存在。', has)
+    expect(p.filter((x) => 'key' in x).map((x) => ('key' in x ? x.key : ''))).toEqual(['fig 2', 'table 1', 'supplementary fig S1', 'extended data fig 3'])
+  })
+})

@@ -37,7 +37,11 @@
   outline-offset: 2px;
 }
 .pd-fd-wrap table {
-  width: 100%;
+  /* 多列论文表不能被压缩到阅读栏宽度：压缩后浏览器会把
+     “Eris (1176)”拆成视觉上像两列的错位表头。表格按内容自然宽度
+     排版，超出阅读栏时由外层横向滚动。 */
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
   border-spacing: 0;
   table-layout: auto;
@@ -51,11 +55,13 @@
   padding: 8px 12px;
   text-align: left;
   vertical-align: baseline;
-  /* 文字单元格自动折行，整张表尽量落在栏宽里；数值列和表头不折行（见下面 .pd-num），真的太宽才横向滚动 */
-  white-space: normal;
+  /* 保留单元格内部的原始换行；普通长文字仍可自动折行，真的太宽才横向滚动 */
+  white-space: pre-line;
   overflow-wrap: break-word;
 }
-.pd-fd-wrap th,
+.pd-fd-cell-text {
+  white-space: pre-line;
+}
 .pd-fd-wrap td.pd-num {
   white-space: nowrap;
 }
@@ -66,8 +72,13 @@
   border-bottom: 0;
 }
 /* 表头一整条连续的 2px 线：边框合并后每格的线连成一条，没有缺口 */
-.pd-fd-wrap thead th {
+.pd-fd-wrap thead th,
+.pd-fd-wrap thead th .pd-fd-cell-text {
   font-weight: 700;
+  /* 表头中的换行是单元格内部的原始换行，不允许再被列宽挤出第三种布局。 */
+  white-space: pre;
+}
+.pd-fd-wrap thead th {
   border-top: 0;
   border-bottom: 2px solid var(--text);
 }

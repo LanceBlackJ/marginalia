@@ -15,6 +15,7 @@ export interface FigRef {
 }
 
 const HEAD = /\b((?:Extended Data |Supplementary |Supp\.? )?)(Figs?\.?|Figures?|FIGS?\.?|FIGURES?|Tables?|TABLES?)\s*(?=[A-Z]?\d)/g
+const HEAD_ZH = /(扩展数据|补充|附)?(图|表)[\s ]*(?=[A-Z]?\d)/g
 const NUM = /^([A-Z]?\d{1,3})(?:[a-z](?:\s*[,–-]\s*[a-z])*)?/
 // “Figs. 2 and 3”“Tables 1, 2”：复数后面跟着的其它编号
 const MORE = /^\s*(?:,|and|&|–|-)\s*([A-Z]?\d{1,3})(?:[a-z](?:\s*[,–-]\s*[a-z])*)?/
@@ -58,7 +59,18 @@ export function findFigRefs(text: string): FigRef[] {
     }
     HEAD.lastIndex = pos
   }
-  return out
+  // 译文里的中文写法：“图 2”“图2a”“表 1”“补充图 S1”“扩展数据图 3”；“图 2 和图 3”里每个“图”各自成一个引用
+  HEAD_ZH.lastIndex = 0
+  while ((m = HEAD_ZH.exec(text))) {
+    const kind: FigRefKind = m[2] === '表' ? 'table' : 'fig'
+    const prefix = m[1] === '扩展数据' ? 'extended data ' : m[1] === '补充' || m[1] === '附' ? 'supplementary ' : ''
+    const pos = m.index + m[0].length
+    const first = NUM.exec(text.slice(pos))
+    if (!first) continue
+    out.push({ start: m.index, end: pos + first[0].length, kind, key: `${prefix}${kind} ${first[1].toUpperCase()}` })
+    HEAD_ZH.lastIndex = pos + first[0].length
+  }
+  return out.sort((a, b) => a.start - b.start)
 }
 
 /** 切成“普通文字 / 可点击的图表引用”交替的片段；refs 里没有的键保持普通文字。 */

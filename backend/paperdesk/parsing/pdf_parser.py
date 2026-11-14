@@ -63,7 +63,8 @@ is_caption = layout.is_caption
 # 29 = 本地版面模型（DocLayout-YOLO）补表格/图/显示公式的框：规则认不出的表格不再混进正文、没编号的显示公式整块当公式
 # 30 = 行内公式：正文不是 CM 字体（Times 等）的页面上，公式里 CMR / CMBX 排的括号、等号、max、粗体向量也算数学片段，
 #      一条公式不再在括号处被切成几半（x_l = f(y_{l-1}) 以前左边的 x 掉在外面）；整条认不全时记成候选并保留小簇兜底（parts）
-PARSER_VERSION = 32
+# 33 = 复合图最后一个面板标签（“F Fig. 2”）不再粘到图注开头。
+PARSER_VERSION = 33
 COVER_RE = re.compile(r"引用本文\s*[:：]|您可能感兴趣的其他文章|在线阅读\s*View online")
 
 
@@ -142,6 +143,7 @@ class ParsedFigure:
     label: str | None
     caption_ord: int | None
     inner_ord: int | None = None
+    grid: dict | None = None  # MinerU 给出的表格结构（合并单元格已展开）：{columns, rows, notes}；没有就由后续步骤重建
 
 
 @dataclass
@@ -356,6 +358,8 @@ def _one_cluster(b: Block, ln, spans: list, cluster: list, page_spans: list | No
         if after is not None and after.text[:1].isalnum() and after.x0 - cluster[-1].x1 < 0.25 * size:
             return None
     if src and tex.count("(") == tex.count(")"):
+        if not inline_math.safe_tex(tex):
+            return _math_candidate(b, cluster, spans, ln)
         return {"src": src, "tex": tex}
     return _math_candidate(b, cluster, spans, ln)
 
@@ -1597,7 +1601,7 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
         elif b.kind == "figure_text":
             figure_passage_of[id(b)] = add_passage("figure_text", text, b, cur_section)
         elif b.kind == "caption":
-            add_passage("caption", text, b, cur_section)
+            add_passage("caption", layout.clean_caption_text(text), b, cur_section)
         else:
             m_num = re.match(r"\s*\[?(\d{1,3})[\].]\s", text)
             author_year_again = (

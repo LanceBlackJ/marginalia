@@ -346,7 +346,7 @@ def enqueue_scan(app: AppContext, paper_id: str) -> str:
         if job and job["status"] in ("pending", "running"):
             return run["job_id"]
     _upsert_run(app, paper_id, "pending", job_id=None, error=None)
-    job_id = app.jobs.submit(JOB_TYPE, f"研究提示扫描：{paper['title'][:30]}", {"paper_id": paper_id}, paper_id)
+    job_id = app.jobs.submit(JOB_TYPE, f"研究提示扫描：{paper['title']}", {"paper_id": paper_id}, paper_id)
     with app.db.session() as conn:  # 只补 job_id：任务线程可能已经把状态改成 running，不能再覆盖状态
         conn.execute("UPDATE findings_runs SET job_id = ? WHERE paper_id = ? AND job_id IS NULL", (job_id, paper_id))
     return job_id

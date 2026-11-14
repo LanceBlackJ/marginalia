@@ -97,7 +97,7 @@ export interface InlinePiece {
   sup?: boolean
 }
 
-const CITE_RE = /(?<![\p{L}\d])(\p{L}{3,})(\d{1,3}(?:[,–‐-]\d{1,3}){0,4})(?=[\s.,;:)\]]|$)/gu
+const CITE_RE = /(?<![\p{L}\d])(\p{L}{3,})(\d{1,3}(?:[,–‐-]\d{1,3}){0,4})(?=[\s.,;:)\]—–―\-/”’。！？、；：）】》」』]|$)/gu
 
 /**
  * 把“networks8”“information3”“systems1,2”“ANC29”里粘在词尾的引用数字拆出来，渲染成上标。

@@ -32,6 +32,23 @@ def test_sum_with_limits_whose_spans_interleave_in_x():
     assert tex_of(spans) == "R=\\sum _{k=i}^{i+n}R_{k}"
 
 
+def test_greek_command_followed_by_a_bare_word_is_not_verified():
+    assert not im.safe_tex(r"(d_i - 1)\sum_{j\in \partial \beta all(i,b)}")
+    assert im.safe_tex(r"\partial \beta x")
+
+
+def test_normalize_common_font_and_model_noise_without_paper_specific_rules():
+    assert im.normalize_tex(r"(d_i - 1)\sum_{j\in \partial \beta all(i,b)}") == r"(d_i - 1)\sum_{j\in \partial Ball(i,b)}"
+    assert im.normalize_tex(r"\frac{N!}{K!(N-K)!''}") == r"\frac{N!}{K!(N-K)!}"
+    assert im.normalize_math_text("x\x01d") == r"x\bar{d}"
+    assert im.normalize_math_text(r"\partial \beta all(i,b) \frac{N!}{K!(N-K)!''}") == r"\partial Ball(i,b) \frac{N!}{K!(N-K)!}"
+
+
+def test_restore_a_lost_bar_only_when_the_document_proves_that_variable_is_barred():
+    assert im.normalize_math_text(r"\frac{d^2}{d}", {"d"}) == r"\frac{d^2}{\bar{d}}"
+    assert im.normalize_math_text(r"\frac{x^2}{x}", {"d"}) == r"\frac{x^2}{x}"
+
+
 def test_script_with_punctuation_and_thin_spaces():
     spans = [
         sp("R", 10, "Whitney-BookItalic", italic=True),

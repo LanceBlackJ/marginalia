@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from ..context import AppContext
+from ..parsing.layout import clean_caption_text
 
 MAX_GAP_BELOW = 420.0  # 无标签区域与其下方图注组的最大垂直间距（pt）
 MAX_GAP_ABOVE = 60.0   # 图注在上方（常见于表格）时允许的间距
@@ -103,7 +104,8 @@ def _make(page: int, ms: list, primary, label: str | None, caption_ord: int | No
     x0, y0, x1, y1 = _union(ms)
     return {
         "id": primary["id"], "member_ids": sorted(m["id"] for m in ms), "page": page, "bbox": [x0, y0, x1, y1],
-        "kind": primary["kind"], "label": label, "caption_ord": caption_ord, "caption": caption or "",
+        "kind": primary["kind"], "label": label, "caption_ord": caption_ord,
+        "caption": clean_caption_text(caption or ""),
     }
 
 

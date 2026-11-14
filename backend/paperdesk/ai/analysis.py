@@ -11,7 +11,7 @@ from . import evidence, prompts, retrieval
 from .providers import LLMError
 from .router import TaskType, choose_model
 from .service import AIService
-from .settings import is_configured, load_settings
+from .settings import context_scale, is_configured, load_settings
 
 ASPECTS_EN = {
     "background": ["background", "introduction", "problem", "important", "recent", "widely"],
@@ -59,7 +59,7 @@ def enqueue_analysis(app: AppContext, paper_id: str) -> str:
         return running["job_id"]
     # 先写 pending 再提交任务，避免任务线程先把状态改成 running 又被覆盖回 pending
     _upsert_analysis(app, paper_id, "pending", job_id=None, error=None)
-    job_id = app.jobs.submit("paper_analysis", f"论文分析：{paper['title'][:40]}", {"paper_id": paper_id}, paper_id)
+    job_id = app.jobs.submit("paper_analysis", f"论文分析：{paper['title']}", {"paper_id": paper_id}, paper_id)
     with app.db.session() as conn:
         conn.execute("UPDATE paper_analysis SET job_id = ? WHERE paper_id = ?", (job_id, paper_id))
     return job_id
@@ -144,7 +144,7 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> None:
             app, paper_id, question=ASPECTS_ZH if paper["language"] == "zh" else "", selection=None, task=task,
             budget_chars=5000, force_terms=terms,
         ))
-    pack = _merge_packs(packs, TOTAL_BUDGET)
+    pack = _merge_packs(packs, int(TOTAL_BUDGET * context_scale(cfg)))
     ctx.log(f"装配上下文：{len(pack.passages)} 段，约 {pack.chars_sent:,} 字")
     if not pack.passages:
         raise ApiError("bad_request", "没有检索到可用于分析的正文内容。")

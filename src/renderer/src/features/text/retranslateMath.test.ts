@@ -56,4 +56,9 @@ describe('“重新翻译这一段”带上行内公式', () => {
     expect(mathRanges('我们记 b_i ≡ b(si)。', MATH)).toEqual([[4, 15, 'b_i\\equiv b(s_i)']])
     expect(mathRanges('我们记 bi ≡ b(si)。', MATH)).toEqual([])
   })
+
+  it('公式紧贴中文时仍然按 token 边界渲染', () => {
+    const math = [{ src: 'd\\cdot s', tex: 'd\\cdot s' }]
+    expect(mathRanges('节点级d\\cdot s公式扩展为网络级量。', math)).toEqual([[3, 11, 'd\\cdot s']])
+  })
 })

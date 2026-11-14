@@ -48,6 +48,12 @@ BODY_KINDS = {"paragraph", "figure_text", "caption", "table"}
 MAX_BODY = 120
 MIN_ROWS = 2
 PAD = 4.0
+# 3: 文字层表格的表头保留原始多行，并且不把表格下方的说明文字吸进表体。
+# 4：重建多行表头。3 版本的旧缓存可能已经标成“最新”，但仍把
+# “Eris (1176)”和“(4165)”拆成错误的列。
+# 5：面板式重建会先命中，但会吃掉多行表头的上半段；需要和文字坐标
+# 重建结果比较后再选择，旧缓存必须再次生成。
+LAYOUT_DATA_VERSION = 5
 
 
 def _label(m: re.Match) -> str:
@@ -94,6 +100,19 @@ def _geometric_body(passages: list[dict], cap: dict) -> list[dict]:
     表题上方或下方、同一栏里紧挨着的那些行就是表体。两侧都有就取离表题近的一侧。"""
     page = cap["page"]
     cx0, cy0, cx1, cy1 = cap["bbox"]
+    if (cy1 - cy0) > 3 * (cx1 - cx0) and (cx1 - cx0) < 40 and not cap.get("_t"):
+        # 整页旋转了 90° 的横排表：表题是竖着的一条，表在它的左边或右边。把 x、y 对调后按“上方 / 下方”同一套办法找，再换回原来的段落
+        tp = [{**p, "bbox": (p["bbox"][1], p["bbox"][0], p["bbox"][3], p["bbox"][2]), "_t": True} for p in passages if p["page"] == page]
+        tc = next((p for p in tp if p["ord"] == cap["ord"]), None)
+        if tc is not None:
+            # 旋转后表的每一行都贯穿整张表的长度：先只看这样的段落（右栏里紧挨着的正文不满足），不够再放宽
+            span = tc["bbox"][2] - tc["bbox"][0]
+            strict = [q for q in tp if q["ord"] == tc["ord"] or (min(q["bbox"][2], tc["bbox"][2]) - max(q["bbox"][0], tc["bbox"][0])) >= 0.7 * span]
+            got = _geometric_body(strict, tc)
+            if not _enough(got):
+                got = _geometric_body(tp, tc)
+            by_ord = {p["ord"]: p for p in passages}
+            return [by_ord[g["ord"]] for g in got]
     on_page = [p for p in passages if p["page"] == page]
     px0 = min((p["bbox"][0] for p in on_page), default=cx0)
     px1 = max((p["bbox"][2] for p in on_page), default=cx1)
@@ -150,7 +169,10 @@ def detect_tables(passages: list[dict]) -> list[dict]:
             cont_only = m is not None
         if not m:
             continue
-        body = _walk(passages, i, +1, p["page"])
+        cx0, cy0, cx1, cy1 = p["bbox"]
+        body = _geometric_body(passages, p) if (cy1 - cy0) > 3 * (cx1 - cx0) and (cx1 - cx0) < 40 else []  # 竖排的表题：先按位置找，序号相邻会把旁边的正文也带进来
+        if not _enough(body):
+            body = _walk(passages, i, +1, p["page"])
         if not _enough(body):  # 图注在表格下面的排版：往上找
             body = _walk(passages, i, -1, p["page"])
         if not _enough(body):
@@ -171,6 +193,9 @@ def _absorb_side_columns(passages: list[dict], tables: list[dict]) -> None:
     和表体同一页、完全落在表的纵向范围内、紧挨在表的右边（或左边）、而且第一行和表里某一段的第一行对齐的段落，是表的另一列，并进表体。"""
     taken = {o for t in tables for o in t["body_ords"]} | {t["caption_ord"] for t in tables}
     for t in tables:
+        cb = t.get("caption_bbox")
+        if cb and (cb[3] - cb[1]) > 3 * (cb[2] - cb[0]) and (cb[2] - cb[0]) < 40:
+            continue  # 整页旋转的表：左右邻居是别的栏的正文，不是表的另一半
         x0, y0, x1, y1 = t["bbox"]
         tops = [passages[i]["bbox"][1] for i in range(len(passages)) if passages[i]["ord"] in set(t["body_ords"])]
         for p in passages:
@@ -314,18 +339,47 @@ def layout_figure_data(app: AppContext, paper_id: str, t: dict) -> dict | None:
     return {"title": "", "columns": first["columns"], "rows": first["rows"], "notes": "", "unverified_cells": [], "misplaced_cells": [],
             "verified_ratio": 1.0, "warnings": warnings, "unreadable": 0,
             "blocks": [{"title": b["title"], "columns": b["columns"], "rows": b["rows"], "confidence": b["confidence"]} for b in blocks],
+            "_layout_version": LAYOUT_DATA_VERSION,
             "layout": {"confidence": conf, "blocks": len(blocks)}}
+
+
+_HEADER_NUMBER_ONLY = re.compile(r"^\(?[-+]?\d[\d,.]*[%)]?$")
+
+
+def _header_damage(columns: list[str]) -> int:
+    """估计表头是否丢了名称行。
+
+    面板式分栏对普通网格表很好，但遇到 ``Power- / Eris (1176)`` 这样的
+    多行表头时，常把上半段吃掉，只留下 ``(1176)``。空标题和纯数字标题
+    比一般的拼写问题更严重，作为两个候选之间的选择依据。
+    """
+    damage = 0
+    for value in columns:
+        text = re.sub(r"\s+", "", str(value))
+        if not text:
+            damage += 3
+        elif _HEADER_NUMBER_ONLY.fullmatch(text):
+            damage += 2
+    return damage
+
+
+def _prefer_text_header(panel: dict, text: dict) -> bool:
+    """文字坐标候选的表头明显更完整时，宁可用它而不用先命中的面板候选。"""
+    if panel.get("n_cols") != text.get("n_cols") or text.get("n_rows", 0) < 3:
+        return False
+    return _header_damage(list(text.get("columns") or [])) + 2 <= _header_damage(list(panel.get("columns") or []))
 
 
 def _reconstruct_part(app: AppContext, paper_id: str, page: int, bbox: tuple, caption_bbox: tuple | None, *, anchors: list[float] | None = None,
                       prefer: str | None = None) -> tuple[dict, str] | None:
     """一页里的一段表（整张表，或跨页表的某一页）用文字层词坐标重建。返回 (结果, 'panel'|'text')；重建不了返回 None。
     anchors 是第一页重建出的列边界：续页没有表头，沿用它。prefer 指定只试其中一种（续页要和第一页用同一种办法）。"""
+    panel: dict | None = None
     if anchors is None and prefer != "text":
         words = fetch_words(app, paper_id, page, bbox, pad=2.0)
         tabs = layout_tables.reconstruct_panels(words, min_conf=LAYOUT_MIN_CONF)
         if len(tabs) == 1 and tabs[0]["n_rows"] >= 3:
-            return tabs[0], "panel"
+            panel = tabs[0]
     if prefer == "panel":
         words = fetch_words(app, paper_id, page, bbox, pad=2.0)
         tabs = layout_tables.reconstruct_panels(words, min_rows=1, min_conf=LAYOUT_MIN_CONF)
@@ -334,9 +388,20 @@ def _reconstruct_part(app: AppContext, paper_id: str, page: int, bbox: tuple, ca
     x0, y0, x1, y1 = bbox
     if caption_bbox and caption_bbox[3] <= y0 + 30:  # 图注在表上方：表头行常常被并进图注段落里，从图注开头取词，由重建函数跳过图注自己的行
         y0 = min(y0, caption_bbox[1] - 1.0)
-    wide = fetch_words(app, paper_id, page, (0.0, y0, 5000.0, y1 + 8.0), pad=0.0)
+    # 只取表格本身。这里不能再额外向下放 8pt：很多论文把表下注释放在
+    # 表格边界下方，放大这个范围会把说明文字误当成最后一行数据。
+    wide = fetch_words(app, paper_id, page, (0.0, y0, 5000.0, y1 + 2.0), pad=0.0)
     b = layout_tables.reconstruct_text_table(wide, anchors=anchors)
-    return (b, "text") if b is not None else None
+    if b is not None:
+        if panel is not None and _prefer_text_header(panel, b):
+            # 面板候选能准确指出表体在何处结束；文字候选则能还原多行表头。
+            # 二者行数只在表格下方紧贴图注时会不同，取面板的行数以排除那段图注。
+            if len(b["rows"]) > len(panel["rows"]):
+                b = {**b, "rows": b["rows"][:len(panel["rows"])], "n_rows": len(panel["rows"])}
+            return b, "text"
+        if panel is None:
+            return b, "text"
+    return (panel, "panel") if panel is not None else None
 
 
 def layout_caption_table(app: AppContext, paper_id: str, t: dict) -> dict | None:
@@ -371,6 +436,7 @@ def layout_caption_table(app: AppContext, paper_id: str, t: dict) -> dict | None
                     r[0] = last
     return {"title": "", "columns": columns, "rows": rows, "notes": "", "unverified_cells": [], "misplaced_cells": [],
             "verified_ratio": 1.0, "warnings": [f"重建提示：{'；'.join(reasons)}"] if reasons else [], "unreadable": 0,
+            "_layout_version": LAYOUT_DATA_VERSION,
             "layout": {"confidence": b["confidence"], "blocks": 1}}
 
 
@@ -383,6 +449,61 @@ def parse_delimited(rows_text: list[str]) -> dict | None:
             return {"title": "", "columns": cells[0], "rows": cells[1:], "notes": "", "unverified_cells": [], "verified_ratio": None,
                     "warnings": [], "unreadable": 0}
     return None
+
+
+_NUMERIC_HEAD = re.compile(r"^[(]?[-+]?[\d,.]+[)%]?$")
+
+
+def grid_suspect(data: dict) -> list[str]:
+    """MinerU 给的表格结构有没有可疑的地方（返回原因，空表示没问题）：
+    表头只剩样本数 “(1176)” 之类的数字、缺列名、列名重复、表头单词被断开（“Bay-”）、一半以上格子是空的。"""
+    cols = [str(c).strip() for c in data.get("columns") or []]
+    rows = data.get("rows") or []
+    out: list[str] = []
+    if not cols:
+        return ["没有表头"]
+    named = [c for c in cols[1:] if c]
+    if len(named) < len(cols) - 1:
+        out.append("有的列没有列名")
+    if named and sum(1 for c in named if _NUMERIC_HEAD.match(c)) / len(named) >= 0.5:
+        out.append("表头几乎全是数字（可能缺了列名那一行）")
+    if len({c for c in named}) < len(named):
+        out.append("列名有重复")
+    if any(c.endswith("-") and len(c) <= 12 for c in cols):
+        out.append("表头单词被断开")
+    cells = [str(c) for r in rows for c in r]
+    if cells and sum(1 for c in cells if not c.strip()) / len(cells) > 0.5:
+        out.append("一半以上的格子是空的")
+    return out
+
+
+def _suspect_ords(app: AppContext, paper_id: str) -> dict[int, list[str]]:
+    """哪些表的 MinerU 结构存疑：{表题序号: 原因}。"""
+    with app.db.session() as conn:
+        raws = {r["caption_ord"]: r["grid_json"] for r in conn.execute(
+            "SELECT caption_ord, grid_json FROM figures WHERE paper_id = ? AND kind = 'table' AND grid_json IS NOT NULL", (paper_id,))}
+    out: dict[int, list[str]] = {}
+    for o, raw in raws.items():
+        try:
+            why = grid_suspect(loads(raw))
+        except (ValueError, AttributeError):
+            continue
+        if why:
+            out[o] = why
+    return out
+
+
+def _fallback_mineru(app: AppContext, paper_id: str, caption_ord: int, why: list[str], note: str) -> bool:
+    """视觉核对做不了或失败时：保留 MinerU 的结构，但明确标出存疑。"""
+    with app.db.session() as conn:
+        r = conn.execute("SELECT grid_json FROM figures WHERE paper_id = ? AND kind = 'table' AND caption_ord = ? AND grid_json IS NOT NULL",
+                         (paper_id, caption_ord)).fetchone()
+    if r is None:
+        return False
+    data = loads(r["grid_json"])
+    data["warnings"] = [*data.get("warnings", []), "存疑：" + "；".join(why), note]
+    _upsert(app, paper_id, caption_ord, status="ready", source="mineru", data_json=dumps(data), model=None, error=None, job_id=None)
+    return True
 
 
 def _passages(app: AppContext, paper_id: str) -> list[dict]:
@@ -430,7 +551,14 @@ def status(app: AppContext, paper_id: str) -> dict:
             counts["running"] += 1
         elif st in counts:
             counts[st] += 1
-        data = loads(r["data_json"]) if r and st == "ready" else None
+            data = loads(r["data_json"]) if r and st == "ready" else None
+            # 文字层表格的旧缓存可能把多行表头压成了一行：代码升级后自动重建一次，不要求用户手动重试整篇论文。
+            if r and st == "ready" and r.get("source") == "layout" and isinstance(data, dict) and data.get("_layout_version") != LAYOUT_DATA_VERSION:
+                fresh = layout_figure_data(app, paper_id, t) if t.get("kind") == "figure_data" else layout_caption_table(app, paper_id, t)
+                if fresh is not None:
+                    fresh["_layout_version"] = LAYOUT_DATA_VERSION
+                    _upsert(app, paper_id, t["caption_ord"], status="ready", source="layout", data_json=dumps(fresh), model=r.get("model"), error=None, job_id=None)
+                    data = fresh
         items.append({"caption_ord": t["caption_ord"], "kind": t.get("kind", "table"), "label": t["label"], "page": t["page"], "body_ords": t["body_ords"],
                       "bbox": list(t["bbox"]), "status": st, "source": r["source"] if r else None, "error": r["error"] if r else None,
                       "model": r["model"] if r else None, "data": data})
@@ -486,8 +614,36 @@ def start(app: AppContext, paper_id: str, *, force: bool = False, only: list[int
     if only is not None:
         found = [t for t in found if t["caption_ord"] in set(only)]
     todo = [t for t in found if force or saved.get(t["caption_ord"], {}).get("status") not in ("ready", "pending", "running")]
+    # MinerU 解析时就给出了表格结构（含合并单元格）：直接用，这是最准的来源，不用再从文字里猜行列，也不用调模型
+    suspect: set[int] = set()
+    if method != "vision":
+        with app.db.session() as conn:
+            grids = {r["caption_ord"]: r["grid_json"] for r in conn.execute(
+                "SELECT caption_ord, grid_json FROM figures WHERE paper_id = ? AND kind = 'table' AND grid_json IS NOT NULL", (paper_id,))}
+        for t in list(todo):
+            raw = grids.get(t["caption_ord"])
+            if t.get("kind") == "figure_data" or not raw:
+                continue
+            try:
+                data = loads(raw)
+            except ValueError:
+                continue
+            if isinstance(data, dict) and data.get("columns") and data.get("rows"):
+                why = grid_suspect(data)
+                if why:  # 存疑：交给视觉模型重新识别、和文字层核对；没配视觉模型就保留 MinerU 的结构并标出存疑
+                    try:
+                        _check_vision(app)
+                        suspect.add(t["caption_ord"])
+                    except ApiError:
+                        _fallback_mineru(app, paper_id, t["caption_ord"], why, "没有配置视觉模型，未能再核对")
+                        todo.remove(t)
+                    continue
+                _upsert(app, paper_id, t["caption_ord"], status="ready", source="mineru", data_json=dumps(data), model=None, error=None, job_id=None)
+                todo.remove(t)
     # 不需要模型的先做完：图内数据网格、文字层能重建出整齐行列的表（确定性，当场完成，不创建后台任务）
     for t in list(todo):
+        if t["caption_ord"] in suspect:
+            continue  # 存疑的表：不走文字建表和坐标还原，直接交给视觉模型
         if method == "vision" and t.get("kind") != "figure_data":
             continue  # 强制视觉模型：不走文字建表和坐标还原
         if t.get("kind") == "figure_data":
@@ -505,7 +661,7 @@ def start(app: AppContext, paper_id: str, *, force: bool = False, only: list[int
                 todo.remove(t)
     if not todo:
         return None
-    needs_model = method == "vision" or any(parse_delimited(t["rows_text"]) is None for t in todo)
+    needs_model = method == "vision" or any(t["caption_ord"] in suspect or parse_delimited(t["rows_text"]) is None for t in todo)
     if needs_model:
         _check_vision(app)
     with app.db.session() as conn:
@@ -542,6 +698,7 @@ class _Sub:
 async def _run(app: AppContext, job: JobContext, paper_id: str, ords: list[int], method: str = "auto") -> dict:
     found = {t["caption_ord"]: t for t in tables_for(app, paper_id) if t.get("kind", "table") == "table"}
     todo = [found[o] for o in ords if o in found]
+    suspect = _suspect_ords(app, paper_id) if method != "vision" else {}
     service = AIService(app)
     provider = cfg = vmodel = None
     done = failed = 0
@@ -551,7 +708,7 @@ async def _run(app: AppContext, job: JobContext, paper_id: str, ords: list[int],
             lo, hi = i / len(todo), (i + 1) / len(todo)
             _upsert(app, paper_id, t["caption_ord"], status="running", error=None, job_id=job.job_id)
             try:
-                data = parse_delimited(t["rows_text"]) if method != "vision" else None
+                data = parse_delimited(t["rows_text"]) if method != "vision" and t["caption_ord"] not in suspect else None
                 if data is not None:
                     _upsert(app, paper_id, t["caption_ord"], status="ready", source="text", data_json=dumps(data), model=None, error=None)
                     done += 1
@@ -572,6 +729,9 @@ async def _run(app: AppContext, job: JobContext, paper_id: str, ords: list[int],
                 msg = getattr(err, "message", None) or str(err)
                 if code in ("auth_failed", "no_api_key", "not_configured", "vision_not_configured"):
                     raise ApiError(code, msg) from err  # 整体性错误：中止全部
+                if t["caption_ord"] in suspect and _fallback_mineru(app, paper_id, t["caption_ord"], suspect[t["caption_ord"]], "视觉核对失败：" + msg[:80]):
+                    done += 1
+                    continue
                 _upsert(app, paper_id, t["caption_ord"], status="failed", error=msg[:300])
                 failed += 1
             job.progress(hi, f"已识别 {done}/{len(todo)} 个表格" + (f"，{failed} 个失败" if failed else ""))

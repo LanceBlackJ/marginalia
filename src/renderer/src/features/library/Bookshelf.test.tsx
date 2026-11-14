@@ -7,7 +7,7 @@ const render = (ui: React.ReactElement): ReturnType<typeof rtlRender> => rtlRend
 
 vi.mock('@/lib/api', () => ({ api: { papers: { cover: vi.fn(() => Promise.reject(new Error('no cover'))) } } }))
 
-import { Bookshelf, sectionsFor, type BookshelfActions } from './Bookshelf'
+import { Bookshelf, readingSectionsFor, sectionsFor, type BookshelfActions } from './Bookshelf'
 import type { PaperSummary } from '@/lib/types'
 import type { FolderItem } from '@/lib/types.library'
 
@@ -123,5 +123,27 @@ describe('按文件夹分层', () => {
     fireEvent.click(screen.getByText('图神经网络'))
     expect(screen.queryAllByRole('button', { name: '打开《论文 a》' })).toHaveLength(0)
     expect(screen.getAllByRole('button', { name: '打开《论文 b》' }).length).toBeGreaterThan(0)
+  })
+})
+
+describe('按阅读顺序分层', () => {
+  it('优先继续阅读，其次待读，最后已读完，并按对应时间排序', () => {
+    const s = readingSectionsFor(
+      [
+        paper('done', { finished_at: '2026-03-01', last_opened_at: '2026-04-01' }),
+        paper('new', { imported_at: '2026-05-01' }),
+        paper('later', { imported_at: '2026-06-01' }),
+        paper('reading-old', { read_progress: 0.2, last_opened_at: '2026-01-01' }),
+        paper('reading-new', { read_progress: 0.7, last_opened_at: '2026-06-02' })
+      ],
+      true
+    )
+    expect(s.map((x) => x.title)).toEqual(['继续阅读', '待读', '已读完'])
+    expect(s.map((x) => x.papers.map((p) => p.id))).toEqual([['reading-new', 'reading-old'], ['later', 'new'], ['done']])
+  })
+
+  it('没有分层标题时仍保持阅读顺序', () => {
+    const s = readingSectionsFor([paper('new'), paper('reading', { read_progress: 0.1 })], false)
+    expect(s).toEqual([{ key: 'reading-all', title: null, papers: [paper('reading', { read_progress: 0.1 }), paper('new')] }])
   })
 })

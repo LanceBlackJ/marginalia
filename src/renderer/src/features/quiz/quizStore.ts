@@ -1,15 +1,18 @@
 import { create } from 'zustand'
 import { apiRequest, errorMessage } from '@/lib/api'
 
-export type QuizKind = 'mixed' | 'choice' | 'judge'
+export type QuizKind = 'mixed' | 'choice' | 'multi' | 'judge'
+
+/** 一道题的作答：单选、判断是一个选项下标，多选是选中的下标列表 */
+export type QuizAnswer = number | number[]
 
 export interface QuizQuestion {
-  /** choice 选择题（4 选 1）| judge 判断题（0 正确、1 错误） */
-  type?: 'choice' | 'judge'
+  /** choice 单选题（4 选 1）| multi 多选题（4–7 个选项、至少 2 个正确）| judge 判断题（0 正确、1 错误） */
+  type?: 'choice' | 'multi' | 'judge'
   question: string
   options: string[]
-  /** 正确选项的下标 */
-  answer: number
+  /** 正确选项的下标；多选题是所有正确选项的下标列表 */
+  answer: QuizAnswer
   explanation: string
   /** 原文里逐字摘的一句依据（后端核对过确实在论文里）；核对不上就是 null */
   evidence: { quote: string; page: number; ord: number } | null
@@ -20,8 +23,8 @@ export interface QuizSet {
   paper_id: string
   created_at: string
   questions: QuizQuestion[]
-  /** 题号 → 选了哪个选项 */
-  answers: Record<string, number>
+  /** 题号 → 选了哪个选项（多选是选中的列表） */
+  answers: Record<string, QuizAnswer>
 }
 
 export type QuizView = 'home' | 'taking' | 'result'
@@ -38,7 +41,7 @@ interface QuizState {
   reset: () => void
   create: (count: number, kind?: QuizKind) => Promise<void>
   open: (id: number) => void
-  choose: (qi: number, option: number) => Promise<void>
+  choose: (qi: number, answer: QuizAnswer) => Promise<void>
   next: () => void
   prev: () => void
   home: () => void
@@ -51,6 +54,16 @@ export function firstUnanswered(q: QuizSet): number {
   return i < 0 ? q.questions.length - 1 : i
 }
 
+/** 作答是否正确：多选要选中的和正确答案完全一致（多选、少选都不对）。 */
+export function isRight(q: QuizQuestion, a: QuizAnswer | undefined): boolean {
+  if (a === undefined) return false
+  if (Array.isArray(q.answer)) {
+    const got = Array.isArray(a) ? [...a].sort((x, y) => x - y) : [a]
+    return got.length === q.answer.length && got.every((x, i) => x === (q.answer as number[])[i])
+  }
+  return a === q.answer
+}
+
 export function scoreOf(q: QuizSet): { right: number; answered: number; total: number } {
   let right = 0
   let answered = 0
@@ -58,7 +71,7 @@ export function scoreOf(q: QuizSet): { right: number; answered: number; total: n
     const a = q.answers[String(k)]
     if (a !== undefined) {
       answered += 1
-      if (a === x.answer) right += 1
+      if (isRight(x, a)) right += 1
     }
   })
   return { right, answered, total: q.questions.length }
@@ -108,10 +121,10 @@ export const useQuizStore = create<QuizState>((set, get) => ({
     set({ current: q, view: done ? 'result' : 'taking', idx: done ? 0 : firstUnanswered(q) })
   },
 
-  choose: async (qi, option) => {
+  choose: async (qi, answer) => {
     const cur = get().current
     if (!cur || cur.answers[String(qi)] !== undefined) return // 答过的不能改
-    const next: QuizSet = { ...cur, answers: { ...cur.answers, [String(qi)]: option } }
+    const next: QuizSet = { ...cur, answers: { ...cur.answers, [String(qi)]: answer } }
     set((s) => ({ current: next, sets: s.sets.map((x) => (x.id === next.id ? next : x)) }))
     try {
       await apiRequest('PUT', `/api/quizzes/${cur.id}/answers`, { body: { answers: next.answers } })

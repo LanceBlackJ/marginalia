@@ -6,6 +6,7 @@ from fastapi.responses import Response
 
 from ..context import AppContext
 from ..library import repo
+from ..parsing.layout import clean_caption_text
 from ..parsing.render import RenderError, region_kind, render_clip, render_svg
 from ..util import ApiError
 from .deps import get_ctx
@@ -40,7 +41,8 @@ def list_figures(paper_id: str, page: int | None = Query(default=None, ge=1), ki
         rows = conn.execute(sql + " ORDER BY f.page, f.y0, f.x0", args).fetchall()
     return {"items": [
         {"id": r["id"], "page": r["page"], "bbox": [r["x0"], r["y0"], r["x1"], r["y1"]], "kind": r["kind"],
-         "label": r["label"], "caption_ord": r["caption_ord"], "caption": r["caption"], "inner_text": r["inner_text"]}
+         "label": r["label"], "caption_ord": r["caption_ord"],
+         "caption": clean_caption_text(r["caption"] or "") if r["caption"] else r["caption"], "inner_text": r["inner_text"]}
         for r in rows
     ]}
 

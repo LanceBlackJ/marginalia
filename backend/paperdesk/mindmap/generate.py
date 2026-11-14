@@ -15,6 +15,7 @@ import re
 from ..ai import retrieval
 from ..ai.providers import LLMError
 from ..ai.router import TaskType
+from ..ai.settings import context_scale, load_settings
 from ..ai.service import AIService
 from ..context import AppContext
 from ..jobs import JobCancelled, JobContext, JobManager
@@ -257,7 +258,7 @@ def enqueue(app: AppContext, paper_id: str, view: str, branch_id: str | None = N
     # 先写 pending 再提交任务：避免任务线程先写 running 又被覆盖回 pending
     store.upsert_run(app, paper_id, view, "pending", job_id=None, scope=branch_id, error=None)
     label = T.VIEW_LABELS[view] + ("（分支）" if branch_id else "")
-    job_id = app.jobs.submit(JOB_TYPE, f"思维导图 · {label}：{paper['title'][:30]}",
+    job_id = app.jobs.submit(JOB_TYPE, f"思维导图 · {label}：{paper['title']}",
                              {"paper_id": paper_id, "view": view, "branch_id": branch_id}, paper_id)
     with app.db.session() as conn:  # 只补 job_id：任务线程可能已经把状态改成 running，不能再覆盖状态
         conn.execute("UPDATE mindmap_runs SET job_id = ? WHERE paper_id = ? AND view = ? AND job_id IS NULL", (job_id, paper_id, view))
@@ -325,7 +326,7 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str, view: str, branc
             raise ApiError("bad_request", "这个节点已经在最深一层，没有可重新生成的下级。")
 
     ctx.progress(0.08, "按视角检索全文相关段落")
-    pack = build_pack(app, paper_id, view, anchor_ords=anchor_ords[:24], budget=BRANCH_BUDGET if branch else TOTAL_BUDGET)
+    pack = build_pack(app, paper_id, view, anchor_ords=anchor_ords[:24], budget=int((BRANCH_BUDGET if branch else TOTAL_BUDGET) * context_scale(load_settings(app))))
     ctx.log(f"{T.VIEW_LABELS[view]}：装配上下文 {len(pack.passages)} 段，约 {pack.chars_sent:,} 字（不是全文）")
     if not pack.passages:
         raise ApiError("bad_request", "没有检索到可用于生成思维导图的正文内容。")

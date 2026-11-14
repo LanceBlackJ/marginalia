@@ -15,7 +15,7 @@ const CONF_LABEL = { high: '较高', medium: '中等', low: '较低' } as const
 /** 公式卡片顶部：渲染后的公式 + 转写置信度 + 复制 LaTeX + 对照原图。 */
 export function EquationHeader({ card }: { card: EquationCard }) {
   const eq = card.answer.equation
-  const [showOrig, setShowOrig] = useState(!eq?.latex)
+  const [showOrig, setShowOrig] = useState(!eq?.latex || eq.status !== 'ok')
   const orig = useBlobUrl(showOrig && eq ? () => textApi.equationVector(card.paper_id, eq.id, 200) : null, [showOrig, card.paper_id, eq?.id])
   if (!eq) return null
 
@@ -31,7 +31,7 @@ export function EquationHeader({ card }: { card: EquationCard }) {
 
   return (
     <div className="pd-eq" aria-label="公式">
-      {eq.latex ? (
+      {eq.latex && eq.status === 'ok' ? (
         <div className="pd-eq-view">
           <Tex latex={eq.latex} display />
         </div>
@@ -45,9 +45,9 @@ export function EquationHeader({ card }: { card: EquationCard }) {
       )}
       <div className="pd-eq-meta">
         <span>{eq.number ? `公式 (${eq.number})` : '公式'} · 第 {eq.page} 页</span>
-        {eq.latex && eq.confidence && <Tag tone={eq.confidence === 'low' ? 'warning' : 'outline'}>转写置信度{CONF_LABEL[eq.confidence]}</Tag>}
+        {eq.latex && eq.status === 'ok' && eq.confidence && <Tag tone={eq.confidence === 'low' ? 'warning' : 'outline'}>转写置信度{CONF_LABEL[eq.confidence]}</Tag>}
         <span className="pd-spacer" />
-        {eq.latex && (
+        {eq.latex && eq.status === 'ok' && (
           <Button size="sm" variant="ghost" icon={<Copy size={12} />} onClick={() => void copy()}>
             复制 LaTeX
           </Button>

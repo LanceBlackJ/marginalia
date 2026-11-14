@@ -39,6 +39,7 @@ def row_to_summary(row: sqlite3.Row) -> dict:
         "page_count": row["page_count"],
         "language": row["language"],
         "favorite": bool(row["favorite"]),
+        "finished_at": row["finished_at"],
         "reading_page": row["reading_page"],
         "read_progress": row["read_progress"],
         "last_opened_at": row["last_opened_at"],
@@ -116,6 +117,7 @@ def list_papers(
         "author": "lower(p.authors_json) {o}",
         "year": "(p.year IS NULL), p.year {o}",
         "imported": "p.imported_at {o}",
+        "manual": "(p.sort_order IS NULL), p.sort_order ASC, p.imported_at DESC",
         "relevance": None,
     }
     if sort not in sort_sql:
@@ -150,6 +152,9 @@ def list_papers(
 
 def update_paper(app: AppContext, paper_id: str, fields: dict[str, Any]) -> dict:
     sets, args = [], []
+    if fields.get("finished") is not None:  # 标记 / 取消“已读完”
+        sets.append("finished_at = ?")
+        args.append(utcnow() if fields["finished"] else None)
     if "favorite" in fields and fields["favorite"] is not None:
         sets.append("favorite = ?")
         args.append(1 if fields["favorite"] else 0)
@@ -268,3 +273,22 @@ def delete_paper(app: AppContext, paper_id: str) -> dict:
         raise ApiError("delete_failed", f"删除失败：数据库出错，论文没有被改动，请重试。", 500) from exc
     warnings = purge_paper_files(app, ids)
     return {"ok": True, "deleted_supplements": len(children), "warnings": warnings}
+
+
+def reorder_papers(app: AppContext, ids: list[str]) -> dict:
+    """手动排序：ids 是当前看到的这批论文的新顺序（可能只是筛选后的一部分）。
+    这批论文在全库手动顺序里原来占着的那些位置，按新顺序重新分配；没出现的论文位置不动。"""
+    with app.db.session() as conn:
+        rows = conn.execute(
+            "SELECT id FROM papers WHERE COALESCE(role, 'paper') = 'paper' "
+            "ORDER BY (sort_order IS NULL), sort_order ASC, imported_at DESC"
+        ).fetchall()
+        order = [r["id"] for r in rows]
+        present = set(order)
+        wanted = [i for i in dict.fromkeys(ids) if i in present]
+        want_set = set(wanted)
+        slots = [k for k, pid in enumerate(order) if pid in want_set]
+        for k, pid in zip(slots, wanted):
+            order[k] = pid
+        conn.executemany("UPDATE papers SET sort_order = ? WHERE id = ?", [(float(k + 1), pid) for k, pid in enumerate(order)])
+    return {"ok": True, "count": len(order)}

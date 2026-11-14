@@ -242,7 +242,7 @@ def submit(app: AppContext, step_id: str, body: dict) -> dict:
             "VALUES (?,?,?,?,?,?,?,?,?,?,'queued',?)",
             (exec_id, step["paper_id"], step["repo_id"], step_id, step["title"], step["command"], step["cwd"], image, int(network), dumps(limits), utcnow()),
         )
-    job_id = app.jobs.submit("repro_exec", f"隔离运行：{step['title'][:40]}", {"exec_id": exec_id}, step["paper_id"])
+    job_id = app.jobs.submit("repro_exec", f"隔离运行：{step['title']}", {"exec_id": exec_id}, step["paper_id"])
     _update(app, exec_id, job_id=job_id)
     return get_exec(app, exec_id)
 

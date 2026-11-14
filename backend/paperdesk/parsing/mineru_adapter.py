@@ -10,7 +10,7 @@ import html
 import re
 from html.parser import HTMLParser
 
-from . import reflow
+from . import inline_math, reflow
 from .metadata import extract_metadata
 from .pdf_parser import (
     ParsedDoc, ParsedEquation, ParsedFigure, ParsedPassage, ParsedSection, PdfError, detect_language,
@@ -22,6 +22,27 @@ FIG_LABEL = re.compile(
 REF_HEAD = re.compile(r"(?i)^\s*(?:\d+[.\s]*|[IVX]+[.\s]+)?(references?|bibliography|参考文献|literature cited)\s*$")
 REF_START = re.compile(r"^\s*(?:\[\d+\]|\d+[.)]\s|\(\d+\))")
 TAG_RE = re.compile(r"\\tag\*?\{([^}]*)\}")
+
+
+def _safe_equation_latex(text: str) -> str | None:
+    """MinerU 的公式只在明显通过结构闸门时进入“已识别”缓存。
+
+    文字层/中间 JSON 偶尔会把 `tanh` 拆成 `tan h`、把 10 拆成 `1 0`；这类结果必须交给带截图的公式识别任务，不能标成 high。
+    """
+    s = re.sub(r"\s+", " ", text or "").strip()
+    if not s or "?" in s or re.search(r"\\(?:tan|sin|cos|log)\s+[A-Za-z]", s):
+        return None
+    if re.search(r"(?<![A-Za-z])\d\s+\d(?![A-Za-z])", s):
+        return None
+    depth = 0
+    for ch in s:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return None
+    return s if depth == 0 else None
 AFFIL_RE = re.compile(
     r"(?i)^\s*(?:\d+\s*[A-Z].{0,120}?(?:universit|institut|college|department|school|laborator|center|centre|academy|hospital|company|inc\.)|[∗*†‡]|check for updates|received\b|accepted\b|published\b|correspondence|e-?mail|"
     r"\S+@\S+|digital object identifier|©|copyright)")
@@ -48,7 +69,7 @@ def _plain(spans, math: list[dict] | None = None) -> str:
         t = s.get("type")
         c = s.get("content")
         if t == "equation_inline":
-            tex = (c or "").strip()
+            tex = inline_math.normalize_tex(c or "")
             if tex:
                 out.append(tex)
                 if math is not None and not any(m["src"] == tex for m in math):
@@ -63,7 +84,19 @@ def _plain(spans, math: list[dict] | None = None) -> str:
 
 
 def _clean(t: str) -> str:
+    t = inline_math.normalize_math_text(t)
     return re.sub(r"[ \t]+", " ", re.sub(r"\s*\n\s*", " ", t)).strip()
+
+
+def _cell_clean(t: str) -> str:
+    """清理表格单元格但保留 HTML/视觉排版中的换行。"""
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in re.split(r"\r?\n", t)]
+    return "\n".join(line for line in lines if line)
+
+
+def _head_space(t: str) -> str:
+    """表头里换行的样本数：“Crime(829)” → “Crime (829)”（只在表头里做，正文里的 f(2) 不动）。"""
+    return re.sub(r"(?<=[A-Za-z])\((?=[\d,.]+\))", " (", t)
 
 
 class _Grid(HTMLParser):
@@ -75,10 +108,15 @@ class _Grid(HTMLParser):
         self._pend: dict[int, int] = {}  # 列 -> 还要往下占几行
         self._cell = None
         self._span = (1, 1)
+        self.spans: list[tuple[int, int, int, int]] = []  # (行, 列, 跨几行, 跨几列)：只记真正合并了的格子
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
-        if tag == "tr":
+        if tag in ("sup", "sub") and self._cell is not None:
+            self._cell.append(("^{" if tag == "sup" else "_{"))  # 上标、下标：保留成 ^{3} 的写法，前端把参考文献角标渲染成可点的上标
+        elif tag == "br" and self._cell is not None:
+            self._cell.append("\n")
+        elif tag == "tr":
             self.rows.append([])
         elif tag in ("td", "th"):
             def num(k):
@@ -94,13 +132,17 @@ class _Grid(HTMLParser):
             self._cell.append(data)
 
     def handle_endtag(self, tag):
-        if tag in ("td", "th") and self._cell is not None and self.rows:
+        if tag in ("sup", "sub") and self._cell is not None:
+            self._cell.append("}")
+        elif tag in ("td", "th") and self._cell is not None and self.rows:
             row = self.rows[-1]
             while self._pend.get(len(row), 0) > 0:
                 self._pend[len(row)] -= 1
                 row.append("")
             cs, rs = self._span
-            row.append(_clean("".join(self._cell)))
+            if cs > 1 or rs > 1:
+                self.spans.append((len(self.rows) - 1, len(row), rs, cs))
+            row.append(_cell_clean("".join(self._cell)))
             for k in range(1, cs):
                 row.append("")
             if rs > 1:
@@ -109,11 +151,19 @@ class _Grid(HTMLParser):
             self._cell = None
 
 
-def _html_rows(h: str) -> list[list[str]]:
-    h = re.sub(r"<eq>(.*?)</eq>", r"", h, flags=re.S)
+def _html_rows_spans(h: str) -> tuple[list[list[str]], list[tuple[int, int, int, int]]]:
+    """表格 HTML → (二维格子, 合并单元格)。全空的行去掉，合并单元格的行号跟着改。"""
+    h = re.sub(r"<eq>(.*?)</eq>", r"\1", h, flags=re.S)
     g = _Grid()
     g.feed(h)
-    return [r for r in g.rows if any(c for c in r)]
+    keep = [i for i, r in enumerate(g.rows) if any(c for c in r)]
+    remap = {old: new for new, old in enumerate(keep)}
+    spans = [(remap[r], c, rs, cs) for r, c, rs, cs in g.spans if r in remap]
+    return [g.rows[i] for i in keep], spans
+
+
+def _html_rows(h: str) -> list[list[str]]:
+    return _html_rows_spans(h)[0]
 
 
 def _html_text(h: str) -> str:
@@ -123,6 +173,60 @@ def _html_text(h: str) -> str:
         h = re.sub(r"</tr>", "\n", h)
         return html.unescape(re.sub(r"<[^>]+>", "", h)).strip()
     return "\n".join(" | ".join(html.unescape(c) for c in r) + " |" for r in rows)
+
+
+_NUM_CELL = re.compile(r"^[\s\W]*[-+]?\d[\d.,%/·×x±\s()*†‡§-]*$")
+
+
+def _is_header_row(row: list[str]) -> bool:
+    cells = [c for c in row if c.strip()]
+    if not cells:
+        return False
+    nums = sum(1 for c in cells if _NUM_CELL.match(c))
+    return nums / len(cells) < 0.25
+
+
+def grid_data(rows: list[list[str]], notes: str = "", spans: list[tuple[int, int, int, int]] | None = None) -> dict | None:
+    """MinerU 的表格 HTML（合并单元格已展开成二维格子）→ 表格数据 {columns, rows, notes, head, spans}。
+    开头连续的“不是数字”的行是表头：多行表头（上一行是 “Analytical method” 跨几列，下一行是各列名）按列合并成一个列名（给复制、翻译用）；
+    同时保留表头的原始结构 head 和正文里的合并单元格 spans，前端据此画出真正合并的单元格。"""
+    rows = [[c.strip() for c in r] for r in rows if any(c.strip() for c in r)]
+    if len(rows) < 2:
+        return None
+    n = max(len(r) for r in rows)
+    rows = [r + [""] * (n - len(r)) for r in rows]
+    if n < 2:
+        return None
+    k = 0
+    # 第一列空着：上一行的表头单元格跨了行（rowspan），这一行还是表头（“(829)”“(1176)”这类样本数也算）
+    while k < min(3, len(rows) - 1) and (_is_header_row(rows[k]) or (k >= 1 and not rows[k][0].strip())):
+        k += 1
+    k = max(1, k)
+    head = [[_head_space(c) for c in r] for r in rows[:k]]
+    for r in head[:-1]:  # 跨列的上层表头：空格子沿用左边的（第一列除外）
+        for j in range(1, n):
+            if not r[j] and r[j - 1]:
+                r[j] = r[j - 1]
+    cols = []
+    for j in range(n):
+        parts: list[str] = []
+        for r in head:
+            if r[j] and r[j] not in parts:
+                parts.append(r[j])
+        cols.append(" · ".join(parts))
+    out = {"title": "", "columns": cols, "rows": rows[k:], "notes": notes, "unverified_cells": [], "verified_ratio": None,
+           "warnings": [], "unreadable": 0}
+    sp = [(r, c, rs, cs) for r, c, rs, cs in (spans or []) if r < len(rows) and c < n]
+    if sp:
+        covered = {(r + dr, c + dc) for r, c, rs, cs in sp for dr in range(rs) for dc in range(cs) if dr or dc}
+        origin = {(r, c): (rs, cs) for r, c, rs, cs in sp}
+        out["head"] = [
+            [None if (i, j) in covered else {"t": rows[i][j], "rs": min(origin.get((i, j), (1, 1))[0], k - i), "cs": min(origin.get((i, j), (1, 1))[1], n - j)}
+             for j in range(n)]
+            for i in range(k)
+        ]
+        out["spans"] = [[r - k, c, min(rs, len(rows) - r), min(cs, n - c)] for r, c, rs, cs in sp if r >= k]
+    return out
 
 
 def _split_footnote(rows: list[list[str]]) -> tuple[list[list[str]], str]:
@@ -249,7 +353,7 @@ def build(mid: dict, pages: list[tuple[float, float]], meta_raw: dict | None = N
                 body = TAG_RE.sub("", latex).strip().rstrip(",.").strip()
                 p = add(pno, "formula", body or latex, box)
                 if p is not None:
-                    equations.append(ParsedEquation(pno, box, number, p.text, p.ord, latex=body or latex))
+                    equations.append(ParsedEquation(pno, box, number, p.text, p.ord, latex=_safe_equation_latex(body or latex)))
                 continue
             if t in ("image", "chart"):
                 kind_key = "image_caption" if t == "image" else "chart_caption"
@@ -273,9 +377,12 @@ def build(mid: dict, pages: list[tuple[float, float]], meta_raw: dict | None = N
                 tbox = _union([_box(sb, w, h) for sb in bodies]) or box
                 cp = add(pno, "caption", (cap + (" " + foot if foot else "")).strip(), _union([cbox, fbox])) if (cap or foot) else None
                 inner = None
+                grid = None
                 for sb in bodies:
                     if isinstance(sb.get("content"), str):
-                        rows, extra = _split_footnote(_html_rows(sb["content"]))
+                        h_rows, h_spans = _html_rows_spans(sb["content"])
+                        rows, extra = _split_footnote(h_rows)
+                        grid = grid or grid_data(rows, extra, h_spans)
                         tx = _html_text(sb["content"]) if not rows else "\n".join(
                             " | ".join(html.unescape(c) for c in r) + " |" for r in rows)
                         if extra and cp is not None and extra not in cp.text:
@@ -286,7 +393,7 @@ def build(mid: dict, pages: list[tuple[float, float]], meta_raw: dict | None = N
                     inner = inner or ip
                 m = FIG_LABEL.match(cap) if cap else None
                 figures.append(ParsedFigure(pno, tbox, "table", m.group(1).strip() if m else None,
-                                            cp.ord if cp else None, inner.ord if inner else None))
+                                            cp.ord if cp else None, inner.ord if inner else None, grid))
                 continue
             if t in ("code", "algorithm"):
                 sub = c if isinstance(c, list) else []

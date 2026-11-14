@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, Check, Trash2, X } from 'lucide-react'
 import { Button, IconButton, Segmented } from '@/components/ui'
 import { formatRelativeTime } from '@/lib/format'
 import { useReaderStore } from '@/features/reader/readerStore'
-import { firstUnanswered, scoreOf, useQuizStore, type QuizKind, type QuizQuestion, type QuizSet } from './quizStore'
+import { firstUnanswered, isRight, scoreOf, useQuizStore, type QuizAnswer, type QuizKind, type QuizQuestion, type QuizSet } from './quizStore'
 import './quiz.css'
 
 const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
@@ -12,7 +12,11 @@ const COUNT_MAX = 20
 
 /** 一个选项的标记：选择题是 A–D，判断题是 对/错。 */
 const tag = (q: QuizQuestion, i: number): string => (q.type === 'judge' ? (i === 0 ? '对' : '错') : LETTERS[i])
-const answerText = (q: QuizQuestion, i: number): string => (q.type === 'judge' ? q.options[i] : `${LETTERS[i]}. ${q.options[i]}`)
+const answerText = (q: QuizQuestion, a: QuizAnswer): string =>
+  Array.isArray(a) ? a.map((i) => answerText(q, i)).join('；') : q.type === 'judge' ? q.options[a] : `${LETTERS[a]}. ${q.options[a]}`
+/** 正确答案的字母：多选是“A、D” */
+const tags = (q: QuizQuestion, a: QuizAnswer): string => (Array.isArray(a) ? a.map((i) => tag(q, i)).join('、') : tag(q, a))
+const has = (a: QuizAnswer | undefined, i: number): boolean => (Array.isArray(a) ? a.includes(i) : a === i)
 
 function Home() {
   const sets = useQuizStore((s) => s.sets)
@@ -52,7 +56,8 @@ function Home() {
           aria-label="题型"
           options={[
             { value: 'mixed', label: '混合' },
-            { value: 'choice', label: '选择题' },
+            { value: 'choice', label: '单选题' },
+            { value: 'multi', label: '多选题' },
             { value: 'judge', label: '判断题' }
           ]}
         />
@@ -97,6 +102,14 @@ function Taking({ quiz }: { quiz: QuizSet }) {
   const q = quiz.questions[idx]
   const picked = quiz.answers[String(idx)]
   const done = picked !== undefined
+  const multi = q.type === 'multi'
+  // 多选题：先勾选，点“提交答案”才判分
+  const [sel, setSel] = useState<number[]>([])
+  useEffect(() => setSel([]), [idx])
+  const toggle = (i: number): void => setSel((s) => (s.includes(i) ? s.filter((x) => x !== i) : [...s, i].sort((a, b) => a - b)))
+  const submit = (): void => {
+    if (sel.length > 0) void choose(idx, sel)
+  }
   const last = idx >= quiz.questions.length - 1
   const sc = scoreOf(quiz)
 
@@ -106,12 +119,18 @@ function Taking({ quiz }: { quiz: QuizSet }) {
       const t = e.target as HTMLElement
       if (t.closest('input, textarea, [contenteditable="true"]')) return
       const n = '1234'.indexOf(e.key) >= 0 ? Number(e.key) - 1 : 'abcd'.indexOf(e.key.toLowerCase())
-      if (e.key.length === 1 && n >= 0 && n < q.options.length && !done) void choose(idx, n)
-      else if (e.key === 'Enter' && done) next()
+      if (e.key.length === 1 && n >= 0 && n < q.options.length && !done) {
+        if (multi) toggle(n)
+        else void choose(idx, n)
+      } else if (e.key === 'Enter') {
+        if (done) next()
+        else if (multi) submit()
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [idx, done, choose, next, q.options.length])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idx, done, choose, next, q.options.length, multi, sel])
 
   return (
     <div className="pd-quiz-take">
@@ -129,15 +148,27 @@ function Taking({ quiz }: { quiz: QuizSet }) {
 
       <p className="pd-quiz-q">
         {q.type === 'judge' && <span className="pd-quiz-kind">判断</span>}
+        {multi && <span className="pd-quiz-kind">多选</span>}
         {q.question}
       </p>
       <ul className="pd-quiz-opts">
         {q.options.map((o, i) => {
-          const state = !done ? '' : i === q.answer ? 'right' : i === picked ? 'wrong' : 'rest'
+          const isAns = has(q.answer, i)
+          const state = !done
+            ? multi && sel.includes(i)
+              ? 'picked'
+              : ''
+            : isAns
+              ? has(picked, i) || !multi
+                ? 'right'
+                : 'missed' // 多选里该选没选的
+              : has(picked, i)
+                ? 'wrong'
+                : 'rest'
           return (
             <li key={i}>
-              <button type="button" className="pd-quiz-opt" data-state={state} disabled={done} onClick={() => void choose(idx, i)}>
-                <span className="pd-quiz-letter">{state === 'right' ? <Check size={13} /> : state === 'wrong' ? <X size={13} /> : tag(q, i)}</span>
+              <button type="button" className="pd-quiz-opt" data-state={state} disabled={done} onClick={() => (multi ? toggle(i) : void choose(idx, i))}>
+                <span className="pd-quiz-letter">{state === 'right' ? <Check size={13} /> : state === 'wrong' ? <X size={13} /> : state === 'picked' ? <Check size={13} /> : tag(q, i)}</span>
                 <span>{o}</span>
               </button>
             </li>
@@ -145,9 +176,18 @@ function Taking({ quiz }: { quiz: QuizSet }) {
         })}
       </ul>
 
+      {multi && !done && (
+        <div className="pd-quiz-submit">
+          <Button size="sm" variant="primary" disabled={sel.length === 0} onClick={submit}>
+            提交答案{sel.length > 0 ? `（已选 ${sel.length} 项）` : ''}
+          </Button>
+          <span className="pd-muted">多选题：选全且不多选才算对</span>
+        </div>
+      )}
+
       {done && (
         <div className="pd-quiz-explain">
-          <p className="pd-quiz-verdict">{picked === q.answer ? '答对了' : `答错了，正确答案是 ${tag(q, q.answer)}`}</p>
+          <p className="pd-quiz-verdict">{isRight(q, picked) ? '答对了' : `答错了，正确答案是 ${tags(q, q.answer)}`}</p>
           {q.explanation && <p>{q.explanation}</p>}
           {q.evidence ? (
             <blockquote className="pd-quiz-ev">
@@ -195,7 +235,7 @@ function Result({ quiz }: { quiz: QuizSet }) {
       <ul className="pd-quiz-review">
         {quiz.questions.map((q, i) => {
           const a = quiz.answers[String(i)]
-          const ok = a === q.answer
+          const ok = isRight(q, a)
           return (
             <li key={i}>
               <button type="button" onClick={() => setOpen(open === i ? null : i)} aria-expanded={open === i}>

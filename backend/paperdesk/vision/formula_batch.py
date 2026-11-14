@@ -43,7 +43,7 @@ def enqueue(app: AppContext, paper_id: str) -> str | None:
         return None
     with app.db.session() as conn:
         title = conn.execute("SELECT title FROM papers WHERE id = ?", (paper_id,)).fetchone()["title"]
-    return app.jobs.submit(JOB_TYPE, f"识别公式：{title[:40]}", {"paper_id": paper_id}, paper_id)
+    return app.jobs.submit(JOB_TYPE, f"识别公式：{title}", {"paper_id": paper_id}, paper_id)
 
 
 async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:

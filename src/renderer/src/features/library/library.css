@@ -393,3 +393,51 @@
   flex: 1;
   min-width: 0;
 }
+
+/* 拖动调整顺序：落点用一条黑线标在目标的上边或下边 */
+.pd-paper-row[data-drop-at='before'],
+.pd-paper-card[data-drop-at='before'] {
+  box-shadow: inset 0 3px 0 var(--text);
+}
+.pd-paper-row[data-drop-at='after'],
+.pd-paper-card[data-drop-at='after'] {
+  box-shadow: inset 0 -3px 0 var(--text);
+}
+
+/* 点击就能按它筛选的标签 */
+button.pd-ptag--btn {
+  cursor: pointer;
+  background: none;
+  font: inherit;
+}
+button.pd-ptag--btn:hover {
+  background: var(--text);
+  color: var(--bg);
+}
+.pd-lib-group + .pd-lib-group {
+  margin-top: var(--sp-xl);
+}
+.pd-lib-group-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  margin: 0 0 var(--sp-sm);
+  padding-bottom: var(--sp-xs, 4px);
+  border-bottom: 1px solid var(--text);
+}
+
+.pd-finished-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: var(--fs-aux);
+  line-height: 1.4;
+}
+
+.pd-paper-row[data-dragging],
+.pd-paper-card[data-dragging] {
+  opacity: 0.4;
+}

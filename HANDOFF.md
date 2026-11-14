@@ -112,7 +112,7 @@
 - JSON 序列化：别把 numpy 标量写进缓存（`numpy.float32` 不可序列化，而"失败不影响导入"会把错误吞掉，只在真实流程里才暴露）。
 - `register_schema` 必须在 DB 初始化前执行：新表的模块要在 `app.py` 顶部 import，不要放函数内延迟导入。
 - Docker / WSL2 已安装但**复现沙箱的 Docker 路径从未实测**。
-- **测试用 LLM 网关**：校园 OpenAI 兼容网关 `http://aigw.dlut.edu.cn/v1`（明文 http）。推荐配置：快速 `DeepSeek-V4-Flash-0731-W8A8`，强 `MiniMax-M2.7-bf16`，视觉 `Qwen3-VL-32B-Instruct`。各模型怪癖见记忆 `paperdesk-llm-gateway`（Qwen3-235B 公式密集时漏词、Qwen3-VL-8B 大批量返回空、网关会 429 要退避等）。
+- **测试用 LLM 网关**：校园 OpenAI 兼容网关（地址不写进仓库：默认留空，在设置 → AI 模型里自己填；明文 http）。推荐配置：快速 `DeepSeek-V4-Flash-0731-W8A8`，强 `MiniMax-M2.7-bf16`，视觉 `Qwen3-VL-32B-Instruct`。各模型怪癖见记忆 `paperdesk-llm-gateway`（Qwen3-235B 公式密集时漏词、Qwen3-VL-8B 大批量返回空、网关会 429 要退避等）。
   - **Key 由用户放在环境变量 `PD_KEY`**。自动模式分类器会拦"命令里把 Key 推给后端"；解法是在 scratchpad 写启动包装脚本，进程内读 `PD_KEY` 写入 `app.state.ctx.secrets`，Key 不进任何命令/文件/记忆。
 - 当前 `backend\.venv` 里已装 torch 2.15、texify 0.2.1、transformers 4.46.3、tokenizers 0.20.3（可选组件）。
 

@@ -108,7 +108,7 @@ def enqueue_embedding(app: AppContext, paper_id: str) -> str | None:
         return None
     with app.db.session() as conn:
         title = (conn.execute("SELECT title FROM papers WHERE id = ?", (paper_id,)).fetchone() or {"title": ""})["title"]
-    return app.jobs.submit("embed_paper", f"建立语义索引：{title[:40]}", {"paper_id": paper_id}, paper_id)
+    return app.jobs.submit("embed_paper", f"建立语义索引：{title}", {"paper_id": paper_id}, paper_id)
 
 
 async def _embed_paper(app: AppContext, ctx: JobContext, paper_id: str) -> int:

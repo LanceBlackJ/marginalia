@@ -21,6 +21,9 @@ interface Draft {
   max_retries: string
   temperature: string
   max_output_tokens: string
+  thinking: 'auto' | 'on' | 'off'
+  context_chars: string
+  history_turns: string
   auto_analyze: boolean
   prices: Record<string, { input: string; output: string }>
   monthly_budget: string
@@ -46,6 +49,9 @@ function toDraft(s: AISettings): Draft {
     max_retries: String(s.max_retries),
     temperature: String(s.temperature),
     max_output_tokens: String(s.max_output_tokens),
+    thinking: s.thinking ?? 'auto',
+    context_chars: String(s.context_chars ?? 24000),
+    history_turns: String(s.history_turns ?? 4),
     auto_analyze: s.auto_analyze,
     prices,
     monthly_budget: s.monthly_budget === null ? '' : String(s.monthly_budget)
@@ -81,6 +87,9 @@ function toPayload(d: Draft): Partial<AISettings> {
     max_retries: num(d.max_retries, '重试次数', { min: 0, max: 6, int: true }),
     temperature: num(d.temperature, '温度', { min: 0, max: 2 }),
     max_output_tokens: num(d.max_output_tokens, '最大输出', { min: 256, max: 64000, int: true }),
+    thinking: d.thinking,
+    context_chars: num(d.context_chars, '上下文字数', { min: 4000, max: 400000, int: true }),
+    history_turns: num(d.history_turns, '带入的对话轮数', { min: 0, max: 20, int: true }),
     auto_analyze: d.auto_analyze,
     price_per_mtok: prices,
     monthly_budget: d.monthly_budget.trim() === '' ? null : num(d.monthly_budget, '月度预算', { min: 0 })
@@ -236,8 +245,8 @@ export function AIModelSection() {
           value={draft.provider_kind}
           onChange={(v) => {
             const kind = v as ProviderKind
-            const wasDefault = draft.base_url === DEFAULT_URLS[draft.provider_kind] || draft.base_url === ''
-            set({ provider_kind: kind, base_url: wasDefault ? DEFAULT_URLS[kind] : draft.base_url })
+            const wasDefault = draft.base_url === DEFAULT_URLS[draft.provider_kind]
+            set({ provider_kind: kind, base_url: wasDefault ? DEFAULT_URLS[kind] : draft.base_url }) // 留空就一直留空，不替用户填地址
           }}
           options={[
             { value: 'openai_compatible', label: 'OpenAI 兼容接口' },
@@ -246,7 +255,7 @@ export function AIModelSection() {
         />
       </SettingRow>
 
-      <SettingRow title="API 地址" description={`服务的 Base URL。默认 ${DEFAULT_URLS[draft.provider_kind]}`}>
+      <SettingRow title="API 地址" description={`服务的 Base URL，需要自己填写（默认留空），例如 ${DEFAULT_URLS[draft.provider_kind]}`}>
         <Input value={draft.base_url} onChange={(v) => set({ base_url: v })} placeholder={DEFAULT_URLS[draft.provider_kind]} aria-label="API Base URL" />
       </SettingRow>
 
@@ -319,6 +328,25 @@ export function AIModelSection() {
           <Field label="失败重试次数">{(id) => <Input id={id} type="number" min={0} max={6} value={draft.max_retries} onChange={(v) => set({ max_retries: v })} />}</Field>
           <Field label="温度">{(id) => <Input id={id} type="number" step={0.1} min={0} max={2} value={draft.temperature} onChange={(v) => set({ temperature: v })} />}</Field>
           <Field label="最大输出 Token">{(id) => <Input id={id} type="number" min={256} value={draft.max_output_tokens} onChange={(v) => set({ max_output_tokens: v })} />}</Field>
+        </div>
+      </SettingRow>
+      <SettingRow title="思考模式" description="回答前是否先让模型“想一想”。开启回答更稳但更慢、更费；关闭更快更省。“按模型默认”不发送任何相关参数。提问框里的小按钮可以单次覆盖这个设置。部分服务商不支持这个开关，会被自动忽略。">
+        <Select
+          aria-label="思考模式"
+          value={draft.thinking}
+          onChange={(v) => set({ thinking: v as 'auto' | 'on' | 'off' })}
+          options={[
+            { value: 'auto', label: '按模型默认' },
+            { value: 'on', label: '开启思考' },
+            { value: 'off', label: '关闭思考' }
+          ]}
+        />
+      </SettingRow>
+
+      <SettingRow title="上下文" description="每次提问带给模型多少内容。字数越大，回答越能参考全文，但更慢、更费；要小于所用模型的上下文窗口（约 1 个汉字 = 1～2 个 Token）。分析、思维导图、出题的预算同比缩放。">
+        <div className="pd-fields pd-fields--2">
+          <Field label="带入的论文原文（字）">{(id) => <Input id={id} type="number" min={4000} step={1000} value={draft.context_chars} onChange={(v) => set({ context_chars: v })} />}</Field>
+          <Field label="带入的前几轮问答">{(id) => <Input id={id} type="number" min={0} max={20} value={draft.history_turns} onChange={(v) => set({ history_turns: v })} />}</Field>
         </div>
       </SettingRow>
       </SettingsBlock>

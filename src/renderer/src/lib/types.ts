@@ -44,6 +44,8 @@ export interface PaperSummary {
   page_count: number | null
   language: string | null
   favorite: boolean
+  /** 标记“已读完”的时间；没标记为空 */
+  finished_at?: string | null
   reading_page: number
   read_progress: number
   last_opened_at: string | null
@@ -190,6 +192,8 @@ export interface PaperPatch {
   /** 备注名；空字符串清除 */
   alias?: string
   favorite?: boolean
+  /** 标记 / 取消“已读完” */
+  finished?: boolean
   title?: string
   reading_page?: number
   read_progress?: number
@@ -411,6 +415,12 @@ export interface AISettings {
   max_retries: number
   temperature: number
   max_output_tokens: number
+  /** 思考模式：auto 由模型决定 / on 开启 / off 关闭 */
+  thinking: 'auto' | 'on' | 'off'
+  /** 每次请求最多带入多少论文原文（字数） */
+  context_chars: number
+  /** 对话里带入前几轮问答 */
+  history_turns: number
   auto_analyze: boolean
   price_per_mtok: Record<string, { input: number; output: number }>
   monthly_budget: number | null
@@ -520,6 +530,8 @@ export interface AskRequest {
   attachments?: Array<{ name: string; mime: string; data: string }>
   /** 修改这张卡片的提问并重新回答（只能是对话里最后一张）：后端原地改写，失败时还原 */
   edit_card_id?: string | null
+  /** 这一次提问的思考模式；不填（auto）用设置里的默认 */
+  thinking?: 'auto' | 'on' | 'off'
 }
 
 export interface TranslateRequest {

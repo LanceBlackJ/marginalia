@@ -14,12 +14,12 @@ router = APIRouter(tags=["quiz"])
 class QuizCreate(BaseModel):
     model_config = ConfigDict(extra="ignore")
     count: int = Field(default=5, ge=quiz.MIN_COUNT, le=quiz.MAX_COUNT)
-    kind: str = Field(default='mixed', pattern='^(mixed|choice|judge)$')
+    kind: str = Field(default='mixed', pattern='^(mixed|choice|multi|judge)$')
 
 
 class AnswersBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    answers: dict[int, int] = Field(default_factory=dict)
+    answers: dict[int, int | list[int]] = Field(default_factory=dict)
 
 
 @router.get("/papers/{paper_id}/quizzes")

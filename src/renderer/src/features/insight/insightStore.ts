@@ -232,7 +232,8 @@ export const useInsightStore = create<InsightState>((set, get) => {
         conversation_id: activeConversation,
         web: usePrefs.getState().askWeb,
         attachments: input.attachments,
-        edit_card_id: input.editCardId ?? null
+        edit_card_id: input.editCardId ?? null,
+        thinking: usePrefs.getState().askThinking
       }
 
       const stream = (cb: (event: string, data: unknown) => void, signal: AbortSignal): Promise<void> =>
