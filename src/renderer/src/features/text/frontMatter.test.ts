@@ -16,6 +16,12 @@ describe('parseAuthors', () => {
     expect(parseAuthors('Changjun Fan1,2, Li Zeng1, Yizhou Sun 2 \ud889 and Yang-Yu Liu 3,4 \ud889')).toEqual(['Changjun Fan', 'Li Zeng', 'Yizhou Sun', 'Yang-Yu Liu'])
     expect(parseAuthors('Ann Lee* and Bo Chen✉')).toEqual(['Ann Lee', 'Bo Chen'])
   })
+
+  it('splits a multi-line conference author row without separators', () => {
+    expect(parseAuthors('Chi Wang 6 Huazheng Wang 7 8 Yiran Chen 2 Qingyun Wu 1 8')).toEqual([
+      'Chi Wang', 'Huazheng Wang', 'Yiran Chen', 'Qingyun Wu'
+    ])
+  })
 })
 
 describe('parseAffiliations', () => {
@@ -47,6 +53,25 @@ describe('splitFront', () => {
     expect(front?.emails.map((e) => e.text)).toEqual(['yyl@neu.edu'])
     expect(abstract.map((a) => a.ord)).toEqual([2])
     expect(rest.map((r) => r.ord)).toEqual([3, 6]) // 信息块和摘要里的段落不再在正文里重复
+  })
+
+  it('accumulates authors that were split into multiple front paragraphs', () => {
+    const { front, rest } = splitFront([
+      it_(0, '首部信息', 'Ann Lee 1 Bo Chen 2'),
+      it_(1, '首部信息', 'Cara Diaz 3 Dan Wu 4'),
+      it_(2, '正文', 'A real paragraph.')
+    ])
+    expect(front?.authors?.names).toEqual(['Ann Lee', 'Bo Chen', 'Cara Diaz', 'Dan Wu'])
+    expect(rest.map((r) => r.ord)).toEqual([2])
+  })
+
+  it('does not append conference publication metadata to the author list', () => {
+    const { front } = splitFront([
+      it_(0, '首部信息', 'Shaokun Zhang 1 Ming Yin 2 Chi Wang 6 Huazheng Wang 7 8'),
+      it_(1, '首部信息', 'Proceedings of the 42nd International Conference on Machine Learning, Vancouver, Canada. PMLR 267, 2025. Copyright by the author(s).'),
+    ])
+    expect(front?.authors?.names).toEqual(['Shaokun Zhang', 'Ming Yin', 'Chi Wang', 'Huazheng Wang'])
+    expect(front?.other.map((o) => o.text)).toHaveLength(1)
   })
 
   it('leaves everything in place when there is no front section', () => {

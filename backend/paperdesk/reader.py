@@ -58,7 +58,8 @@ def _math_of(row: sqlite3.Row, bar_variables: set[str] | None = None) -> list[di
             item["tex"] = inline_math.normalize_tex(item["tex"], bar_variables)
         if item.get("src"):
             item["src"] = inline_math.normalize_math_text(item["src"], bar_variables)
-        out.append(item)
+        if not item.get("tex") or inline_math.safe_tex(item.get("tex")):
+            out.append(item)
     return out
 
 

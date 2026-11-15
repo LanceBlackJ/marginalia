@@ -69,6 +69,24 @@
 | `POST /api/smart-views` | `{name, query}`；`query` 用的是筛选条件的 JSON 形式（`note_q`、`tags`、`year_from`、`has_notes`…），空条件 400、同名 409、非法枚举 400。只保存条件，不保存论文 |
 | `DELETE /api/smart-views/{id}` | 删除 |
 
+## 综述空间
+
+综述属于文献库，但使用独立的论文集合。论文加入综述后，默认的 `GET /api/papers`（`scope=library`）会将它排除；它不会从磁盘或论文详情中删除。移出综述后会重新出现在普通文献库。每个综述创建时自动拥有“待分类”分类，因此加入论文不会出现无分类记录。
+
+| 方法与路径 | 说明 |
+|---|---|
+| `GET /api/reviews` | 综述项目列表，包含 `paper_count` 与 `category_count` |
+| `POST /api/reviews` | `{name, description?}`；创建综述并自动创建“待分类” |
+| `PATCH /api/reviews/{id}` | `{name?, description?}` |
+| `DELETE /api/reviews/{id}` | 删除综述关系，不删除论文 |
+| `GET /api/reviews/{id}/categories` | 当前综述的分类及篇数 |
+| `POST /api/reviews/{id}/categories` | `{name}`；同一综述内分类名不能重复 |
+| `POST /api/reviews/{id}/papers` | `{paper_ids, category_id?}`；默认放入“待分类” |
+| `PATCH /api/reviews/{id}/papers/{paper_id}` | 修改 `{category_id?, screening?, exclusion_reason?}` |
+| `DELETE /api/reviews/{id}/papers/{paper_id}` | 从综述移出，论文回到普通文献库 |
+
+综述列表使用：`GET /api/papers?scope=review&review_id=...`；可再传 `review_category_id` 按分类筛选。返回项会带 `review_category_id`、`review_category_name` 和 `review_screening`。
+
 ## 性能（`backend/tests/test_folders_filters.py::test_list_filters_stay_fast_…`）
 
 造数据：2000 篇论文、24000 段正文、5000 条笔记；列表每次取 50 条，三次取中位数（本机、SQLite WAL）：

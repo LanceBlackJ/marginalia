@@ -18,6 +18,7 @@ log = logging.getLogger("paperdesk.jobs")
 
 STATUSES = ("pending", "running", "waiting_approval", "paused", "completed", "failed", "cancelled")
 TERMINAL = {"completed", "failed", "cancelled"}
+MAX_WORKERS = 8
 
 
 def _days_ago(days: int) -> str:
@@ -119,13 +120,17 @@ Handler = Callable[[JobContext], "dict | None"]
 
 
 class JobManager:
-    def __init__(self, app: AppContext, max_workers: int = 2):
+    def __init__(self, app: AppContext, max_workers: int = MAX_WORKERS):
         self.app = app
+        # 统一上限：所有后台任务（导入、解析、翻译、分析、索引等）共享这个池。
+        self.max_workers = min(MAX_WORKERS, max(1, int(max_workers)))
         self._handlers: dict[str, Handler] = {}
         self._events: dict[str, threading.Event] = {}
         self._ctxs: dict[str, JobContext] = {}
         self._lock = threading.Lock()
-        self._pool = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="job")
+        # 任务和任务内部的批量并发共享同一组执行槽，实际同时工作的任务不超过 8 个。
+        self._slots = threading.BoundedSemaphore(self.max_workers)
+        self._pool = ThreadPoolExecutor(max_workers=self.max_workers, thread_name_prefix="job")
 
     # ---- 注册与提交 ----
     def register(self, job_type: str, handler: Handler) -> None:
@@ -205,6 +210,7 @@ class JobManager:
         ctx = JobContext(self, job_id, loads(row["payload_json"], {}), event)
         with self._lock:
             self._ctxs[job_id] = ctx
+        self._slots.acquire()
         try:
             if handler is None:
                 raise ApiError("bad_request", f"未知任务类型：{row['type']}")
@@ -223,9 +229,34 @@ class JobManager:
         else:
             self._finish(job_id, "completed", result=result, progress=1.0)
         finally:
+            self._slots.release()
             with self._lock:
                 self._events.pop(job_id, None)
                 self._ctxs.pop(job_id, None)
+
+    def parallel(self, fn: Callable[[Any], Any], items: list[Any], *, max_workers: int | None = None) -> list[Any]:
+        """在当前任务让出一个执行槽时并发处理一批子项，并保持输入顺序。
+
+        子项和普通后台任务共用 `_slots`，因此批量 DOI 不会绕过全局并发上限。
+        """
+        if not items:
+            return []
+        workers = min(max_workers or self.max_workers, len(items))
+        # 当前 handler 暂时不做 CPU/IO 工作，把自己的槽让给子项；完成后再取回。
+        self._slots.release()
+        try:
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="job-item") as pool:
+                futures = [pool.submit(self._parallel_one, fn, item) for item in items]
+                return [future.result() for future in futures]
+        finally:
+            self._slots.acquire()
+
+    def _parallel_one(self, fn: Callable[[Any], Any], item: Any) -> Any:
+        self._slots.acquire()
+        try:
+            return fn(item)
+        finally:
+            self._slots.release()
 
     def _rollback(self, ctx: JobContext, base: str) -> str:
         """撤销这个任务已经做完的部分：它新建的论文连同分析数据一起删掉。可重复调用。"""

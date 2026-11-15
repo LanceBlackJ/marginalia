@@ -109,7 +109,8 @@ def test_author_year_markers_need_a_unique_match():
     ])
     items = {i["ord"]: i["markers"] for i in cit.detect_all(body, entries, "author-year")}
     refs = sorted((m["text"], tuple(m["refs"])) for m in items[1])
-    assert ("Rivera and Chen, 2009", (1,)) in refs and ("Novak, 2019", (4,)) in refs and ("Rivera et al. (2009)", (1,)) in refs
+    # 同一对括号内的多篇引用作为一个完整引用组处理，但组内每一条仍保留在 refs 中。
+    assert ("(Rivera and Chen, 2009; Novak, 2019)", (1, 4)) in refs and ("Rivera et al. (2009)", (1,)) in refs
     assert not any(m["refs"] in ([2], [3]) for m in items[1])  # 姓氏+年份对应多条，不猜
     assert 2 not in items
 

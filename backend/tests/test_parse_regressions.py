@@ -34,6 +34,17 @@ def test_numbered_references_fold_back_continuation_lines():
     assert "Conf. Robot." in blocks[0].text
 
 
+def test_reference_first_lines_split_when_two_columns_share_a_baseline():
+    """双栏参考文献的左右首行不能被当成一个跨栏条目。"""
+    crossed = line(100, [
+        (40, "Nelson, E., Kollias, G., and Dan, S.", {"w": 180}),
+        (320, "Yao, S., Yu, D., and Narasimhan, K.", {"w": 180}),
+    ])
+    out = layout._split_reference_cross_column_lines([crossed], 10.0)
+    assert [x.text for x in out] == ["Nelson, E., Kollias, G., and Dan, S.", "Yao, S., Yu, D., and Narasimhan, K."]
+    assert [x.cls for x in out] == ["L", "R"]
+
+
 def test_reference_font_repair_uses_pdf_line_order_without_merging_columns(tmp_path):
     import pymupdf
 
@@ -450,6 +461,22 @@ def test_algorithm_steps_are_one_paragraph_each_and_never_display_formulas():
     assert "\u2217" in blocks[1].text and blocks[1].text.startswith("5: H")  # 上标并回了第 5 步
     # 正文里偶然以 “3: ” 开头、没有相邻编号步骤的行不当步骤
     assert layout._algo_step_ids([step(100, "3: the ratio is large")]) == set()
+
+
+def test_prompt_json_braces_are_not_display_formulas():
+    """提示词中的 JSON 花括号保持在同一段文字里，不能被误标成公式。"""
+    lines = [
+        line(100, [(70, "Here is the conversation:", {})]),
+        line(111, [(70, "{", {})]),
+        line(122, [(70, '"agent a": "xx",', {})]),
+        line(133, [(70, '"agent b": "xxxx"', {})]),
+        line(144, [(70, "},", {})]),
+        line(155, [(70, "Reason for Mistake: (Your reason)", {})]),
+    ]
+    blocks = layout.segment_paragraphs(lines, 16, 10.0)
+    assert all(b.kind == "paragraph" for b in blocks)
+    assert not any(b.kind == "formula" for b in blocks)
+    assert any(b.text.startswith("Here is the conversation:") and "agent a" in b.text and "}," in b.text for b in blocks)
 
 
 # ---------------- 第三轮：用户下载的 Nature/Cell/Elsevier/ACM/Oxford/Springer 论文里发现的问题 ----------------

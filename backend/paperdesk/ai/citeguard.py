@@ -25,26 +25,47 @@ NOTE = "\n- 文本里形如 ⟦1⟧ 的标记是文献引用或行内数学公�
 def math_spans(text: str, runs: list[dict] | None) -> list[tuple[int, int]]:
     """把解析时还原的行内公式 [{src, tex}] 按顺序定位到文字里（和前端 textModel.mathRanges 同一套规则）：
     只认有 tex 的；很短的片段（单个变量）要求前后不是字母数字，避免命中词中间；找不到的跳过。"""
-    out: list[tuple[int, int]] = []
-    cur = 0
+    candidates: list[tuple[int, int]] = []
     for r in runs or []:
         src, tex = (r.get("src") or ""), (r.get("tex") or "")
         if not src or not tex:
             continue
-        start = cur
+        if re.fullmatch(r"\s*[\(\[（【]?\s*\d+(?:\.\d+)?\s*[\)\]）】]?\s*", tex):
+            continue
+        start = 0
         while True:
-            i = text.find(src, start)
+            i, end = _find_math(text, src, start)
             if i < 0:
                 break
             before = text[i - 1] if i > 0 else ""
-            after = text[i + len(src)] if i + len(src) < len(text) else ""
+            after = text[end] if end < len(text) else ""
             if (src[0].isalnum() and before.isalnum()) or (src[-1].isalnum() and after.isalnum()):
                 start = i + 1
                 continue
-            out.append((i, i + len(src)))
-            cur = i + len(src)
-            break
+            candidates.append((i, end))
+            start = i + 1
+    # 解析器会同时留下单字母、无下标片段和完整公式。按位置取最长片段，
+    # 否则先替换 ``at`` 会把 ``a_{t}`` 拆成 ``a`` + ``_{t}``，译文永远无法恢复。
+    out: list[tuple[int, int]] = []
+    for a, b in sorted(candidates, key=lambda x: (x[0], -(x[1] - x[0]))):
+        if any(a < e and b > s for s, e in out):
+            continue
+        out.append((a, b))
+    out.sort()
     return out
+
+
+def _find_math(text: str, src: str, start: int) -> tuple[int, int]:
+    """按原文定位公式；PDF 只在数学字符之间多插/少插空白时也要命中。"""
+    exact = text.find(src, start)
+    if exact >= 0:
+        return exact, exact + len(src)
+    if not re.search(r"[\\_{}^=+\-*/()[\]·∙⋅×±≤≥≠≈∈∉≡−–]", src) or len(src) > 180:
+        return -1, -1
+    parts = [r"\s*" if ch.isspace() else re.escape(ch) for ch in src]
+    pattern = re.compile(r"\s*".join(parts))
+    hit = pattern.search(text, start)
+    return (hit.start(), hit.end()) if hit else (-1, -1)
 
 
 def mask(text: str, math: list[dict] | None = None, found: list[str] | None = None, formula_slots: set[int] | None = None) -> tuple[str, list[str]]:

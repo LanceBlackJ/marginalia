@@ -68,6 +68,9 @@ export interface PaperSummary {
   folder_path?: string | null
   /** 有笔记/批注/正文/卡片筛选条件时，每篇论文的命中片段 */
   matches?: PaperMatches
+  review_category_id?: string | null
+  review_category_name?: string | null
+  review_screening?: 'screening' | 'included' | 'excluded' | 'reading'
 }
 
 export interface AccessLink {

@@ -150,6 +150,18 @@ def _is_italic(s) -> bool:
 ACCENTS = {"˙": "\\dot", "¨": "\\ddot", "ˆ": "\\hat", "˜": "\\tilde",
            "¯": "\\bar", "ˉ": "\\bar", "‾": "\\bar"}
 ACCENTS.update({"...": "\\dddot", "…": "\\dddot"})  # s⃛（三阶导，PDF 里画成三个点）
+ACCENT_CHARS = {
+    "¨": {"a": "ä", "e": "ë", "i": "ï", "o": "ö", "u": "ü", "y": "ÿ",
+           "A": "Ä", "E": "Ë", "I": "Ï", "O": "Ö", "U": "Ü"},
+    "´": {"a": "á", "e": "é", "i": "í", "o": "ó", "u": "ú", "y": "ý",
+           "A": "Á", "E": "É", "I": "Í", "O": "Ó", "U": "Ú"},
+    "`": {"a": "à", "e": "è", "i": "ì", "o": "ò", "u": "ù", "A": "À", "E": "È", "I": "Ì", "O": "Ò", "U": "Ù"},
+    "ˆ": {"a": "â", "e": "ê", "i": "î", "o": "ô", "u": "û", "A": "Â", "E": "Ê", "I": "Î", "O": "Ô", "U": "Û"},
+    "˜": {"a": "ã", "n": "ñ", "o": "õ", "A": "Ã", "N": "Ñ", "O": "Õ"},
+    "¸": {"c": "ç", "C": "Ç", "s": "ş", "S": "Ş"},
+    "ˇ": {"c": "č", "s": "š", "z": "ž", "r": "ř", "e": "ě", "n": "ň",
+           "C": "Č", "S": "Š", "Z": "Ž", "R": "Ř", "E": "Ě", "N": "Ň"},
+}
 
 
 def attach_accents(spans: list, body: float) -> list:
@@ -172,7 +184,35 @@ def attach_accents(spans: list, body: float) -> list:
             if d <= max(b.x1 - b.x0, 0.5 * body) * 0.9 and (best_d is None or d < best_d):
                 best, best_d = b, d
         if best is None:
-            continue
+            # 有些嵌入字体把“ü”的双点作为独立 span，但把字母整段
+            # ``uhle`` 放在另一个 span 里。单字符规则找不到变量时，按
+            # 重音的横坐标落在该 span 的第几个字符上合成 Unicode；这只
+            # 处理明确的拉丁文字重音，不会改变远处的数学点号。
+            char_map = ACCENT_CHARS.get(t)
+            attached = False
+            if char_map:
+                for b in out:
+                    if b is a or b.accent or len(b.text.strip()) <= 1 or b.math:
+                        continue
+                    bt = b.text.strip()
+                    if not bt or not all(ch.isalpha() for ch in bt):
+                        continue
+                    if not (b.x0 - 1.5 <= cx <= b.x1 + 1.5):
+                        continue
+                    width = max(1.0, b.x1 - b.x0)
+                    pos = min(len(bt) - 1, max(0, int((cx - b.x0) / width * len(bt))))
+                    composed = char_map.get(bt[pos])
+                    if composed is None:
+                        continue
+                    merged = dataclasses.replace(b, text=bt[:pos] + composed + bt[pos + 1:], accent=ACCENTS[t], members=[a, b], x0=min(a.x0, b.x0), x1=max(a.x1, b.x1), y0=min(a.y0, b.y0))
+                    out[out.index(b)] = merged
+                    out.remove(a)
+                    attached = True
+                    break
+            if attached:
+                continue
+            if best is None:
+                continue
         merged = dataclasses.replace(best, accent=ACCENTS[t], members=[a, best],
                                      x0=min(a.x0, best.x0), x1=max(a.x1, best.x1), y0=min(a.y0, best.y0))
         out[out.index(best)] = merged
@@ -351,6 +391,8 @@ _GREEK_COMMAND = r"(?:alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|l
 def safe_tex(tex: str | None) -> bool:
     """字体映射异常形成“希腊命令 + 裸英文单词”时，不静默渲染伪公式。"""
     if not tex:
+        return False
+    if re.fullmatch(r"\s*[\(\[（【]?\s*\d+(?:\.\d+)?\s*[\)\]）】]?\s*", tex):
         return False
     return re.search(rf"\\{_GREEK_COMMAND}\s+[A-Za-z]{{2,}}\b", tex) is None
 

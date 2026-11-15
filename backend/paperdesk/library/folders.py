@@ -84,10 +84,11 @@ def list_folders(app: AppContext) -> dict:
     """文件夹平铺列表（前端按 parent_id 组树）与系统视图的论文数。"""
     with app.db.session() as conn:
         rows = _all(conn)
+        normal = "COALESCE(role,'paper')='paper' AND NOT EXISTS (SELECT 1 FROM review_papers rp WHERE rp.paper_id = papers.id)"
         direct = {
             r["folder_id"]: r["n"]
             for r in conn.execute(
-                "SELECT folder_id, COUNT(*) AS n FROM papers WHERE COALESCE(role,'paper')='paper' AND folder_id IS NOT NULL GROUP BY folder_id"
+                f"SELECT folder_id, COUNT(*) AS n FROM papers WHERE {normal} AND folder_id IS NOT NULL GROUP BY folder_id"
             )
         }
         children: dict[str | None, list[str]] = {}
@@ -102,7 +103,7 @@ def list_folders(app: AppContext) -> dict:
              "paper_count": direct.get(r["id"], 0), "total_count": total(r["id"])}
             for r in rows
         ]
-        base = "COALESCE(role,'paper') = 'paper'"
+        base = "COALESCE(role,'paper') = 'paper' AND NOT EXISTS (SELECT 1 FROM review_papers rp WHERE rp.paper_id = papers.id)"
         counts = {
             "all": conn.execute(f"SELECT COUNT(*) FROM papers WHERE {base}").fetchone()[0],
             "unfiled": conn.execute(f"SELECT COUNT(*) FROM papers WHERE {base} AND folder_id IS NULL").fetchone()[0],

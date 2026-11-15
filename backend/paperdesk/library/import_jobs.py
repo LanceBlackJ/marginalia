@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 from ..ai import settings as ai_settings
-from ..jobs import JobContext, JobManager
+from ..jobs import JobCancelled, JobContext, JobManager
 from ..util import ApiError, new_id, normalize_doi
 from . import ocr_jobs, online
 from .importer import ImportOutcome, create_metadata_only, import_pdf_file
@@ -137,56 +137,68 @@ def _existing_by_doi(ctx: JobContext, doi: str) -> dict | None:
     return dict(row) if row else None
 
 
-def handle_import_doi(ctx: JobContext) -> dict:
-    dois = ctx.payload.get("dois") or []
-    metadata_only = bool(ctx.payload.get("metadata_only"))
-    items = []
-    for i, raw in enumerate(dois):
-        ctx.check_cancelled()
-        ctx.progress(i / max(1, len(dois)), f"解析 DOI：{raw}（{i + 1}/{len(dois)}）")
-        doi = normalize_doi(raw)
-        if not doi:
-            items.append({"input": raw, "status": "failed", "paper_id": None, "message": "无法识别的 DOI 格式"})
-            continue
-        existing = _existing_by_doi(ctx, doi)
-        if existing:
-            items.append({"input": raw, "status": "duplicate", "paper_id": existing["id"],
-                          "message": f"已在文献库中：{existing['title']}"})
-            continue
-        with ctx.app.http(timeout=15) as client:
-            resolved = online.resolve_doi(client, doi)
-        if not resolved.metadata:
-            msg = "；".join(resolved.errors) or "未能获取该 DOI 的元数据"
-            items.append({"input": raw, "status": "failed", "paper_id": None, "message": msg})
-            continue
-        if metadata_only:  # 用户只要题录：不下载任何全文
-            paper_id = _meta(ctx, doi=doi, arxiv_id=None, metadata=resolved.metadata,
-                access_info=resolved.access_info, source=resolved.source,
-            )
-            items.append({"input": raw, "status": "metadata_only", "paper_id": paper_id,
-                          "message": "按你的选择只保存了题录，没有下载全文。之后可以在论文页面用“附加 PDF”补上。"})
-            continue
-        out, dl_error = (
-            _download_and_import(ctx, resolved, source_url=f"https://doi.org/{doi}") if resolved.pdf_urls else (None, None)
-        )
-        if out is not None and out.status in ("imported", "duplicate"):
-            if out.status == "imported" and out.paper_id:
-                _maybe_auto_analyze(ctx, out.paper_id, out)
-            items.append(_item(raw, out))
-            continue
-        # 没有可用的开放获取全文：保留题录，并告知可用来源
+def _handle_one_doi(ctx: JobContext, raw: str, metadata_only: bool) -> dict:
+    """处理一个 DOI；独立使用数据库连接和临时目录，适合在批量任务中并发执行。"""
+    ctx.check_cancelled()
+    doi = normalize_doi(raw)
+    if not doi:
+        return {"input": raw, "status": "failed", "paper_id": None, "message": "无法识别的 DOI 格式"}
+    existing = _existing_by_doi(ctx, doi)
+    if existing:
+        return {"input": raw, "status": "duplicate", "paper_id": existing["id"],
+                "message": f"已在文献库中：{existing['title']}"}
+    with ctx.app.http(timeout=15) as client:
+        resolved = online.resolve_doi(client, doi)
+    if not resolved.metadata:
+        msg = "；".join(resolved.errors) or "未能获取该 DOI 的元数据"
+        return {"input": raw, "status": "failed", "paper_id": None, "message": msg}
+    if metadata_only:
         paper_id = _meta(ctx, doi=doi, arxiv_id=None, metadata=resolved.metadata,
             access_info=resolved.access_info, source=resolved.source,
         )
-        if out is not None:
-            hint = out.message or "全文无法解析"
-        elif dl_error:
-            hint = f"找到的开放获取链接无法使用：{dl_error}"
-        else:
-            hint = "未找到开放获取的全文"
-        items.append({"input": raw, "status": "metadata_only", "paper_id": paper_id, "needs_manual_download": True,
-                      "message": f"{hint}。已保存题录，请通过出版商页面或所在机构获取 PDF 后在论文页面附加。"})
-    return {"items": items}
+        return {"input": raw, "status": "metadata_only", "paper_id": paper_id,
+                "message": "按你的选择只保存了题录，没有下载全文。之后可以在论文页面用“附加 PDF”补上。"}
+    out, dl_error = (
+        _download_and_import(ctx, resolved, source_url=f"https://doi.org/{doi}") if resolved.pdf_urls else (None, None)
+    )
+    if out is not None and out.status in ("imported", "duplicate"):
+        if out.status == "imported" and out.paper_id:
+            _maybe_auto_analyze(ctx, out.paper_id, out)
+        return _item(raw, out)
+    # 没有可用的开放获取全文：保留题录，并告知可用来源
+    paper_id = _meta(ctx, doi=doi, arxiv_id=None, metadata=resolved.metadata,
+        access_info=resolved.access_info, source=resolved.source,
+    )
+    if out is not None:
+        hint = out.message or "全文无法解析"
+    elif dl_error:
+        hint = f"找到的开放获取链接无法使用：{dl_error}"
+    else:
+        hint = "未找到开放获取的全文"
+    return {"input": raw, "status": "metadata_only", "paper_id": paper_id, "needs_manual_download": True,
+            "message": f"{hint}。已保存题录，请通过出版商页面或所在机构获取 PDF 后在论文页面附加。"}
+
+
+def handle_import_doi(ctx: JobContext) -> dict:
+    dois = ctx.payload.get("dois") or []
+    metadata_only = bool(ctx.payload.get("metadata_only"))
+    if len(dois) <= 1:
+        return {"items": [_handle_one_doi(ctx, str(dois[0]), metadata_only)]} if dois else {"items": []}
+
+    # 子项和其它后台任务共用全局执行槽，最多同时工作 8 个；结果天然按输入顺序还原。
+    def one(raw: str) -> dict:
+        try:
+            return _handle_one_doi(ctx, raw, metadata_only)
+        except JobCancelled:
+            raise
+        except Exception as exc:  # noqa: BLE001  单个 DOI 失败不影响同批其它 DOI
+            ctx.log(f"DOI 导入失败 {raw}：{type(exc).__name__}: {exc}")
+            return {"input": raw, "status": "failed", "paper_id": None, "message": f"导入出错：{exc}"}
+
+    ctx.progress(0.05, f"正在并发解析 {len(dois)} 个 DOI")
+    results = ctx.manager.parallel(one, [str(raw) for raw in dois], max_workers=8)
+    ctx.progress(1.0, f"DOI 导入进度：{len(results)}/{len(dois)}")
+    return {"items": results}
 
 
 def handle_import_url(ctx: JobContext) -> dict:

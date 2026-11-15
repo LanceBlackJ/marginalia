@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import statistics
+import unicodedata
 from dataclasses import dataclass, field
 
 import pymupdf
@@ -157,6 +158,7 @@ class Block:
     ref_page: bool = False  # 这一页是按内容判断出来的参考文献页（整篇没有“References”标题时的兜底）
     role: str = ""  # 视觉划分给的角色（title / authors / abstract / heading / sidebar …），没有视觉划分时为空
     cont: list = field(default_factory=list)  # 跨页的段落：下一页接着的那一块（文字已并进 text，行内公式、粗体按各自的块取）
+    preserve_lines: bool = False  # 文本框/代码框等结构化文字：显示时保留 PDF 中的硬换行
 
     @property
     def width(self) -> float:
@@ -193,6 +195,7 @@ _ACCENTS = {
     "˘": {"a": "ă", "g": "ğ", "A": "Ă", "G": "Ğ"},
 }
 _ACCENT_RE = re.compile("(?<=[A-Za-z])([" + "".join(_ACCENTS) + "])([A-Za-z])")
+_COMBINING_ACCENTS = {"¨": "\u0308", "´": "\u0301", "`": "\u0300", "ˆ": "\u0302", "˜": "\u0303", "¸": "\u0327", "ˇ": "\u030c"}
 
 
 def _compose_accent(m: re.Match) -> str:
@@ -571,7 +574,46 @@ def _classify(spans: list[Span], gutter: tuple[float, float] | None) -> None:
 _ICON_FONT = re.compile(r"marvosym|wingding|dingbats|webdings", re.I)
 
 
+def _compose_text_accents(spans: list[Span]) -> list[Span]:
+    """把落在多字符文字 span 上的独立重音合成一个字母。
+
+    文字层不保证绘制顺序：例如 ``R``、双点、``uhle`` 可能分别成为三个
+    span，按字符流直接拼接就会得到 ``Ruhle,¨``。单字符变量的数学重音
+    仍由 inline_math 处理；这里只处理非数学的普通文字，并用坐标确定
+    重音落在多字符 span 的哪个字母上。
+    """
+    out = list(spans)
+    for accent in list(out):
+        mark = accent.text.strip()
+        if mark not in _ACCENTS or accent.size > 1.05 * max((s.size for s in out), default=accent.size):
+            continue
+        cx = (accent.x0 + accent.x1) / 2
+        for base in list(out):
+            if base is accent or base.math or base.accent or len(base.text.strip()) <= 1:
+                continue
+            word = base.text.strip()
+            if not word or not all(ch.isalpha() or ch in ".,;:'’\u00ad-" for ch in word) or not (base.x0 - 1.5 <= cx <= base.x1 + 1.5):
+                continue
+            pos = min(len(word) - 1, max(0, int((cx - base.x0) / max(1.0, base.x1 - base.x0) * len(word))))
+            composed = unicodedata.normalize("NFC", word[pos] + _COMBINING_ACCENTS.get(mark, mark))
+            if len(composed) != 1 or not composed.isalpha() or composed == word[pos]:
+                continue
+            replacement = dataclass_replace(base, text=word[:pos] + composed + word[pos + 1:], x0=min(base.x0, accent.x0), x1=max(base.x1, accent.x1), y0=min(base.y0, accent.y0))
+            out[out.index(base)] = replacement
+            out.remove(accent)
+            break
+    return out
+
+
+def dataclass_replace(obj, **changes):
+    """局部避免在版面热路径里暴露 dataclasses.replace 的实现细节。"""
+    from dataclasses import replace
+
+    return replace(obj, **changes)
+
+
 def _line_from(spans: list[Span]) -> Line:
+    spans = _compose_text_accents(sorted(spans, key=lambda s: s.x0))
     spans = sorted(spans, key=lambda s: s.x0)
     real = [s for s in spans if not _ICON_FONT.search(s.font)] or spans  # 信封、电话这类图标字形（字号常比正文大）不决定这一行的字号
     main = max(real, key=lambda s: (s.size, len(s.text)))
@@ -846,6 +888,86 @@ def _attach_orphan_scripts(clusters: list[list[Span]]) -> list[list[Span]]:
             best[1].extend(cl)
             out = [c for c in out if c is not cl]
     return out
+
+
+def _merge_orphan_script_lines(lines: list[Line], body: float) -> list[Line]:
+    """把行级提取后仍独立存在的上标/脚注标记并回相邻正文行。
+
+    某些 PDF 将正文中的 ``i*``、``t*`` 或脚注编号写成独立文字对象；它们
+    已经不在同一个 span 簇里，簇级合并看不到彼此，最终就会变成单独的“公式”
+    或“段落”。只处理很短、小字号、与同栏正文垂直重叠的片段，避免吞掉真正的
+    显示公式、列表序号和正常正文。
+    """
+    if len(lines) < 2:
+        return lines
+    out = list(lines)
+    gone: set[int] = set()
+    for small in lines:
+        text = small.text.strip()
+        if id(small) in gone or small.in_figure or small.size > 0.84 * body or len(text) > 6:
+            continue
+        if not small.math >= 0.45 and not re.fullmatch(r"[∗*†‡§¶\d]{1,3}", text):
+            continue
+        candidates = []
+        for base in lines:
+            if base is small or id(base) in gone or base.in_figure or base.cls != small.cls or base.size < 1.12 * small.size:
+                continue
+            if base.x1 < small.x0 - 4 or base.x0 > small.x1 + 4:
+                continue
+            vertical = max(base.y0 - small.y1, small.y0 - base.y1, 0.0)
+            if vertical > 0.9 * max(base.size, small.size):
+                continue
+            # 优先同一视觉行，脚注标记通常贴在词的右上方。
+            overlap = max(0.0, min(base.y1, small.y1) - max(base.y0, small.y0))
+            candidates.append((0 if overlap > 0 else 1, vertical, abs(base.baseline - small.baseline), base))
+        if not candidates:
+            continue
+        base = min(candidates, key=lambda x: x[:3])[3]
+        merged = _line_from(list(base.spans) + list(small.spans))
+        merged.cls, merged.region, merged.role, merged.in_figure = base.cls, base.region, base.role, base.in_figure
+        idx = out.index(base)
+        out[idx] = merged
+        gone.add(id(small))
+    return [line for line in out if id(line) not in gone]
+
+
+def _split_reference_cross_column_lines(lines: list[Line], body: float) -> list[Line]:
+    """参考文献双栏页上，把同一基线误合成的“左条目 + 右条目”拆开。
+
+    参考文献的左右首行都可能很短、字号也完全相同，普通栏沟规则会把它们
+    误认为一条通栏文字。只在右半段本身像新的作者-年份条目、且中间有明显
+    横向空隙时拆分，并按左栏→右栏重新排序；正文里的跨栏标题不满足作者
+    起始特征，不会走这条路径。
+    """
+    expanded: list[Line] = []
+    crossed = False
+    for line in lines:
+        if line.cls != "F" or len(line.spans) < 2:
+            expanded.append(line)
+            continue
+        spans = sorted(line.spans, key=lambda s: s.x0)
+        candidates: list[tuple[float, int]] = []
+        for i in range(1, len(spans)):
+            gap = spans[i].x0 - spans[i - 1].x1
+            right_text = _line_from(spans[i:]).text
+            if gap >= max(10.0, 1.0 * body) and AUTHOR_START_RE.match(right_text):
+                candidates.append((gap, i))
+        if not candidates:
+            expanded.append(line)
+            continue
+        _, cut = max(candidates)
+        left = _line_from(spans[:cut])
+        right = _line_from(spans[cut:])
+        left.cls, right.cls = "L", "R"
+        left.role = right.role = line.role
+        left.region = right.region = line.region
+        left.in_figure = right.in_figure = line.in_figure
+        expanded.extend((left, right))
+        crossed = True
+    if not crossed:
+        return expanded
+    rank = {"L": 0, "M": 1, "R": 2}
+    return sorted(expanded, key=lambda l: (rank.get(l.cls, 1), l.y0, l.x0))
 
 
 def detect_columns(spans: list[Span], page_h: float | None = None, loose: bool = False) -> list[tuple[float, float]]:
@@ -1542,7 +1664,7 @@ def _merge_algo_fragments(lines: list[Line], step_ids: set[int]) -> list[Line]:
 def _equation_blocks(lines: list[Line], page_no: int, body: float, skip: set[int] | None = None) -> tuple[list[Line], list[Block]]:
     """以公式编号（(1)、ð1Þ）所在行为锚点，把垂直邻近的数学碎片归并成一个 formula 块。"""
     skip = skip or set()
-    anchors = [l for l in lines if id(l) not in skip and not l.in_figure and EQ_NUMBER_RE.search(l.text) and len(l.text) <= 140
+    anchors = [l for l in lines if id(l) not in skip and not l.in_figure and not _is_structural_punctuation(l.text) and EQ_NUMBER_RE.search(l.text) and len(l.text) <= 140
                and (l.math >= 0.2 or len(l.text) <= 60)]
     taken: set[int] = set()
     blocks: list[Block] = []
@@ -1558,10 +1680,13 @@ def _equation_blocks(lines: list[Line], page_no: int, body: float, skip: set[int
             if any(o is not a and id(o) not in taken and o.cls == a.cls and abs(o.baseline - l.baseline) < abs(a.baseline - l.baseline)
                    or (o is l and o is not a) for o in anchors):
                 continue
-            if not (a.baseline - 2.4 * lead <= l.baseline <= a.baseline + 1.9 * lead):
+            # 分段公式的上下限/分母/分情况行可能比编号行低两行以上；只有
+            # 真正的数学片段才放宽垂直范围，普通正文仍不能被吸进公式。
+            formula_fragment = l.math >= 0.18 or bool(re.match(r"^\s*(?:[√∫∑∏]|\d+\s*[,：:])", l.text))
+            if not (a.baseline - 2.4 * lead <= l.baseline <= a.baseline + (2.8 if formula_fragment else 1.9) * lead):
                 continue
             small_fragment = l.size <= 0.85 * a.size and len(l.text) <= 30
-            if l.math < 0.2 and len(l.text) > 10 and not small_fragment:
+            if l.math < 0.2 and len(l.text) > 10 and not small_fragment and not formula_fragment:
                 continue  # 非数学的文字行（段落尾巴）不属于公式
             if l.x1 < a.x0 - 8 or l.x0 > a.x1 + 8:
                 continue
@@ -1598,6 +1723,9 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
         return []
     step_ids = _algo_step_ids(lines)
     lines = _merge_algo_fragments(lines, step_ids)
+    lines = _merge_orphan_script_lines(lines, body)
+    if in_references:
+        lines = _split_reference_cross_column_lines(lines, body)
     lines, eq_blocks = _equation_blocks(lines, page_no, body, step_ids)
     col_extent: dict[str, tuple[float, float]] = {}
     for cls in ("F", "L", "M", "R", "S", "W"):
@@ -1660,7 +1788,10 @@ def segment_paragraphs(lines: list[Line], page_no: int, body: float, *, in_refer
         else:
             dy = ln.baseline - prev.baseline
             lead = _leading_for(leading_tab, ln.size)
-            is_math, prev_math = ln.math >= 0.45 and not _prosey(ln), prev.math >= 0.45 and not _prosey(prev)
+            is_math, prev_math = (
+                ln.math >= 0.45 and not _prosey(ln) and not _is_structural_punctuation(ln.text),
+                prev.math >= 0.45 and not _prosey(prev) and not _is_structural_punctuation(prev.text),
+            )
             if ln.region != prev.region:
                 brk = True  # 视觉划分里不同的区域永远是不同的块
             elif id(ln) in step_ids or (id(prev) in step_ids and is_math != prev_math and False):
@@ -1741,6 +1872,20 @@ def _prosey(ln: Line) -> bool:
     不是独立公式。不这样判断，整行会被切成“公式块”，换行后剩下的 “1}, for simplicity…” 就成了下一段的开头。"""
     words = _PROSE_WORD.findall(" ".join(s.text for s in ln.spans if not s.math))
     return len(words) >= 3
+
+
+_STRUCTURAL_PUNCTUATION_RE = re.compile(r"^[\s{}\[\](),:;]+$")
+
+
+def _is_structural_punctuation(text: str) -> bool:
+    """只有 JSON/伪代码结构符号的行不是显示公式。
+
+    填充文本框里的 ``{``、``},`` 会被某些 PDF 的数学字体编码，导致
+    ``_make_block`` 把它们单独变成公式块；一旦变成公式块，提示词的原始
+    换行会被拆散，阅读视图还会显示“公式识别”。真正的公式至少应包含
+    变量、数字或运算符，单独的括号/逗号不能触发公式判定。
+    """
+    return bool(_STRUCTURAL_PUNCTUATION_RE.fullmatch(text.strip()))
 
 
 def split_side_captions(lines: list[Line], page_no: int, body: float) -> tuple[list[Line], list[Block]]:
@@ -1833,7 +1978,7 @@ def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
             blk.eq_number = m.group(1)
     elif lines[0].role == "caption":
         blk.kind = "caption"
-    elif math >= 0.45 and not (len(lines) == 1 and _prosey(lines[0])):
+    elif math >= 0.45 and not (len(lines) == 1 and _prosey(lines[0])) and not _is_structural_punctuation(text):
         blk.kind = "formula"
         m = EQ_NUMBER_RE.search(text)
         if m:
@@ -1854,3 +1999,14 @@ def _make_block(lines: list[Line], page_no: int, body: float) -> Block:
             body_text = " ".join([rest, *[l.text for l in lines[1:]]]).strip()
             blk.text = clean_text(body_text) if body_text else blk.text
     return blk
+
+
+def with_line_breaks(block: Block) -> str:
+    """按视觉行重建一个块的文字，同时保留每一行之间的硬换行。
+
+    只供已经确认是结构化文本框的块使用；普通正文仍由 ``_make_block`` 的
+    空格拼接规则处理，这样不会把正常的版面自动换行误当成语义换行。
+    """
+    if not block.lines:
+        return block.text
+    return clean_text("\n".join(line.text for line in block.lines))

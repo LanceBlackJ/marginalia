@@ -36,6 +36,10 @@ export interface PaperItemActions {
   onToggleFinished?: (p: PaperSummary) => void
   /** 点标签：按这个标签筛选 */
   onPickTag?: (tag: PaperTag) => void
+  /** 在综述空间里调整文章所属分类。 */
+  onReviewCategory?: (p: PaperSummary) => void
+  /** 从当前综述移出，但不删除论文文件或普通文献数据。 */
+  onRemoveFromReview?: (p: PaperSummary) => void
 }
 
 /** 复制适合粘贴到笔记、邮件或文献管理器的基础题录信息；不把内部状态和路径混进去。 */
@@ -290,6 +294,11 @@ function AnalysisCell({ paper }: { paper: PaperSummary }) {
   )
 }
 
+function ReviewCategoryBadge({ paper }: { paper: PaperSummary }) {
+  if (!paper.review_category_name) return null
+  return <span className="pd-ptag" title={`综述分类：${paper.review_category_name}`}>{paper.review_category_name}</span>
+}
+
 function onKey(e: KeyboardEvent, fn: () => void): void {
   if (e.key === 'Enter' || e.key === ' ') {
     e.preventDefault()
@@ -315,6 +324,8 @@ export function paperMenuItems(paper: PaperSummary, actions: PaperItemActions, n
       : []),
     { key: 'tags', label: '标签…', icon: <TagIcon size={15} />, onSelect: () => actions.onEditTags(paper) },
     ...(actions.onCite ? [{ key: 'cite', label: '生成引用…', icon: <Quote size={15} />, onSelect: () => actions.onCite?.(paper) }] : []),
+    ...(actions.onReviewCategory ? [{ key: 'review-category', label: '设置综述分类…', icon: <TagIcon size={15} />, onSelect: () => actions.onReviewCategory?.(paper) }] : []),
+    ...(actions.onRemoveFromReview ? [{ key: 'review-remove', label: '移出当前综述', icon: <Trash2 size={15} />, onSelect: () => actions.onRemoveFromReview?.(paper) }] : []),
     { key: 'export', label: '导出引文与笔记…', icon: <Download size={15} />, onSelect: () => actions.onExport(paper) },
     ...(actions.onReparse && canReparse(paper)
       ? [{ key: 'reparse', label: needsReparse(paper) ? '重新解析 · 有新版…' : '重新解析…', icon: <RefreshCw size={15} />, onSelect: () => actions.onReparse?.(paper) }]
@@ -406,6 +417,7 @@ export function PaperRow({ paper, actions }: { paper: PaperSummary; actions: Pap
           <FinishedBadge paper={paper} />
           <FolderBadge paper={paper} />
           <PaperTags paper={paper} onPick={actions.onPickTag} />
+          <ReviewCategoryBadge paper={paper} />
           <ReparseHint paper={paper} actions={actions} />
         </div>
         <PaperMatches paper={paper} />
@@ -468,6 +480,7 @@ export function PaperCard({ paper, actions }: { paper: PaperSummary; actions: Pa
         <FinishedBadge paper={paper} />
           <FolderBadge paper={paper} />
         <PaperTags paper={paper} onPick={actions.onPickTag} />
+        <ReviewCategoryBadge paper={paper} />
         <ReparseHint paper={paper} actions={actions} />
       </div>
       <PaperMatches paper={paper} />

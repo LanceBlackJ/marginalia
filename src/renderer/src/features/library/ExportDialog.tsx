@@ -10,6 +10,7 @@ export interface ExportScope {
   label: string
   paperIds?: string[]
   tagId?: string
+  reviewId?: string
 }
 
 type Tab = 'citations' | 'bundle'
@@ -33,7 +34,7 @@ export function ExportDialog({ scope, onClose }: { scope: ExportScope | null; on
     setLoading(true)
     setError(null)
     exportApi2
-      .citations({ format, paper_ids: scope.paperIds, tag_id: scope.tagId })
+      .citations({ format, paper_ids: scope.paperIds, tag_id: scope.tagId, review_id: scope.reviewId })
       .then((r) => alive && setData(r))
       .catch((err) => {
         if (alive) {
@@ -61,7 +62,7 @@ export function ExportDialog({ scope, onClose }: { scope: ExportScope | null; on
     if (!scope) return
     setBusy(true)
     try {
-      const body = { paper_ids: scope.paperIds, ...parts }
+      const body = { paper_ids: scope.paperIds, review_id: scope.reviewId, ...parts }
       if (kind === 'md') {
         const r = await exportApi2.bundleMarkdown(body)
         downloadText(r.filename, r.content)

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS table_analysis (
 
 JOB_TYPE = "tables_analysis"
 CAPTION_RE = re.compile(r"^\s*((?:Supplementary |Extended Data )?)(?:Table|TABLE)\s+([A-Z]?\d+(?:\.\d+)*[A-Za-z]?)\s*[:.|]")
+CAPTION_ANY_RE = re.compile(r"(?<![A-Za-z])((?:Supplementary |Extended Data )?)(?:Table|TABLE)\s+([A-Z]?\d+(?:\.\d+)*[A-Za-z]?)\s*[:.|]")
 # 有的期刊（Springer 等）的图注编号后面没有冒号或句点：“Table 2  Representative applications…”。
 # 这种写法只对解析阶段已经认定为图注（kind=caption）的段落放宽，正文里的 “Table 2 shows …” 不会被当成表题。
 CAPTION_LOOSE_RE = re.compile(r"^\s*((?:Supplementary |Extended Data )?)(?:Table|TABLE)\s+([A-Z]?\d+(?:\.\d+)*[A-Za-z]?)\s+\S")
@@ -161,6 +162,8 @@ def detect_tables(passages: list[dict]) -> list[dict]:
     out: list[dict] = []
     for i, p in enumerate(passages):
         m = CAPTION_RE.match(p["text"]) if p["kind"] in ("paragraph", "caption") else None
+        if not m and p["kind"] == "caption":
+            m = CAPTION_ANY_RE.search(p["text"])
         if not m and p["kind"] == "caption":
             m = CAPTION_LOOSE_RE.match(p["text"])
         cont_only = False

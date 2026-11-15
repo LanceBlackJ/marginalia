@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
 from .api import ai as ai_api
-from .api import annotations, deps, imports, insight, jobs, papers, structure, system
+from .api import annotations, deps, imports, insight, jobs, papers, reviews as reviews_api, structure, system
 from .api import compare as compare_api  # F3：多论文比较
 from .api import discovery as discovery_api  # F3：学术发现
 from .api import knowledge as knowledge_api  # F3：主题知识库/画像/导出
@@ -32,8 +32,9 @@ from .materials import jobs as materials_jobs  # F1
 from .config import Paths
 from .context import AppContext
 from .db import Database
-from .jobs import JobManager
+from .jobs import JobManager, MAX_WORKERS
 from .library import import_jobs
+from .library import reviews as _reviews_schema  # noqa: F401  综述表必须在数据库初始化前注册
 from .library import layout_boxes as _layout_boxes  # noqa: F401  导入时就注册 page_boxes 表（必须在数据库初始化之前）
 from .util import ApiError
 
@@ -50,7 +51,7 @@ def create_app(
     *,
     sync_transport: httpx.BaseTransport | None = None,
     async_transport: httpx.AsyncBaseTransport | None = None,
-    job_workers: int = 2,
+    job_workers: int = MAX_WORKERS,
 ) -> FastAPI:
     paths = Paths(Path(data_dir))
     paths.ensure()
@@ -106,7 +107,7 @@ def create_app(
         return {"status": "ok", "version": __version__}
 
     protected = [Depends(deps.require_token)]
-    for module in (papers, folders_api, imports, jobs, annotations, system, ai_api, insight, structure):
+    for module in (papers, folders_api, reviews_api, imports, jobs, annotations, system, ai_api, insight, structure):
         app.include_router(module.router, prefix="/api", dependencies=protected)
     for module in (supplements_api,):  # F1
         app.include_router(module.router, prefix="/api", dependencies=protected)

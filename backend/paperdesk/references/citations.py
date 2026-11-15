@@ -13,13 +13,15 @@ _NUMS = r"\d{1,3}(?:\s*[,–‐\-]\s*\d{1,3}){0,6}"
 _BRACKET = re.compile(rf"(?<![A-Za-z0-9])\[\s*({_NUMS})\s*\]")
 _REF_WORD = re.compile(rf"\b[Rr]efs?\.?\s+({_NUMS})")
 _SUP = re.compile(r"(?<![^\W\d_])([^\W\d_]{3,})(\d{1,3}(?:[,–‐-]\d{1,3}){0,4})(?=[\s.,;:)\]—–―\-/”’]|$)")
-_PAREN = re.compile(r"\(([^()]{3,200})\)")
+# 一组引用可能包含很多作者-年份项，不能按固定字符数截断；只匹配不含嵌套括号
+# 的一对括号，仍然不会跨越整段正文。
+_PAREN = re.compile(r"\(([^()]*)\)")
 _NAME = r"(?:(?:van|von|de|der|den|di|da|del|della|la|le|ten|ter|bin|al|el|du|dos|das)\s+){0,2}[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+"
 _AY_PART = re.compile(
-    rf"({_NAME})(?:\s+et al\.?|\s+(?:and|&)\s+{_NAME})?,?\s+((?:19|20)\d{{2}})[a-z]?"
+    rf"({_NAME})(?:\s+et al\.?|\s+(?:and|&)\s+{_NAME})?,?\s+((?:19|20)\d{{2}})([a-z]?)"
 )
 _AY_NARRATIVE = re.compile(
-    rf"\b({_NAME})(?:\s+et al\.?|\s+(?:and|&)\s+{_NAME})?\s+\(\s*((?:19|20)\d{{2}})[a-z]?\s*\)"
+    rf"\b({_NAME})(?:\s+et al\.?|\s+(?:and|&)\s+{_NAME})?\s+\(\s*((?:19|20)\d{{2}})([a-z]?)\s*\)"
 )
 
 # 数学/记号里常见的“词+数字”，不是引用（与前端 textClean.ts 保持一致）
@@ -56,16 +58,21 @@ def build_vocab(passages: list[dict]) -> Counter:
     return vocab
 
 
-def author_year_index(entries: list[dict]) -> dict[tuple[str, int], list[int]]:
-    out: dict[tuple[str, int], list[int]] = {}
+def author_year_index(entries: list[dict]) -> dict[tuple[str, int, str], list[int]]:
+    out: dict[tuple[str, int, str], list[int]] = {}
     for e in entries:
         sn = first_author_surname(e)
         if sn and e.get("year"):
-            out.setdefault((sn, e["year"]), []).append(e["index"])
+            suffixes = re.findall(r"\b((?:19|20)\d{2})([a-z])?\b", e.get("raw", ""), re.IGNORECASE)
+            # 参考文献条目里可能还出现“revised in 2024”等其它年份；后缀必须取
+            # 与解析出的出版年份相邻的那一个，而不是简单取最后一个年份。
+            same_year = [s for y, s in suffixes if int(y) == int(e["year"])]
+            suffix = next((s for s in same_year if s), (same_year[0] if same_year else "")).lower()
+            out.setdefault((sn, e["year"], suffix), []).append(e["index"])
             first = next((a for a in e.get("authors") or [] if a and a != "et al."), "")
             words = [w for w in re.findall(r"[A-Za-zÀ-ÿ]+", first) if w[0].isupper()]
             if "," not in first and len(words) >= 2:  # 机构作者：正文常用缩写（World Health Organization → WHO）
-                out.setdefault(("".join(w[0] for w in words).lower(), e["year"]), []).append(e["index"])
+                out.setdefault(("".join(w[0] for w in words).lower(), e["year"], suffix), []).append(e["index"])
     return out
 
 
@@ -73,7 +80,7 @@ def _norm(s: str) -> str:
     return re.sub(r"[^\w\-]", "", s).lower()
 
 
-def detect_markers(text: str, valid: set[int], ay: dict[tuple[str, int], list[int]], vocab: Counter, lenient: bool = False) -> list[dict]:
+def detect_markers(text: str, valid: set[int], ay: dict[tuple[str, int, str], list[int]], vocab: Counter, lenient: bool = False) -> list[dict]:
     """返回段落里的引用标记 [{kind, text, start, end, refs}]，按位置排序、互不重叠。"""
     found: list[dict] = []
 
@@ -103,14 +110,38 @@ def detect_markers(text: str, valid: set[int], ay: dict[tuple[str, int], list[in
                 am = _AY_PART.search(part.group(0))
                 if not am:
                     continue
-                refs = ay.get((_norm(am.group(1)), int(am.group(2))), [])
+                refs = ay.get((_norm(am.group(1)), int(am.group(2)), am.group(3).lower()), [])
                 if len(refs) == 1:  # 姓氏+年份对应多条时不猜
                     s = inner_start + part.start() + am.start()
                     add("authoryear", s, inner_start + part.start() + am.end(), refs)
         for nm in _AY_NARRATIVE.finditer(text):
-            refs = ay.get((_norm(nm.group(1)), int(nm.group(2))), [])
+            refs = ay.get((_norm(nm.group(1)), int(nm.group(2)), nm.group(3).lower()), [])
             if len(refs) == 1:
                 add("authoryear", nm.start(), nm.end(), refs)
+    # 一个括号里常常是多篇作者-年份引用：
+    # “(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)”。
+    # 不能只把每一项分别标记，否则 PDF 链接和译文定位时很容易只剩下其中一项。
+    # 只在括号内已有两条以上“已映射到参考文献”的作者-年份引用时归并，
+    # 不会把普通括号、公式括号或无法映射的文本误判为引用。
+    for pm in _PAREN.finditer(text):
+        members = [
+            m for m in found
+            if m["kind"] == "authoryear"
+            and pm.start() <= m["start"]
+            and m["end"] <= pm.end()
+        ]
+        refs = sorted({r for m in members for r in m["refs"]})
+        if len(members) >= 2 and len(refs) >= 2:
+            for m in members:
+                found.remove(m)
+            found.append({
+                "kind": "authoryear",
+                "text": text[pm.start():pm.end()],
+                "start": pm.start(),
+                "end": pm.end(),
+                "refs": refs,
+            })
+
     found.sort(key=lambda d: (d["start"], -d["end"]))
     out: list[dict] = []
     last_end = -1

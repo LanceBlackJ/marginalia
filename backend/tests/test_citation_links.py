@@ -91,3 +91,32 @@ def test_regex_and_link_for_the_same_reference_merge_into_the_longer_span():
     regex2 = [{"ord": 0, "markers": [_mk("authoryear", "Devlin et al. (2019)", t, [9])]}]
     out2 = merge_markers(regex2, links, {0: t})[0]["markers"]
     assert [m["refs"] for m in out2] == [[2]]
+
+
+def test_multiple_author_year_citations_in_one_parenthesis_are_one_group():
+    text = "Recent work (Hong et al., 2023; Li et al., 2023a; Wu et al., 2023) is promising."
+    entries = [
+        {"index": 1, "authors": ["Hong, S."], "year": 2023, "raw": "Hong, S. Work (2023)."},
+        {"index": 2, "authors": ["Li, G."], "year": 2023, "raw": "Li, G. Work (2023a)."},
+        {"index": 3, "authors": ["Wu, Q."], "year": 2023, "raw": "Wu, Q. Work (2023)."},
+    ]
+    out = detect_all([{"ord": 0, "page": 1, "kind": "paragraph", "text": text}], entries, "author-year")
+    assert len(out) == 1
+    assert [(m["text"], m["refs"]) for m in out[0]["markers"]] == [
+        ("(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)", [1, 2, 3])
+    ]
+
+
+def test_split_pdf_link_fragments_and_regex_middle_into_one_citation_group():
+    text = "Recent work (Hong et al., 2023; Li et al., 2023a; Wu et al., 2023) is promising."
+
+    def mk(fragment: str, refs: list[int]):
+        start = text.index(fragment)
+        return {"kind": "link", "text": fragment, "start": start, "end": start + len(fragment), "refs": refs, "pre": ""}
+
+    links = [{"ord": 0, "markers": [mk("(Hong et al., 2023;", [1]), mk("Wu et al., 2023)", [3])]}]
+    regex = [{"ord": 0, "markers": [{**mk("Li et al., 2023a", [2]), "kind": "authoryear"}]}]
+    out = merge_markers(regex, links, {0: text})
+    assert [(m["text"], m["refs"]) for m in out[0]["markers"]] == [
+        ("(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)", [1, 2, 3])
+    ]

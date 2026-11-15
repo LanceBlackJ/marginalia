@@ -149,9 +149,13 @@ class AIService:
                         "SELECT translation, model FROM translations WHERE paper_id=? AND text_hash=? AND target='zh'",
                         (paper_id, digest),
                     ).fetchone()
-                if hit:
+                # 全文批处理的译文也必须先过段落对应性校验；旧版本可能把邻段译文写到了当前哈希下。
+                from .fulltranslate import translation_usable
+                from . import formatguard
+
+                if hit and translation_usable(text, hit["translation"], math):
                     yield "meta", {"model": hit["model"], "cached": True}
-                    yield "done", {"translation": hit["translation"], "model": hit["model"], "cached": True,
+                    yield "done", {"translation": formatguard.display(hit["translation"]), "model": hit["model"], "cached": True,
                                    "usage": {"prompt_tokens": 0, "completion_tokens": 0}}
                     return
             section_title = None
@@ -215,7 +219,12 @@ class AIService:
         digest = hashlib.sha256(retrieval.reader.normalize(text).encode()).hexdigest()[:32]
         with self.app.db.session() as conn:
             hit = conn.execute("SELECT translation FROM translations WHERE paper_id=? AND text_hash=? AND target='zh'", (paper_id, digest)).fetchone()
-        return hit["translation"] if hit else None
+        if not hit:
+            return None
+        from .fulltranslate import translation_usable
+        from . import formatguard
+
+        return formatguard.display(hit["translation"]) if translation_usable(text, hit["translation"]) else None
 
     # ---- 研究问答 ----
     async def _plan_terms(self, provider: LLMProvider, cfg: dict, question: str, sel_text: str, title: str,

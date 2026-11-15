@@ -16,7 +16,7 @@ describe('公式编号的规范化', () => {
 
 describe('正文里的公式引用', () => {
   it('带前缀的写法：括号可有可无', () => {
-    expect(hit('as in Eq. (3) and equation (7), see Equation 5.')).toEqual(['Eq. (3)→3', 'equation (7)→7', 'Equation 5→5'])
+    expect(hit('as in Eq. (3), Eqn. (4) and equation (7), see Equation 5.')).toEqual(['Eq. (3)→3', 'Eqn. (4)→4', 'equation (7)→7', 'Equation 5→5'])
     expect(hit('由公式 (2) 可得')).toEqual(['公式 (2)→2'])
   })
 

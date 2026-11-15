@@ -73,6 +73,9 @@ def list_papers(
     finished: bool | None = None,
     imported_from: str | None = None,
     imported_to: str | None = None,
+    scope: Literal["library", "review"] = "library",
+    review_id: str | None = None,
+    review_category_id: str | None = None,
     ctx: AppContext = Depends(get_ctx),
 ):
     if view == "recent" and sort == "imported":
@@ -84,7 +87,10 @@ def list_papers(
         "has_notes": has_notes, "has_annotations": has_annotations, "has_supplement": has_supplement, "has_code": has_code,
         "favorite": favorite, "finished": finished, "imported_from": imported_from, "imported_to": imported_to,
     }
-    items, total = repo.list_papers(ctx, q=q, view=view, sort=sort, order=order, limit=limit, offset=offset, tag=tag, filters_=filters_)
+    items, total = repo.list_papers(
+        ctx, q=q, view=view, sort=sort, order=order, limit=limit, offset=offset, tag=tag,
+        filters_=filters_, scope=scope, review_id=review_id, review_category_id=review_category_id,
+    )
     processing.attach_summaries(ctx, items)
     return {"items": items, "total": total}
 

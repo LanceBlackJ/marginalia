@@ -16,7 +16,7 @@ from pathlib import Path
 import pymupdf
 
 from . import datablocks, inline_math, layout, layout_hints, reflow
-from .figures import Region, detect_regions, regions_from_text_clusters
+from .figures import Region, detect_regions, regions_from_text_clusters, text_panel_boxes
 from .layout import LIGATURES, Block, Line, clean_text, is_cjk  # noqa: F401  (LIGATURES 供外部引用)
 from .metadata import PdfMetadata, extract_metadata
 
@@ -64,7 +64,12 @@ is_caption = layout.is_caption
 # 30 = 行内公式：正文不是 CM 字体（Times 等）的页面上，公式里 CMR / CMBX 排的括号、等号、max、粗体向量也算数学片段，
 #      一条公式不再在括号处被切成几半（x_l = f(y_{l-1}) 以前左边的 x 掉在外面）；整条认不全时记成候选并保留小簇兜底（parts）
 # 33 = 复合图最后一个面板标签（“F Fig. 2”）不再粘到图注开头。
-PARSER_VERSION = 33
+# 35 = 填充文本框（prompt、算法、定义等）保留 PDF 的硬换行，并合并被 PDF 拆开的相邻文字对象。
+# 36 = 首页作者跨栏行合并、文字层表格区域检测、图表题不被图框吞掉、行首 run-in 小标题留在正文段落内。
+# 37 = 多行表题续行不再被当成表体；同页表格和后续图形按区域类型匹配题注，避免重复表格/错挂图题。
+# 38 = 公式分情况/上下标行更稳定地归并；提示词 JSON 结构符号不再误判为公式；
+#      填充文本框恢复完整硬换行；双栏参考文献首行拆栏后再排序；多字符作者重音按坐标合成。
+PARSER_VERSION = 38
 COVER_RE = re.compile(r"引用本文\s*[:：]|您可能感兴趣的其他文章|在线阅读\s*View online")
 
 
@@ -190,6 +195,7 @@ class _Page:
     lines: list[Line] = field(default_factory=list)
     regions: list[Region] = field(default_factory=list)
     side_caps: list[Block] = field(default_factory=list)  # 文字绕排的图旁边的图注（从正文行里抽出来的）
+    text_panels: list[tuple[float, float, float, float]] = field(default_factory=list)  # 填充文本框，框内保留硬换行
     hinted: bool = False  # 这一页按视觉划分重建（行已按阅读顺序排好）
 
 
@@ -197,6 +203,117 @@ def _to_display(rot: pymupdf.Matrix, bbox: tuple[float, float, float, float]) ->
     r = pymupdf.Rect(bbox) * rot
     r.normalize()
     return (r.x0, r.y0, r.x1, r.y1)
+
+
+def _panel_for_block(block: Block, panels: list[tuple[float, float, float, float]]) -> int | None:
+    """返回充分包住 block 的文本框序号；不满足时返回 None。"""
+    area = max(1.0, block.width * max(1.0, block.y1 - block.y0))
+    for i, (x0, y0, x1, y1) in enumerate(panels):
+        overlap = max(0.0, min(block.x1, x1) - max(block.x0, x0)) * max(0.0, min(block.y1, y1) - max(block.y0, y0))
+        if overlap >= 0.60 * area:
+            return i
+    return None
+
+
+def _merge_text_panel_blocks(blocks: list[Block], panels: list[tuple[float, float, float, float]]) -> None:
+    """把同一文本框里因 PDF 内部对象分裂的相邻行合成一个结构化文字块。
+
+    有些 PDF 把文本框的第一行和后续行写成不同的文字对象，普通段落分段器
+    会因此产生多个 passage。按同一填充框、同一栏、同一字号和行距合并，既
+    恢复原有行序，又不会把框外的正文或框内独立段落串起来。
+    """
+    if not panels or not blocks:
+        return
+    for block in blocks:
+        panel = _panel_for_block(block, panels) if block.kind != "formula" else None
+        if panel is not None and block.nlines >= 1:
+            block.preserve_lines = True
+            block.text = layout.with_line_breaks(block)
+
+    merged: list[Block] = []
+    for block in blocks:
+        if not merged:
+            merged.append(block)
+            continue
+        prev = merged[-1]
+        pi = _panel_for_block(prev, panels) if prev.kind != "formula" else None
+        bi = _panel_for_block(block, panels) if block.kind != "formula" else None
+        gap = block.y0 - prev.y1
+        # 文本框里的短行常被栏沟规则标成 L、F、R 不同的列类；这里列类
+        # 只是普通正文的阅读排序辅助，不应阻止同一填充框恢复成一个结构化块。
+        same_style = abs(prev.size - block.size) < 0.75
+        same_row_start = abs(prev.x0 - block.x0) <= max(12.0, 1.5 * prev.size)
+        if (
+            pi is not None and pi == bi and prev.kind == block.kind == "paragraph"
+            and same_style and same_row_start and -0.5 * prev.size <= gap <= 2.4 * max(prev.size, block.size)
+        ):
+            prev.lines = list(prev.lines or []) + list(block.lines or [])
+            prev.nlines = len(prev.lines)
+            prev.x0, prev.y0 = min(prev.x0, block.x0), min(prev.y0, block.y0)
+            prev.x1, prev.y1 = max(prev.x1, block.x1), max(prev.y1, block.y1)
+            prev.text = layout.with_line_breaks(prev)
+            continue
+        merged.append(block)
+    blocks[:] = merged
+
+
+def _merge_author_header_lines(pg: _Page) -> None:
+    """把首页作者行被栏沟拆开的左右片段恢复成一行。
+
+    双栏检测对正文很重要，但首页作者名单经常横跨栏沟：PDF 会把同一条作者
+    行写成一个左栏 Line 和一个右栏 Line。若不先合并，右半行会在正文阅读流
+    里出现，作者/单位也会重复。这里只在页面上半部、同一基线、组合后明显像
+    作者名单时处理，不按具体作者姓名做特判。
+    """
+    if not pg.lines:
+        return
+    abstract_y = min(
+        (l.y0 for l in pg.lines if re.match(r"(?i)^\s*(?:abstract|摘\s*要)\b", l.text.strip())),
+        default=0.44 * pg.native_h,
+    )
+    limit = min(abstract_y + 2.0, 0.46 * pg.native_h)
+    candidates = [
+        l for l in pg.lines
+        if not l.in_figure and l.y0 < limit and l.cls in ("L", "R", "S", "W") and _looks_like_names(l.text)
+    ]
+    if len(candidates) < 2:
+        return
+    used: set[int] = set()
+    replacements: dict[int, Line] = {}
+    for left in candidates:
+        if id(left) in used:
+            continue
+        # 不依赖固定栏宽；同一基线的候选行按横坐标合并，再检查组合结果。
+        group = sorted(
+            [other for other in candidates if id(other) not in used and abs(other.baseline - left.baseline) <= 2.2],
+            key=lambda l: l.x0,
+        )
+        if len(group) < 2 or not any(g.cls in ("L", "R") for g in group):
+            continue
+        adjacent = all(b.x0 - a.x1 <= max(40.0, 3.0 * max(a.size, b.size)) for a, b in zip(group, group[1:]))
+        combined = " ".join(g.text for g in group)
+        if not adjacent or not _looks_like_names(combined):
+            continue
+        merged = layout._line_from([s for g in group for s in g.spans])
+        merged.cls = "F"
+        merged.role = "authors"
+        merged.in_figure = False
+        merged.region = -1
+        # 用对象身份找锚点；Line 是可变 dataclass，不能依赖相等比较，
+        # 否则同坐标/同文字的重复行可能把合并结果插到错误的位置。
+        anchor = next(g for g in pg.lines if any(g is member for member in group))
+        replacements[id(anchor)] = merged
+        used.update(id(g) for g in group)
+    if not replacements:
+        return
+    out: list[Line] = []
+    for line in pg.lines:
+        if id(line) in used:
+            if id(line) in replacements:
+                out.append(replacements[id(line)])
+            continue
+        out.append(line)
+    pg.lines = out
 
 
 def bold_runs(b: Block, attr: str = "bold") -> list[str]:
@@ -660,6 +777,8 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
         # OCR 页整页就是一张扫描图，不能当作“图区域”（否则所有文字都会被判成图内文字）：改用密集短行聚类找图
         pg.regions = (regions_from_text_clusters(pg.spans, pg.native_w, pg.native_h) if pg.no in ocr_done
                       else detect_regions(doc[i], pg.native_w, pg.native_h))
+        if pg.no not in ocr_done:
+            pg.text_panels = text_panel_boxes(doc[i], pg.native_w, pg.native_h)
         if pg.no not in ocr_done and model_boxes.get(pg.no) and _unrotated(pg):
             _add_model_regions(pg, model_boxes[pg.no])
 
@@ -686,6 +805,7 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
         if hint and pg.no not in ocr_done and abs(pg.rot.b) < 1e-6 and abs(pg.rot.c) < 1e-6 and pg.rot.a > 0 and pg.rot.d > 0:
             if layout_hints_apply(pg, hint, body):
                 pg.lines, pg.side_caps = layout.split_side_captions(pg.lines, pg.no, body)
+                _merge_author_header_lines(pg)
                 _flag_figure_lines(pg, body)
                 continue
         band = layout.detect_side_band(usable, pg.native_h) if len(usable) >= 60 else None
@@ -742,6 +862,7 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
                     if ln.cls == "R":
                         ln.cls = "S"  # 首页右边一条比左边窄得多的栏（F1000Research 的 Open Peer Review 面板）
         pg.lines, pg.side_caps = layout.split_side_captions(pg.lines, pg.no, body)
+        _merge_author_header_lines(pg)
         _flag_figure_lines(pg, body)
         if model_boxes.get(pg.no) and pg.no not in ocr_done and _unrotated(pg):
             _tag_model_formulas(pg, model_boxes[pg.no])
@@ -771,6 +892,9 @@ def _parse_document(doc: pymupdf.Document, ocr_pages: dict[int, list[layout.Span
             layout.normalize_classes(pg.lines)
             ordered = layout.reading_order([l for l in pg.lines])
         page_blocks = layout.segment_paragraphs(ordered, pg.no, body, in_references=in_refs)
+        # 文本框里的换行是 prompt/算法/定义等内容结构，不是普通正文的版面折行。
+        # 只对与填充框充分重叠的块启用，避免影响正文、标题和公式。
+        _merge_text_panel_blocks(page_blocks, pg.text_panels)
         if by_content:
             for pb in page_blocks:
                 pb.ref_page = True
@@ -915,6 +1039,10 @@ def _flag_figure_lines_in(pg: _Page, body: float) -> None:
     flagged = 0
     table_lines: set[int] = set()  # 三线表区域里的行：不受“短行”限制，也不参与下面“其实是正文页”的判断
     for ln in pg.lines:
+        # 图/表题本身是正文流里的锚点，即使它落在图框边缘或与图框重叠，
+        # 也不能被标成 figure_text，否则题目的下一行会变成孤立正文。
+        if layout.is_caption(ln.text):
+            continue
         cx, cy = (ln.x0 + ln.x1) / 2, (ln.y0 + ln.y1) / 2
         if any(r.table and r.contains_point(cx, cy) for r in pg.regions):
             ln.in_figure = True
@@ -1151,6 +1279,10 @@ def _join_cross_page(blocks: list[Block], skip: set[int]) -> list[Block]:
                 a.text = head + b.text.lstrip()
             else:
                 a.text = head + " " + b.text.lstrip()
+            if a.preserve_lines and b.preserve_lines:
+                a.lines = list(a.lines or []) + list(b.lines or [])
+                a.nlines = len(a.lines)
+                a.text = layout.with_line_breaks(a)
             a.cont = list(a.cont) + [b]
             a.nlines += b.nlines
             continue
@@ -1590,9 +1722,13 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
             in_algo = True  # 作者贡献里的 CRediT 角色（“Conceptualization: 姓名, 姓名.”）不是小节标题
         if b.run_in and re.fullmatch(r"(?i)(?:key\s*words?|index terms)", b.run_in.strip(" .:：")):
             in_algo = True  # “Keywords:” 是关键词行的标签，不是小节标题
-        if b.run_in and not use_toc and not in_refs and not in_algo and _prose_like(text):  # 参考文献里的行首短句（“Y. Bengio. Maxout networks.”）不是小节标题
-            cur_section = new_section(b.level or 2, _heading_title(b.run_in), pn)
-            after_abstract = False
+        # 行首粗体短语后面紧接实质正文时，它是 run-in 小标题，不是独立章节。
+        # 保留在同一段里，既不污染目录，也不会把原文/译文拆成“标题 + 半句话”。
+        if b.run_in and not in_refs and not in_algo and _prose_like(text):
+            first_line = b.lines[0].text.strip() if b.lines else ""
+            suffix = first_line[len(b.run_in):].lstrip() if first_line.startswith(b.run_in) else ""
+            punctuation = suffix[:1] if suffix[:1] in ".:：" else "."
+            text = f"{b.run_in}{punctuation} {text}".strip()
         if text == "" or (re.fullmatch(r"[\d\W]+", text) and b.kind != "formula"):
             continue
         if b.kind == "formula":
@@ -1655,6 +1791,12 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
             for p in cap_passages:
                 if p.page != pg.no:
                     continue
+                # 一个页面上的表格后面常紧接另一张图。若已经检测出明确的
+                # table 区域，普通图形区域不能再“借用”上方的 Table 题注，
+                # 否则同一个 Table N 会生成两个实体，图内文字也会挂错表。
+                caption_is_table = bool(re.match(r"(?i)\s*(?:table|表)\b", p.text))
+                if caption_is_table != reg.table:
+                    continue
                 # 图区域和图注紧挨着时，边界可能差零点几个点甚至略有重叠（Springer 的图注就贴在图下沿），留 8pt 容差
                 below = p.bbox[1] - disp[3]
                 above = disp[1] - p.bbox[3]
@@ -1689,7 +1831,15 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
     full_text = " ".join(p.text for p in passages[:200])
     title_text = " ".join(b.text for b in sorted(title_blocks, key=lambda b: (b.y0, b.x0)))
     title_text = re.sub(r"(?<=[一-鿿，、：；！？）》」”])\s+(?=[一-鿿（《「“])", "", title_text)  # 标题折行处，汉字之间不该有空格
-    author_texts = [_author_text(b) for b in p1 if id(b) in front_ids and id(b) not in side_ids and not (b.run_in or '').lower().startswith('editor') and id(b) not in meta_ids and not re.search(r"(?i)\(\s*received\s+\d", b.text) and (b.size >= 0.88 * body or _looks_like_names(b.text) or (bool(title_blocks) and 0 <= b.y0 - max(t_.y1 for t_ in title_blocks) <= 80 and re.match(r"[A-Z][A-Z.\-']+(?:\s+[A-Z][A-Z.\-']+){1,3}\s", b.text) is not None)) and len(b.text) <= 2500][:40]
+    author_texts = [_author_text(b) for b in p1 if id(b) in front_ids and id(b) not in side_ids
+                    and not (b.run_in or '').lower().startswith('editor') and id(b) not in meta_ids
+                    and not re.search(r"(?i)\(\s*received\s+\d", b.text)
+                    and not _looks_like_affiliation(b.text)
+                    and not re.search(r"(?i)\b(?:proceedings|conference|copyright|pmlr|symposium|workshop)\b", b.text)
+                    and (b.size >= 0.88 * body or _looks_like_names(b.text)
+                         or (bool(title_blocks) and 0 <= b.y0 - max(t_.y1 for t_ in title_blocks) <= 80
+                             and re.match(r"[A-Z][A-Z.\-']+(?:\s+[A-Z][A-Z.\-']+){1,3}\s", b.text) is not None))
+                    and len(b.text) <= 2500][:40]
     abstract = None
     if abstract_block is not None:
         abstract = re.sub(r"(?i)^\s*(abstract|摘\s*要)[\s:：.—-]*", "", abstract_block.text).strip()[:3000]
@@ -1725,15 +1875,19 @@ def _assemble(doc, pages: list[_Page], blocks: list[Block], body: float, meta_ra
 
 def _looks_like_names(text: str) -> bool:
     """一段文字是不是作者名单/单位/邮箱：几乎每个词都大写开头、没有小写开头的普通词，或者含邮箱。"""
-    words = text.split()
-    if "@" in text and len(words) <= 40:
+    # 作者名后的单位上标可能是独立数字（“Chi Wang 6”），也可能紧贴词尾
+    # （“Wang6”）。先去掉这类标记再判断大小写，不能让它把第二行作者误判成正文。
+    clean = re.sub(r"(?<![A-Za-z])\d{1,2}(?![A-Za-z])", " ", text)
+    clean = re.sub(r"(?<=[A-Za-z])\d{1,2}(?=(?:\s|$))", " ", clean)
+    words = clean.split()
+    if "@" in clean and len(words) <= 40:
         return True
-    if re.search(r"\bet\s+al\b\.?", text) and len(words) <= 12:
+    if re.search(r"\bet\s+al\b\.?", clean) and len(words) <= 12:
         return True  # “B. P. Abbott et al.*”：合作组论文只写第一作者加 et al.
     if len(words) < 4:
         return False
     # 逗号隔开的一串姓名（“Jack W. Rae, Sebastian Borgeaud, Diego de Las Casas, …”）：每一段 2-5 个词、首尾词大写开头
-    parts = [p.strip() for p in re.split(r"\s*(?:,|;|\band\b|&)\s*", re.sub(r"[∗*†‡§¶⋆★☯✉]+", "", text)) if p.strip()]
+    parts = [p.strip() for p in re.split(r"\s*(?:,|;|\band\b|&)\s*", re.sub(r"[∗*†‡§¶⋆★☯✉]+", "", clean)) if p.strip()]
     if len(parts) >= 4:
         ok = sum(1 for p in parts if 2 <= len(p.split()) <= 5 and p.split()[0][:1].isupper() and p.split()[-1][:1].isupper())
         if ok / len(parts) >= 0.85:
@@ -1742,7 +1896,7 @@ def _looks_like_names(text: str) -> bool:
     if len(words) < 3:
         return False
     cap = sum(1 for w in words if w[:1].isupper() or w[:1] in "∗†‡*&")
-    return cap / len(words) > 0.8 and not re.search(r"[a-z]{3,} [a-z]{3,} [a-z]{3,}", text)
+    return cap / len(words) > 0.8 and not re.search(r"[a-z]{3,} [a-z]{3,} [a-z]{3,}", clean)
 
 
 def _find_abstract(passages: list[ParsedPassage], sections: list[ParsedSection]) -> str | None:

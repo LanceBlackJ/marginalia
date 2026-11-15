@@ -11,7 +11,7 @@ from ..materials import schema as _materials_schema  # noqa: F401  确保补充�
 from ..parsing.pdf_parser import PARSER_VERSION
 from ..util import ApiError, dumps, loads, utcnow
 from ..db import register_column
-from . import filters, folders  # folders 在导入时注册 papers.folder_id 与文件夹/智能视图的表
+from . import filters, folders, reviews  # 导入时注册文库扩展表
 
 # 备注名：用户给论文起的名字，显示在标题的位置，原标题保留不动
 register_column("paper_alias", "papers", "alias", "TEXT")
@@ -96,7 +96,8 @@ def _like(value: str) -> str:
 
 def list_papers(
     app: AppContext, *, q: str | None, view: str, sort: str, order: str, limit: int, offset: int, tag: str | None = None,
-    filters_: dict[str, Any] | None = None,
+    filters_: dict[str, Any] | None = None, scope: str = "library", review_id: str | None = None,
+    review_category_id: str | None = None,
 ) -> tuple[list[dict], int]:
     """文献列表。旧参数（q/view/sort/tag）保持不变；`filters_` 里是多特征筛选条件（见 library/filters.py），全部 AND。
 
@@ -130,6 +131,9 @@ def list_papers(
         order_sql = sort_sql[sort].format(o=direction)
     with app.db.session() as conn:
         where, args = filters.build_where(conn, f)
+        isolation, isolation_args = reviews.review_filter_sql(scope, review_id, review_category_id)
+        where.append(isolation)
+        args.extend(isolation_args)
         clause = " WHERE " + " AND ".join(where)
         total = conn.execute(f"SELECT COUNT(*) FROM papers p{clause}", args).fetchone()[0]
         rows = conn.execute(
@@ -142,6 +146,20 @@ def list_papers(
         for i in items:
             i["tags"] = tags[i["id"]]
             i["folder_path"] = paths.get(i["folder_id"]) if i["folder_id"] else None
+        if scope == "review" and review_id and ids:
+            membership = {
+                r["paper_id"]: r
+                for r in conn.execute(
+                    f"SELECT paper_id, category_id, screening, rc.name AS category_name FROM review_papers rp JOIN review_categories rc ON rc.id = rp.category_id WHERE rp.review_id = ? AND paper_id IN ({','.join('?' for _ in ids)})",
+                    (review_id, *ids),
+                ).fetchall()
+            }
+            for i in items:
+                m = membership.get(i["id"])
+                if m:
+                    i["review_category_id"] = m["category_id"]
+                    i["review_category_name"] = m["category_name"]
+                    i["review_screening"] = m["screening"]
         if any(f.get(k) for k in filters.TEXT_KEYS):
             matches = filters.collect_matches(conn, ids, f)
             for i in items:

@@ -18,7 +18,7 @@ from ..context import AppContext
 from ..jobs import JobContext, JobManager
 from ..parsing import inline_math
 from ..util import ApiError, utcnow
-from . import citeguard, prompts
+from . import citeguard, formatguard, prompts
 from . import usage as usage_log
 from .providers import LLMError
 from .router import TaskType, choose_model
@@ -31,8 +31,58 @@ _MARK = re.compile(r"^[ \t]*###(\d+)###[ \t]*$", re.M)
 
 BATCH_NOTE = (
     "\n\n本次输入包含多个段落，每段以单独一行的“###N###”标记开头（N 为序号）。"
-    "输出必须逐段对应：先写同样的“###N###”标记行，下一行起写该段译文；不要合并、遗漏或调换段落，不要输出标记以外的任何说明。"
+    "每段正文还被 [[PDSEG:xxxxxxxxxx]] 与 [[/PDSEG:xxxxxxxxxx]] 包围，这是不可翻译的段落边界锚点。"
+    "输出必须逐段对应：保留同样的“###N###”标记行和成对的 PDSEG 锚点，锚点内只翻译对应的原文；不要合并、遗漏或调换段落，不要输出标记以外的任何说明。"
+    "文本中的 ⟪PDBn⟫…⟪/PDBn⟫ 与 ⟪PDIn⟫…⟪/PDIn⟫ 是加粗/斜体边界，也必须原样成对保留；⟪PDNL⟫ 是硬换行，也必须保留。"
 )
+
+def translation_usable(
+    source: str,
+    translated: str,
+    math: list[dict] | None = None,
+    bold: list[str] | None = None,
+    italic: list[str] | None = None,
+) -> bool:
+    """检查缓存译文是否仍对应这段原文，而不是批处理错位后的邻段译文。
+
+    引用和公式在翻译链路里本来就应该原样保留，因此它们是可靠的段落指纹：
+    缺少原段的保护内容，或凭空出现另一段的引用 / LaTeX 结构，都不能继续当作该段译文显示。
+    没有保护内容的普通段落不做武断的词面相似度判断，避免误伤正常的中英翻译。
+    """
+    src = str(source or "").strip()
+    out = str(translated or "").strip()
+    if not src or not out:
+        return False
+    if not formatguard.lines_valid(src, out):
+        return False
+    # 两个样式列表都为 None 时，调用方没有提供样式元数据（例如划词翻译缓存命中），
+    # 不能据此判定译文里的内部样式标记是多余的；正文批处理会传入解析出的列表，
+    # 那时才严格要求标记一一对应。
+    if (bold is not None or italic is not None) and not formatguard.valid(src, out, bold, italic):
+        return False
+
+    slots: set[int] = set()
+    _masked, found = citeguard.mask(src, math, None, slots)
+    compact = lambda value: re.sub(r"\s+", "", str(value))
+    for i, original in enumerate(found, 1):
+        needle = compact(original)
+        if needle and needle not in compact(out):
+            return False
+
+    # 保护标记之外不应凭空多出新的文献引用。模型若把邻段内容放进来，通常会把邻段的引用一并带过来。
+    expected_cites = {compact(found[i - 1]) for i in range(1, len(found) + 1) if i not in slots}
+    actual_cites = {compact(m.group(0)) for m in citeguard.CITE_RE.finditer(out)}
+    if actual_cites - expected_cites:
+        return False
+
+    # 公式由原文占位符恢复；额外出现的 TeX 命令说明译文带入了别的数学段落。
+    tex_cmd = re.compile(r"\\[A-Za-z]+|\\[^\sA-Za-z0-9]")
+    src_cmds = sorted(tex_cmd.findall(src))
+    out_cmds = sorted(tex_cmd.findall(out))
+    for cmd in set(out_cmds):
+        if out_cmds.count(cmd) > src_cmds.count(cmd):
+            return False
+    return True
 
 
 def _digest(text: str) -> str:
@@ -69,7 +119,7 @@ def skip_reason(text: str, kind: str, center: tuple[float, float] | None, region
 def _eligible(app: AppContext, paper_id: str, with_skipped: bool = False):
     with app.db.session() as conn:
         rows = conn.execute(
-            f"SELECT ord, page, kind, text, x0, y0, x1, y1, math_json FROM passages WHERE paper_id = ? AND kind IN ({','.join('?' * len(TRANSLATE_KINDS))}) ORDER BY ord",
+            f"SELECT ord, page, kind, text, x0, y0, x1, y1, math_json, bold_json, italic_json FROM passages WHERE paper_id = ? AND kind IN ({','.join('?' * len(TRANSLATE_KINDS))}) ORDER BY ord",
             (paper_id, *TRANSLATE_KINDS),
         ).fetchall()
         figs = conn.execute("SELECT page, x0, y0, x1, y1 FROM figures WHERE paper_id = ? AND kind = 'figure'", (paper_id,)).fetchall()
@@ -83,7 +133,9 @@ def _eligible(app: AppContext, paper_id: str, with_skipped: bool = False):
             skipped += 1
             continue
         out.append({"ord": r["ord"], "page": r["page"], "text": r["text"], "digest": _digest(r["text"]),
-                    "math": inline_math.flatten_runs(json.loads(r["math_json"])) if r["math_json"] else None})
+                    "math": inline_math.flatten_runs(json.loads(r["math_json"])) if r["math_json"] else None,
+                    "bold": json.loads(r["bold_json"]) if r["bold_json"] else None,
+                    "italic": json.loads(r["italic_json"]) if r["italic_json"] else None})
     return (out, skipped) if with_skipped else out
 
 
@@ -193,11 +245,11 @@ def status(app: AppContext, paper_id: str, with_items: bool = True) -> dict:
     items, models = [], set()
     for p in todo:
         hit = cache.get(p["digest"])
-        if hit:
+        if hit and translation_usable(p["text"], hit[0], p.get("math"), p.get("bold"), p.get("italic")):
             models.add(hit[1])
             if with_items:
                 items.append({"ord": p["ord"], "translation": citeguard.tidy(hit[0])})
-    done = sum(1 for p in todo if p["digest"] in cache)
+    done = sum(1 for p in todo if p["digest"] in cache and translation_usable(p["text"], cache[p["digest"]][0], p.get("math"), p.get("bold"), p.get("italic")))
     cells = _cells_todo(app, paper_id)
     cells_done = sum(1 for c in cells if c["digest"] in cache)
     return {
@@ -256,6 +308,18 @@ def _parse(text: str, n: int) -> dict[int, str]:
     return got
 
 
+def _parse_anchored(text: str, tokens: dict[int, str]) -> dict[int, str]:
+    """按段落边界锚点取回译文，不能把邻段内容靠序号硬配给当前段。"""
+    got: dict[int, str] = {}
+    for i, token in tokens.items():
+        open_tag = re.escape(f"[[PDSEG:{token}]]")
+        close_tag = re.escape(f"[[/PDSEG:{token}]]")
+        m = re.search(rf"{open_tag}(.*?){close_tag}", text, re.I | re.S)
+        if m and m.group(1).strip():
+            got[i] = m.group(1).strip()
+    return got
+
+
 async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
     from .service import AIService
 
@@ -268,7 +332,7 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
     with app.db.session() as conn:
         title = conn.execute("SELECT title FROM papers WHERE id = ?", (paper_id,)).fetchone()["title"]
     cache = _cached(app, paper_id)
-    todo = [p for p in _eligible(app, paper_id) if p["digest"] not in cache]
+    todo = [p for p in _eligible(app, paper_id) if p["digest"] not in cache or not translation_usable(p["text"], cache[p["digest"]][0], p.get("math"), p.get("bold"), p.get("italic"))]
     cells = [c for c in _cells_todo(app, paper_id) if c["digest"] not in cache]
     if not todo and not cells:
         return {"translated": 0, "failed": 0}
@@ -299,19 +363,25 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
         cmap: list[str] = []
         fslots: set[int] = set()
         slots_of: dict[int, set[int]] = {}
+        tokens: dict[int, str] = {}
         parts: list[str] = []
         for i, p in enumerate(batch, 1):
             before = len(cmap)
-            masked, _ = citeguard.mask(p["text"], p.get("math"), cmap, fslots)
+            formatted = formatguard.protect_lines(formatguard.mask(p["text"], p.get("bold"), p.get("italic")))
+            masked, _ = citeguard.mask(formatted, p.get("math"), cmap, fslots)
             slots_of[i] = set(range(before + 1, len(cmap) + 1)) & fslots
-            parts.append(f"###{i}###\n{masked}")
+            # digest 相同的重复段落仍要有不同锚点，否则模型返回时两个段会命中同一对边界。
+            token = f"{p['digest'][:10]}-{i}"
+            tokens[i] = token
+            parts.append(f"###{i}###\n[[PDSEG:{token}]]\n{masked}\n[[/PDSEG:{token}]]")
         body = "\n\n".join(parts)
         messages = prompts.build_translate_messages(body, None, title, cites=bool(cmap))
         messages[0] = {"role": "system", "content": messages[0]["content"] + BATCH_NOTE}
         got: dict[int, str] = {}
         used: set[int] = set()
         try:
-            got = _parse(citeguard.restore(await call(messages), cmap, used), len(batch))
+            restored = citeguard.restore(await call(messages), cmap, used)
+            got = _parse_anchored(restored, tokens)
         except LLMError as err:
             if not err.retriable and err.code in ("auth_failed", "no_api_key"):
                 raise ApiError(err.code, err.message) from err
@@ -319,13 +389,22 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
             out = got.get(i)
             if out:
                 out = citeguard.append_missing(out, cmap, used, fslots, slots_of[i])  # 这一段里丢了占位符的公式补在末尾
+                out = formatguard.restore_lines(out)
+                if not translation_usable(p["text"], out, p.get("math"), p.get("bold"), p.get("italic")):
+                    out = None
             else:
+                out = None
+            if not out:
                 try:
                     one_slots: set[int] = set()
-                    one, one_map = citeguard.mask(p["text"], p.get("math"), None, one_slots)
+                    formatted = formatguard.protect_lines(formatguard.mask(p["text"], p.get("bold"), p.get("italic")))
+                    one, one_map = citeguard.mask(formatted, p.get("math"), None, one_slots)
                     one_used: set[int] = set()
                     out = citeguard.restore((await call(prompts.build_translate_messages(one, None, title, cites=bool(one_map)))).strip(), one_map, one_used)
                     out = citeguard.append_missing(out, one_map, one_used, one_slots)
+                    out = formatguard.restore_lines(out)
+                    if not translation_usable(p["text"], out, p.get("math"), p.get("bold"), p.get("italic")):
+                        out = ""
                 except LLMError:
                     out = ""
             if out:
@@ -338,11 +417,15 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
     cell_done = 0
     for batch in _cell_batches(cells):
         ctx.check_cancelled()
-        body = "\n\n".join(f"###{i}###\n{c['text']}" for i, c in enumerate(batch, 1))
+        cell_tokens = {i: f"{c['digest'][:10]}-{i}" for i, c in enumerate(batch, 1)}
+        body = "\n\n".join(
+            f"###{i}###\n[[PDSEG:{cell_tokens[i]}]]\n{c['text']}\n[[/PDSEG:{cell_tokens[i]}]]"
+            for i, c in enumerate(batch, 1)
+        )
         messages = prompts.build_translate_messages(body, "表格", title)
         messages[0] = {"role": "system", "content": messages[0]["content"] + BATCH_NOTE + CELL_NOTE}
         try:
-            got = _parse(await call(messages), len(batch))
+            got = _parse_anchored(await call(messages), cell_tokens)
         except LLMError as err:
             if not err.retriable and err.code in ("auth_failed", "no_api_key"):
                 raise ApiError(err.code, err.message) from err

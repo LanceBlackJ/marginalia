@@ -23,7 +23,9 @@ export function eqKey(number: string | null | undefined): string | null {
   return m ? `${m[1]}${(m[2] ?? '').toLowerCase()}` : null
 }
 
-const PREFIX = /(?:\b(?:Eqs?\.?|Equations?|Formulas?|Formulae)|公式)[\s ]*(?=\(?\d{1,3}[a-z]?\b)/gi
+// 论文里还常写 Eqn./Eqns.；英文与译文都走同一套规则，不能只因为翻译把
+// “公式”补出来就产生链接。裸的列举序号仍由 isEnumerator 排除。
+const PREFIX = /(?:\b(?:Eqn?s?\.?|Equations?|Formulas?|Formulae)|公式)[\s ]*(?=\(?\d{1,3}[a-z]?\b)/gi
 const NUM = /^\(?(\d{1,3}[a-z]?)\)?/
 // “Eqs. (4) and (5)”“Equations 4, 5 and 6”“(4)–(6)”“(4) to (6)”：前缀后面跟着的其它编号
 const MORE = /^[\s ]*(?:,|and|&|or|to|–|—|-|、|和|与|至)[\s ]*\(?(\d{1,3}[a-z]?)\)?/i

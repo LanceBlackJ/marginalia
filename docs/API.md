@@ -101,7 +101,7 @@
 |---|---|---|
 | POST | `/api/import/files` | `{"paths":["C:\\a.pdf", …]}` |
 | POST | `/api/import/folder` | `{"path":"C:\\papers","recursive":true}` —— 保留原文件夹相对结构到 `source_folder` |
-| POST | `/api/import/doi` | `{"dois":["10.1038/…", …], "metadata_only"?: false}`（可带 `https://doi.org/` 前缀，后端归一化）。`metadata_only=true`：只保存题录，不下载开放获取全文（条目状态 `metadata_only`，之后可用 `attach_pdf` 补上）；默认 false，遇到开放获取全文会自动下载 |
+| POST | `/api/import/doi` | `{"dois":["10.1038/…", …], "metadata_only"?: false}`（可带 `https://doi.org/` 前缀，后端归一化；多个 DOI 会并发处理，并按输入顺序返回结果）。`metadata_only=true`：只保存题录，不下载开放获取全文（条目状态 `metadata_only`，之后可用 `attach_pdf` 补上）；默认 false，遇到开放获取全文会自动下载 |
 
 > **扫描版 PDF**：导入结果 `items[]` 里会带 `ocr_job_id`、`ocr_pages`，表示文字正在后台用**本地 OCR**识别（任务类型 `ocr_paper`，进度走 `/api/jobs/{id}`，可取消；识别完成前没有文字层，论文可先阅读原文）。识别完成后该论文的段落带 `source:"ocr"`。本机没有安装 OCR 组件时不创建任务，`message` 里如实说明。
 | POST | `/api/import/url` | `{"url":"https://arxiv.org/abs/…", "metadata_only"?: false}`（支持 arXiv 链接、doi.org 链接、直链 PDF；其它链接返回失败说明）。`metadata_only=true` 只保存题录；直链 PDF 没有题录，会如实失败而不是偷偷下载 |
@@ -132,6 +132,8 @@
 | GET | `/api/jobs?status=&type=&limit=` | `{"items":[Job]}`，按创建时间倒序 |
 | GET | `/api/jobs/{id}` | `Job` + `"log":["时间 内容", …]` |
 | POST | `/api/jobs/{id}/cancel` | 仅 pending/running |
+
+后台任务共享最多 8 个执行槽；批量 DOI 会在单个任务内并行解析和导入，并按输入顺序返回每个 DOI 的结果。任务内部的批量子项也使用这组执行槽，不会额外突破上限。
 | POST | `/api/jobs/{id}/retry` | 仅 failed/cancelled，创建新任务返回 `{"job_id"}` |
 
 后端重启后：`running` 的任务会被标记为 `failed`（`error="应用被中断，可重试"`），`pending` 的会继续执行。

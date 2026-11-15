@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict
 
 from ..context import AppContext
 from ..knowledge import bundle
-from ..library import citations
+from ..library import citations, reviews
 from .deps import get_ctx
 
 router = APIRouter(tags=["export"])
@@ -29,17 +29,23 @@ class CitationBody(BaseModel):
     format: Literal["bibtex", "ris", "csl", "gbt7714", "apa", "mla", "ieee"]
     paper_ids: list[str] | None = None  # 选中的论文
     tag_id: str | None = None           # 或某个标签下的论文；都不给则导出全库
+    review_id: str | None = None        # 或某个综述中的全部论文
 
 
 @router.post("/export/citations")
 def export_citations(body: CitationBody, ctx: AppContext = Depends(get_ctx)):
-    return citations.export_citations(ctx, body.format, paper_ids=body.paper_ids, tag_id=body.tag_id)
+    if body.review_id and (body.paper_ids or body.tag_id):
+        from ..util import ApiError
+        raise ApiError("bad_request", "综述导出不能同时指定论文或标签")
+    paper_ids = reviews.paper_ids(ctx, body.review_id) if body.review_id else body.paper_ids
+    return citations.export_citations(ctx, body.format, paper_ids=paper_ids, tag_id=body.tag_id)
 
 
 class BundleBody(BaseModel):
     model_config = ConfigDict(extra="ignore")
     format: Literal["md", "docx"] = "md"
     paper_ids: list[str] | None = None
+    review_id: str | None = None
     notes: bool = True
     annotations: bool = True
     cards: bool = True
@@ -49,7 +55,11 @@ class BundleBody(BaseModel):
 @router.post("/export/bundle")
 def export_bundle(body: BundleBody, ctx: AppContext = Depends(get_ctx)):
     """笔记、批注、AI 卡片（标明 AI 生成）、知识条目的合集。md 返回 JSON {filename, content}；docx 直接返回文件字节。"""
-    doc = bundle.build(ctx, body.paper_ids, notes=body.notes, annotations=body.annotations, cards=body.cards, items=body.items)
+    if body.review_id and body.paper_ids:
+        from ..util import ApiError
+        raise ApiError("bad_request", "综述导出不能同时指定论文")
+    paper_ids = reviews.paper_ids(ctx, body.review_id) if body.review_id else body.paper_ids
+    doc = bundle.build(ctx, paper_ids, notes=body.notes, annotations=body.annotations, cards=body.cards, items=body.items)
     if body.format == "docx":
         data = bundle.to_docx(doc)
         name = "Marginalia_阅读成果.docx"

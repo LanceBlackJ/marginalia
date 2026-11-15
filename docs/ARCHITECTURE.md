@@ -83,7 +83,7 @@ cache/  logs/（backend.log＝Electron 捕获的后端进程输出；server.log�
 
 ## 后台任务（jobs.py）
 
-状态：`pending / running / waiting_approval / paused / completed / failed / cancelled`。任务与日志写入 SQLite；启动时 `running` → `failed(应用被中断，可重试)`，`pending` 继续执行；支持取消（协作式检查点）与重试（创建新任务）。当前类型：`import` `import_doi` `import_url` `attach_pdf` `paper_analysis`。`waiting_approval/paused` 状态已在模型中保留，阶段三/四（下载大文件、复现）会用到。
+状态：`pending / running / waiting_approval / paused / completed / failed / cancelled`。任务与日志写入 SQLite；启动时 `running` → `failed(应用被中断，可重试)`，`pending` 继续执行；支持取消（协作式检查点）与重试（创建新任务）。所有后台任务共享最多 8 个执行槽；批量 `import_doi` 在任务内部并发处理各 DOI，结果保持输入顺序。当前类型：`import` `import_doi` `import_url` `attach_pdf` `paper_analysis`。`waiting_approval/paused` 状态已在模型中保留，阶段三/四（下载大文件、复现）会用到。
 
 ## 安全
 

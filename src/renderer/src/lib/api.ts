@@ -173,6 +173,9 @@ export interface PaperListQuery {
   finished?: boolean
   imported_from?: string
   imported_to?: string
+  scope?: 'library' | 'review'
+  review_id?: string
+  review_category_id?: string
 }
 
 export const api = {

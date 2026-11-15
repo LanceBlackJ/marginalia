@@ -91,3 +91,23 @@ export interface PaperFacets {
   read: { unread: number; reading: number; done: number }
   flags: { has_notes: number; has_annotations: number; has_code: number; has_supplement: number; favorite: number; finished: number }
 }
+
+export interface ReviewProject {
+  id: string
+  name: string
+  description: string
+  sort: number
+  created_at: string
+  paper_count: number
+  category_count: number
+  default_category_id?: string
+}
+
+export interface ReviewCategory {
+  id: string
+  review_id: string
+  name: string
+  sort: number
+  created_at: string
+  paper_count: number
+}

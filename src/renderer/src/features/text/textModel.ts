@@ -81,6 +81,7 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
   let hidden = 0
   let lastSection: string | null = null
   let lastPage = 0
+  let hiddenFloatingSinceParagraph = false
   // 目录里每个标题的位置，以及哪些标题下面有正文（没有的是“空父标题”，要补上）
   // 章节一律按 id 认（旧后端没给 section_id 时退回标题）：同名小节不能互相顶替
   const keyOf = (i: { section_id?: string | null; section_title: string | null }): string | null => secKey(i.section_id) ?? i.section_title
@@ -100,6 +101,7 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
     }
     if (it.kind === 'figure_text' && !opts.showNoise) {
       hidden += 1
+      hiddenFloatingSinceParagraph = true
       continue
     }
     // 挪过位置的图/表注不标页码，也不改变“当前页”（否则正文里会冒出一个回头的页码）
@@ -129,21 +131,35 @@ export function buildDoc(items: TextItem[], outline: OutlineItem[], opts: { show
     }
     // 图、表注会被挪到首次提到它的段落后面，正好夹在“页尾的半句”和“下一页的后半句”中间：续接时跳过这些浮动块，接回前面的正文段
     let prev = blocks[blocks.length - 1]
+    let crossedFloating = hiddenFloatingSinceParagraph
     if (it.kind === 'paragraph') {
       for (let k = blocks.length - 1; k >= 0; k--) {
         const b = blocks[k]
-        if (b.type === 'passage' && (b.parts[b.parts.length - 1].kind === 'caption' || b.parts[b.parts.length - 1].kind === 'figure_text')) continue
+        if (b.type === 'passage' && (b.parts[b.parts.length - 1].kind === 'caption' || b.parts[b.parts.length - 1].kind === 'figure_text')) {
+          crossedFloating = true
+          continue
+        }
         prev = b
         break
       }
     }
-    if (!opts.raw && prev?.type === 'passage' && continuesAcrossPage(prev.parts[prev.parts.length - 1], it)) {
+    if (!opts.raw && prev?.type === 'passage' && (continuesAcrossPage(prev.parts[prev.parts.length - 1], it) || (crossedFloating && continuesAfterFloating(prev.parts[prev.parts.length - 1], it)))) {
       prev.parts.push(it)
+      hiddenFloatingSinceParagraph = false
       continue
     }
     blocks.push({ type: 'passage', item: it, parts: [it], pageStart })
+    hiddenFloatingSinceParagraph = false
   }
   return { front: split.front, abstract: split.abstract, blocks, references, hidden }
+}
+
+/** 浮动图/表被从正文流移走后，前后两段很可能仍是同一个句子；此时不要求换页或换栏。 */
+export function continuesAfterFloating(prev: TextItem, next: TextItem): boolean {
+  if (prev.kind !== 'paragraph' || next.kind !== 'paragraph' || SENTENCE_END.test(prev.text)) return false
+  if (/^\s*[\p{Ll}]/u.test(next.text)) return true
+  if (/-\s*$/.test(prev.text) || DANGLING_END.test(prev.text)) return true
+  return prev.text.trim().length >= 48 && /^\s*[\p{Lu}\d]/u.test(next.text)
 }
 
 /** 一个块的显示文字：被页边界切开的段落接成一段（行末连字符一并处理）。 */
@@ -206,6 +222,18 @@ export interface Seg {
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function findFormulaText(text: string, src: string, from: number): [number, number] | null {
+  const exact = text.indexOf(src, from)
+  if (exact >= 0) return [exact, exact + src.length]
+  // 翻译模型或 PDF 文字层可能只在公式符号之间补了空格（a_{t} → a _{t}）。
+  // 只对含数学结构的片段放宽为空白，普通词不会被这种规则吞掉。
+  if (!/[\\_{}^=+\-*/()[\]·∙⋅×±≤≥≠≈∈∉≡−–]/.test(src) || src.length > 180) return null
+  const re = new RegExp([...src].map((ch) => /\s/.test(ch) ? '\\s*' : escapeRe(ch)).join('\\s*'), 'g')
+  re.lastIndex = from
+  const m = re.exec(text)
+  return m ? [m.index, m.index + m[0].length] : null
 }
 
 /** 把查询拆成词（忽略过短的词），用于在文字里高亮。 */
@@ -275,12 +303,57 @@ export function boldRanges(text: string, runs: string[] | undefined): Array<[num
   let cur = 0
   for (const r of runs ?? []) {
     if (!r) continue
-    const i = text.indexOf(r, cur)
-    if (i < 0) continue
-    out.push([i, i + r.length])
-    cur = i + r.length
+    const exact = text.indexOf(r, cur)
+    if (exact >= 0) {
+      out.push([exact, exact + r.length])
+      cur = exact + r.length
+      continue
+    }
+    // 解析层和显示层可能只在词间空白上不同（尤其是 PDF 行内文字拼接）。
+    // 只放宽空白，不用近似文本猜测加粗范围，避免把相邻普通词误加粗。
+    const pattern = new RegExp([...r].map(escapeRe).join('\\s*'), 'g')
+    pattern.lastIndex = cur
+    const hit = pattern.exec(text)
+    if (!hit) continue
+    out.push([hit.index, hit.index + hit[0].length])
+    cur = hit.index + hit[0].length
   }
   return out
+}
+
+export interface TaggedFormat {
+  text: string
+  bold: Array<[number, number]>
+  italic: Array<[number, number]>
+}
+
+/** 翻译后由后端保留的样式边界：去掉不可见标记，同时把译文位置转换成 CSS 范围。 */
+const FORMAT_TAG = /⟪(\/?)PD([BI])(\d+)⟫/g
+export function stripTaggedFormat(text: string): TaggedFormat {
+  const bold: Array<[number, number]> = []
+  const italic: Array<[number, number]> = []
+  const stack: Array<{ name: string; kind: 'B' | 'I'; start: number }> = []
+  let plain = ''
+  let cursor = 0
+  for (const m of text.matchAll(FORMAT_TAG)) {
+    plain += text.slice(cursor, m.index ?? cursor)
+    const kind = m[2] as 'B' | 'I'
+    const name = `${kind}${m[3]}`
+    if (m[1]) {
+      const at = [...stack].reverse().findIndex((s) => s.name === name)
+      if (at >= 0) {
+        const index = stack.length - 1 - at
+        const item = stack[index]
+        stack.splice(index, 1)
+        ;(kind === 'B' ? bold : italic).push([item.start, plain.length])
+      }
+    } else {
+      stack.push({ name, kind, start: plain.length })
+    }
+    cursor = (m.index ?? cursor) + m[0].length
+  }
+  plain += text.slice(cursor)
+  return { text: plain, bold, italic }
 }
 
 /** 在已有的分段（搜索命中、批注高亮）上叠加加粗：只切开，不改变文字内容。 */
@@ -319,32 +392,39 @@ function applyFlag(segs: Seg[], ranges: Array<[number, number]>, key: 'bold' | '
 
 /** 行内公式：把解析时还原的 {src, tex} 按顺序定位到显示文字里。很短的片段（单个变量）要求前后不是字母数字，避免命中词中间的字母；找不到的跳过。 */
 export function mathRanges(text: string, runs: Array<{ src: string; tex: string }> | undefined): Array<[number, number, string]> {
-  const out: Array<[number, number, string]> = []
+  const candidates: Array<[number, number, string]> = []
   // 公式可以紧贴中文（“节点级d\\cdot s公式”）。边界只需要防止嵌进
   // 英文标识符/数字，不应把中文当成英文变量的一部分而跳过公式。
   const wordChar = /[A-Za-z0-9_]/
-  let cur = 0
   for (const r of runs ?? []) {
     const src = normalizeInlineText(r.src ?? '')
     const tex = normalizeInlineTex(r.tex ?? '')
     if (!src || !tex || !isSafeInlineTex(tex)) continue
-    let from = cur
+    let from = 0
     for (;;) {
-      const i = text.indexOf(src, from)
-      if (i < 0) break
+      const hit = findFormulaText(text, src, from)
+      if (!hit) break
+      const [i, end] = hit
       const before = i > 0 ? text[i - 1] : ''
-      const after = text[i + src.length] ?? ''
+      const after = text[end] ?? ''
       const head = wordChar.test(src[0])
       const tail = wordChar.test(src[src.length - 1])
       if ((head && wordChar.test(before)) || (tail && wordChar.test(after))) {
         from = i + 1
         continue
       }
-      out.push([i, i + src.length, tex])
-      cur = i + src.length
-      break
+      candidates.push([i, end, tex])
+      from = i + 1
     }
   }
+  // 同一位置常同时有“a”“at”和“a_{t}”。先取最长的完整片段，避免
+  // 短片段把完整公式切碎；不同位置仍按原文顺序保留。
+  const out: Array<[number, number, string]> = []
+  for (const candidate of candidates.sort((a, b) => a[0] - b[0] || (b[1] - b[0]) - (a[1] - a[0]))) {
+    if (out.some(([a, b]) => candidate[0] < b && candidate[1] > a)) continue
+    out.push(candidate)
+  }
+  out.sort((a, b) => a[0] - b[0])
   return out
 }
 

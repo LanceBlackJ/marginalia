@@ -1,6 +1,6 @@
 /** 文库的文件夹、智能视图与筛选项 API 客户端。 */
 import { apiRequest } from './api'
-import type { FolderItem, FolderList, PaperFacets, PaperFilters, SmartView } from './types.library'
+import type { FolderItem, FolderList, PaperFacets, PaperFilters, ReviewCategory, ReviewProject, SmartView } from './types.library'
 
 const get = <T>(path: string): Promise<T> => apiRequest<T>('GET', path, {})
 const post = <T>(path: string, body?: unknown): Promise<T> => apiRequest<T>('POST', path, { body: body ?? {} })
@@ -23,5 +23,15 @@ export const libraryApi = {
   smartViews: () => get<{ items: SmartView[] }>('/api/smart-views'),
   createSmartView: (name: string, query: PaperFilters) => post<SmartView>('/api/smart-views', { name, query }),
   deleteSmartView: (id: string) => del<{ ok: boolean }>(`/api/smart-views/${id}`),
-  facets: () => get<PaperFacets>('/api/papers/facets')
+  facets: () => get<PaperFacets>('/api/papers/facets'),
+  reviews: () => get<{ items: ReviewProject[] }>('/api/reviews'),
+  createReview: (name: string, description = '') => post<ReviewProject>('/api/reviews', { name, description }),
+  renameReview: (id: string, name: string) => patch<ReviewProject>(`/api/reviews/${id}`, { name }),
+  updateReview: (id: string, body: { name?: string; description?: string }) => patch<ReviewProject>(`/api/reviews/${id}`, body),
+  deleteReview: (id: string) => del<{ ok: boolean }>(`/api/reviews/${id}`),
+  reviewCategories: (id: string) => get<{ items: ReviewCategory[] }>(`/api/reviews/${id}/categories`),
+  createReviewCategory: (id: string, name: string) => post<ReviewCategory>(`/api/reviews/${id}/categories`, { name }),
+  addToReview: (id: string, paperIds: string[], categoryId?: string) => post<{ added: number; existing: number; missing: string[] }>(`/api/reviews/${id}/papers`, { paper_ids: paperIds, category_id: categoryId }),
+  updateReviewPaper: (reviewId: string, paperId: string, body: { category_id?: string; screening?: string; exclusion_reason?: string }) => patch<Record<string, unknown>>(`/api/reviews/${reviewId}/papers/${paperId}`, body),
+  removeFromReview: (reviewId: string, paperId: string) => del<{ ok: boolean }>(`/api/reviews/${reviewId}/papers/${paperId}`)
 }

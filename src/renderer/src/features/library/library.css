@@ -96,6 +96,26 @@
   gap: var(--sp-lg);
   margin-left: auto;
 }
+.pd-review-categories {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-xs);
+  margin-bottom: var(--sp-md);
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.pd-review-category-input {
+  width: 180px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-small);
+}
 
 /* 表格式行：列随容器宽度显现；窄时依次收起来源、年份、最近打开、分析状态 */
 .pd-lib-list {

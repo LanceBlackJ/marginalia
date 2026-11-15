@@ -11,13 +11,14 @@ import re
 from typing import Any
 
 SENTENCE_END = re.compile(r"[.!?。！？:：;；][\"”’)\]）]*\s*$")
+DANGLING_END = re.compile(r"\b(?:in|of|the|a|an|and|or|to|for|with|on|by|as|at|from|that|which|is|are|be|its|their|this|these|than|into|between)\s*$", re.IGNORECASE)
 _ID = r"[A-Z]?\d+(?:\.\d+)?"
 _SEP = r"(?:\s*(?:,|，|、|and|&|和|与|及|–|—|-|to)\s*)"
 # 正文里的“提到”：Figure 1 / Figs. 2 and 3 / Fig. 4(a) / 图 5 / Table 2 / 表 3
 MENTION_RE = re.compile(
     rf"(?<![A-Za-z])(Figures?|Figs?\.?|图|Tables?|表)\s*({_ID}[a-z]?(?:{_SEP}{_ID}[a-z]?)*)", re.IGNORECASE
 )
-CAPTION_RE = re.compile(rf"^\s*(Figure|Fig\.?|FIGURE|图|Table|TABLE|表)\s*({_ID})", re.IGNORECASE)
+CAPTION_RE = re.compile(rf"(?<![A-Za-z])(Figure|Fig\.?|FIGURE|图|Table|TABLE|表)\s*({_ID})", re.IGNORECASE)
 ID_RE = re.compile(_ID)
 
 
@@ -26,7 +27,7 @@ def _kind_of(word: str) -> str:
 
 
 def caption_key(text: str) -> tuple[str, str] | None:
-    m = CAPTION_RE.match(text or "")
+    m = CAPTION_RE.search(text or "")
     return (_kind_of(m.group(1)), m.group(2).upper()) if m else None
 
 
@@ -47,6 +48,8 @@ def _continues(prev: Any, nxt: Any) -> bool:
     if SENTENCE_END.search(prev.text.strip()):
         return False
     if re.match(r"\s*[a-zà-ÿ]", nxt.text):
+        return True
+    if re.search(r"-\s*$", prev.text) or DANGLING_END.search(prev.text.strip()):
         return True
     if len(prev.text.strip()) < 80 or not re.match(r"\s*[A-ZÀ-Þ][a-zà-ÿ]+[\s,]", nxt.text):
         return False

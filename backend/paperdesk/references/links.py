@@ -146,6 +146,7 @@ _AUTHOR_BEFORE = re.compile(
 
 
 _YEAR_AFTER = re.compile(r"^\s*[,;]?\s*(?:19|20)\d{2}[a-z]?(?:\s*\))?")
+_PAREN = re.compile(r"\(([^()]*)\)")
 
 
 def _tidy(text: str, mk: dict) -> dict:
@@ -213,4 +214,31 @@ def merge_markers(regex_items: list[dict], link_items: list[dict], texts: dict[i
                 for c in over:
                     cur.remove(c)
                 cur.append({"kind": "link", "text": text[start:end], "start": start, "end": end, "refs": refs, "pre": text[max(0, start - 10):start]})
-    return [{"ord": o, "markers": sorted(ms, key=lambda m: (m["start"], -m["end"]))} for o, ms in sorted(by.items()) if ms]
+    out: list[dict] = []
+    for o, markers in sorted(by.items()):
+        text = texts.get(o, "")
+        if text:
+            # PDF 链接常把一个作者-年份组切成多个矩形（例如只链接了
+            # “(Hong et al., 2023;” 和 “Wu et al., 2023)”），而正则又会
+            # 补出中间项。只要同一对括号里有两条以上已确认的引用，
+            # 就统一成一个完整、可翻页的引用标记，避免前端收到重叠/残缺标记。
+            for pm in _PAREN.finditer(text):
+                members = [
+                    m for m in markers
+                    if pm.start() <= m["start"] and m["end"] <= pm.end()
+                ]
+                refs = sorted({r for m in members for r in m["refs"]})
+                if len(members) >= 2 and len(refs) >= 2:
+                    for m in members:
+                        markers.remove(m)
+                    markers.append({
+                        "kind": "link" if any(m["kind"] == "link" for m in members) else "authoryear",
+                        "text": text[pm.start():pm.end()],
+                        "start": pm.start(),
+                        "end": pm.end(),
+                        "refs": refs,
+                        "pre": text[max(0, pm.start() - 10):pm.start()],
+                    })
+        if markers:
+            out.append({"ord": o, "markers": sorted(markers, key=lambda m: (m["start"], -m["end"]))})
+    return out

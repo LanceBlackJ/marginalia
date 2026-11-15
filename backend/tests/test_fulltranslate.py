@@ -1,6 +1,54 @@
 from __future__ import annotations
 
 
+def test_translation_alignment_rejects_a_neighbor_passage_translation():
+    from paperdesk.ai.fulltranslate import _parse_anchored, translation_usable
+
+    source = "In this section, we introduce decisive errors and formulate the automated failure attribution problem. We adopt the widely-adopted turn-based LLM multi-agent protocol (Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)."
+    neighbor = r"Background. Considering a LLMs-powered multi-agent system M with a group of N agents, denoted as \mathcal{N} = {1,2,..N}, that operate at discrete time steps."
+    good = "本节介绍决定性错误，并形式化自动失败归因问题。我们采用广泛使用的基于回合的 LLM 多智能体协议 (Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)。"
+    assert translation_usable(source, good)
+    assert not translation_usable(source, "背景。考虑一个由 LLM 驱动的多智能体系统 M，其中包含 N 个智能体，并在离散时间步运行。")
+    assert not translation_usable(source, neighbor)
+
+    # 批处理响应即使顺序被模型打乱，也按不可翻译的段落锚点归回原段，不能按位置错配。
+    got = _parse_anchored(
+        "[[PDSEG:bbbbbbbbbb]]乙段译文[[/PDSEG:bbbbbbbbbb]]\n[[PDSEG:aaaaaaaaaa]]甲段译文[[/PDSEG:aaaaaaaaaa]]",
+        {1: "aaaaaaaaaa", 2: "bbbbbbbbbb"},
+    )
+    assert got == {1: "甲段译文", 2: "乙段译文"}
+
+    # 相同原文的两个段落也不能共用同一个边界锚点。
+    assert _parse_anchored(
+        "[[PDSEG:same-2]]乙段译文[[/PDSEG:same-2]]\n[[PDSEG:same-1]]甲段译文[[/PDSEG:same-1]]",
+        {1: "same-1", 2: "same-2"},
+    ) == {1: "甲段译文", 2: "乙段译文"}
+
+
+def test_translation_preserves_style_and_hard_line_breaks():
+    from paperdesk.ai import formatguard
+    from paperdesk.ai.fulltranslate import translation_usable
+
+    source = "Round I:\nThe first annotation round."
+    marked = formatguard.protect_lines(formatguard.mask(source, ["Round I:"], None))
+    assert "⟪PDB1⟫" in marked and "⟪PDNL⟫" in marked
+    translated = "⟪PDB1⟫第一轮：⟪/PDB1⟫⟪PDNL⟫第一轮标注。"
+    assert translation_usable(source, formatguard.restore_lines(translated), None, ["Round I:"], None)
+    assert not translation_usable(source, "第一轮：第一轮标注。", None, ["Round I:"], None)
+
+
+def test_author_year_suffix_resolves_all_items_in_one_citation_group():
+    from paperdesk.references.citations import detect_all
+
+    entries = [
+        {"index": 10, "authors": ["Hong, S."], "year": 2023, "raw": "Hong, S. MetaGPT, 2023."},
+        {"index": 15, "authors": ["Li, G."], "year": 2023, "raw": "Li, G. CAMEL, 2023a."},
+        {"index": 30, "authors": ["Wu, Q."], "year": 2023, "raw": "Wu, Q. AutoGen, 2023."},
+    ]
+    got = detect_all([{"ord": 1, "kind": "paragraph", "text": "(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)"}], entries, "numeric")
+    assert got and [n for m in got[0]["markers"] for n in m["refs"]] == [10, 15, 30]
+
+
 def _translate(api, pid):
     job_id = api.post(f"/papers/{pid}/translation").json()["job_id"]
     assert job_id, "应当创建全文翻译的后台任务"

@@ -48,6 +48,13 @@ describe('splitByMarkers', () => {
     const out = splitByMarkers('[1] and [1] again', [mk('[1]', [1]), mk('[1]', [1])])
     expect(out.filter((p) => p.refs)).toHaveLength(2)
   })
+  it('does not misplace nested citation markers from an old cache', () => {
+    const text = '(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)'
+    expect(splitByMarkers(text, [
+      { kind: 'authoryear', text, start: 0, end: text.length, refs: [1, 2, 3] },
+      { kind: 'authoryear', text: 'Li et al., 2023a', start: 21, end: 37, refs: [2] }
+    ])).toEqual([{ text, refs: [1, 2, 3] }])
+  })
 })
 
 describe('citation formats', () => {

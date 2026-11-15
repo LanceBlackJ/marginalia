@@ -24,6 +24,7 @@ export interface CitationExport {
 
 export interface BundleOptions {
   paper_ids?: string[]
+  review_id?: string
   notes?: boolean
   annotations?: boolean
   cards?: boolean
@@ -67,7 +68,7 @@ const get = <T>(path: string, query?: Record<string, string | number | boolean |
 const post = <T>(path: string, body: unknown): Promise<T> => apiRequest<T>('POST', path, { body })
 
 export const exportApi2 = {
-  citations: (body: { format: CitationFormat; paper_ids?: string[]; tag_id?: string }) => post<CitationExport>('/api/export/citations', body),
+  citations: (body: { format: CitationFormat; paper_ids?: string[]; tag_id?: string; review_id?: string }) => post<CitationExport>('/api/export/citations', body),
   bundleMarkdown: (body: BundleOptions) => post<BundleMarkdown>('/api/export/bundle', { ...body, format: 'md' }),
   /** Word 文件：后端直接返回文件字节。 */
   bundleDocx: async (body: BundleOptions): Promise<Blob> =>

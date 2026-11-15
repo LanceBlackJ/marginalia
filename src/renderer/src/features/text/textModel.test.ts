@@ -17,7 +17,8 @@ import {
   markAnnotations,
   pageAtLine,
   segmentsFor,
-  stepTextSize
+  stepTextSize,
+  stripTaggedFormat
 } from './textModel'
 
 const item = (ord: number, page: number, kind: TextItem['kind'], section: string | null, text = `t${ord}`, bbox: [number, number, number, number] = [0, ord * 10, 100, ord * 10 + 8]): TextItem => ({
@@ -124,6 +125,32 @@ describe('paragraphs cut by a page boundary', () => {
     expect(buildDoc(sameShort, outline, { showNoise: false }).blocks.map(label)).toEqual(['H:Introduction', 'P:0', 'P:1'])
   })
 
+  it('joins paragraphs split by a hidden floating table when the sentence continues', () => {
+    const split = [
+      item(0, 1, 'paragraph', 'Introduction', 'The result depends on the context and the model'),
+      item(1, 1, 'figure_text', 'Introduction', 'table rows'),
+      item(2, 1, 'paragraph', 'Introduction', 'configuration used in the experiment.')
+    ]
+    expect(buildDoc(split, outline, { showNoise: false }).blocks.map(label)).toEqual(['H:Introduction', 'P:0+2'])
+  })
+
+  it('joins across multiple hidden floats without exposing their text', () => {
+    const split = [
+      item(0, 1, 'paragraph', 'Introduction', 'The method performs better when the tolerance is set to'),
+      item(1, 1, 'caption', 'Introduction', 'Table 2. Results'),
+      item(2, 1, 'figure_text', 'Introduction', 'step-by-step 0.91 all-at-once 0.88'),
+      item(3, 1, 'figure_text', 'Introduction', 'axis label'),
+      item(4, 1, 'paragraph', 'Introduction', 'zero or one.')
+    ]
+    const doc = buildDoc(split, outline, { showNoise: false })
+    // caption 保留显示，但正文段落在它前面已经合并完整；图内文字本身不进入 blocks。
+    expect(doc.blocks.map(label)).toEqual(['H:Introduction', 'P:0+4', 'P:1'])
+    expect(blockText((doc.blocks[1] as Extract<typeof doc.blocks[number], { type: 'passage' }>).parts)).toBe(
+      'The method performs better when the tolerance is set to zero or one.'
+    )
+    expect(doc.hidden).toBe(2)
+  })
+
   it('never joins in raw mode', () => {
     const doc = buildDoc(mk('The model learns a function of', 'the graph structure.'), outline, { showNoise: false, raw: true })
     expect(doc.blocks.filter((b) => b.type === 'passage')).toHaveLength(2)
@@ -165,6 +192,28 @@ describe('highlighting', () => {
     const segs = segmentsFor('key players and players', [{ id: 'a', text: 'key players', color: 'pink' }], 'players')
     expect(segs.filter((s) => s.mark).length).toBe(1)
     expect(segs[0].annId).toBe('a')
+  })
+})
+
+describe('format and math mapping', () => {
+  it('keeps the longest overlapping formula and rejects serial numbers', () => {
+    expect(mathRanges('replace a_{t} in item (3)', [
+      { src: 'a', tex: 'a' },
+      { src: 'at', tex: 'a_{t}' },
+      { src: 'a_{t}', tex: 'a_{t}' },
+      { src: '(3)', tex: '(3)' }
+    ])).toEqual([[8, 13, 'a_{t}']])
+  })
+
+  it('finds formulas when PDF spacing changes and supports starred powers', () => {
+    expect(mathRanges('replace a _{t} and i^{*}', [
+      { src: 'a_{t}', tex: 'a_{t}' },
+      { src: 'i^{*}', tex: 'i^{*}' }
+    ])).toEqual([[8, 14, 'a_{t}'], [19, 24, 'i^{*}']])
+  })
+
+  it('maps translated style tags without relying on the English text', () => {
+    expect(stripTaggedFormat('前 ⟪PDB1⟫加粗⟪/PDB1⟫ 后')).toEqual({ text: '前 加粗 后', bold: [[2, 4]], italic: [] })
   })
 })
 

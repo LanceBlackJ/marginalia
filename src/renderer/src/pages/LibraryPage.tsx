@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { BarChart3, Library, Download, FileText, FolderInput, FolderOpen, LayoutGrid, Link2, List, ListFilter, MoreHorizontal, Plus, Quote, RefreshCw, X } from 'lucide-react'
-import { Button, Dialog, EmptyState, IconButton, Menu, Segmented, Select, Skeleton, toast } from '@/components/ui'
+import { Button, Dialog, EmptyState, Field, IconButton, Input, Menu, Segmented, Select, Skeleton, TextArea, toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import { libraryApi } from '@/lib/api.library'
 import { importFolder, importLocalFiles, useImportUi } from '@/features/importing/importActions'
@@ -10,10 +10,12 @@ import { TagDialog } from '@/features/library/TagDialog'
 import { CiteDialog } from '@/features/library/CiteDialog'
 import { ExportDialog, type ExportScope } from '@/features/library/ExportDialog'
 import { FolderRail } from '@/features/library/FolderRail'
+import { ReviewRail } from '@/features/library/ReviewRail'
 import { FilterChips, FilterPanel } from '@/features/library/FilterPanel'
 import { DeleteFolderDialog, MoveDialog, SaveViewDialog } from '@/features/library/LibraryDialogs'
 import { descendantIds, filtersToQuery, groupByTag, folderPath, hasTextQuery, isEmptyFilters, normalizeFilters, parseFilters, serializeFilters } from '@/features/library/filterModel'
 import { useFacets, useFolders } from '@/features/library/useLibraryMeta'
+import { useReviews } from '@/features/library/useReviews'
 import { Bookshelf } from '@/features/library/Bookshelf'
 import { PaperCard, PaperRow, PaperTableHeader, RecentItem, type PaperItemActions } from '@/features/library/PaperItems'
 import { usePapers } from '@/features/library/usePapers'
@@ -23,7 +25,7 @@ import { reparsePapers } from '@/features/library/reparseActions'
 import { canReparse, outdatedCount } from '@/features/library/reparseModel'
 import { usePrefs } from '@/stores/prefsStore'
 import type { PaperSummary, PaperTag } from '@/lib/types'
-import type { FolderItem, PaperFilters, SmartView } from '@/lib/types.library'
+import type { FolderItem, PaperFilters, ReviewProject, SmartView } from '@/lib/types.library'
 import '@/features/library/library.css'
 import '@/features/library/folders.css'
 
@@ -67,9 +69,14 @@ export function LibraryPage() {
   const view = (params.get('view') as View | null) ?? 'all'
   const legacyTag = params.get('tag') ?? ''
   const rawFilters = params.get('f')
+  const reviewId = params.get('review')
+  const reviewCategoryId = params.get('rc')
+  const reviewMode = Boolean(reviewId)
 
   const prefs = usePrefs()
   const meta = useFolders()
+  const reviewMeta = useReviews(reviewId)
+  const activeReview = reviewMeta.projects.find((r) => r.id === reviewId) ?? null
 
   // 筛选条件放在 URL 里（f=JSON），刷新、前进后退都能还原；旧的 ?tag= 参数并入标签条件
   const filters: PaperFilters = useMemo(() => {
@@ -83,8 +90,8 @@ export function LibraryPage() {
   const sort: Sort = view === 'recent' ? 'recent' : sortChoice ?? (textQuery ? 'relevance' : prefs.librarySort)
   const order = sort === 'title' || sort === 'author' ? 'asc' : 'desc'
   const query = useMemo(
-    () => ({ q: q || undefined, view, sort, order, limit: 200, ...filtersToQuery(filters) }) as const,
-    [q, view, sort, order, filters]
+    () => ({ q: q || undefined, view: reviewMode ? 'all' : view, sort, order, limit: 200, scope: reviewMode ? 'review' : 'library', review_id: reviewMode ? reviewId ?? undefined : undefined, review_category_id: reviewMode ? reviewCategoryId ?? undefined : undefined, ...filtersToQuery(filters) }) as const,
+    [q, view, sort, order, filters, reviewMode, reviewId, reviewCategoryId]
   )
   const list = usePapers(query)
   // 有论文正在后台处理公式/表格时，低频刷新列表（6 秒一次），处理完才显示“已完成”；没有就不轮询
@@ -95,7 +102,7 @@ export function LibraryPage() {
     return () => window.clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anyProcessing])
-  const recentQuery = usePapers({ view: 'recent', sort: 'recent', order: 'desc', limit: 5 }, view === 'all' && !q && !filterActive)
+  const recentQuery = usePapers({ view: 'recent', sort: 'recent', order: 'desc', limit: 5 }, !reviewMode && view === 'all' && !q && !filterActive)
 
   const [info, setInfo] = useState<PaperSummary | null>(null)
   const [tagging, setTagging] = useState<PaperSummary | null>(null)
@@ -112,6 +119,14 @@ export function LibraryPage() {
   const [folderToDelete, setFolderToDelete] = useState<FolderItem | null>(null)
   const [savingView, setSavingView] = useState(false)
   const [appliedView, setAppliedView] = useState<{ id: string; key: string } | null>(null)
+  const [addingToReview, setAddingToReview] = useState(false)
+  const [addReviewId, setAddReviewId] = useState('')
+  const [categoryPaper, setCategoryPaper] = useState<PaperSummary | null>(null)
+  const [categoryChoice, setCategoryChoice] = useState('')
+  const [creatingCategory, setCreatingCategory] = useState(false)
+  const [newCategoryName, setNewCategoryName] = useState('')
+  const [editingReview, setEditingReview] = useState<ReviewProject | null>(null)
+  const [reviewDescription, setReviewDescription] = useState('')
 
   // 标签名字：芯片和导出用
   useEffect(() => {
@@ -163,17 +178,31 @@ export function LibraryPage() {
 
   const setView = (v: View): void => {
     writeParams((next) => {
+      next.delete('review')
+      next.delete('rc')
       if (v === 'all') next.delete('view')
       else next.set('view', v)
     }, true)
   }
-  const selectFolder = (id: string | undefined): void => setFilters({ ...filters, folder: id }, true)
+  const selectFolder = (id: string | undefined): void => {
+    writeParams((next) => {
+      next.delete('review')
+      next.delete('rc')
+      next.delete('tag')
+      const nextFilters = normalizeFilters({ ...filters, folder: id })
+      const serialized = serializeFilters(nextFilters)
+      if (serialized) next.set('f', serialized)
+      else next.delete('f')
+    }, true)
+  }
+  const selectReview = (id: string): void => writeParams((next) => { next.delete('view'); next.delete('tag'); next.delete('f'); next.set('review', id); next.delete('rc') }, true)
   const clearSearch = (): void => writeParams((next) => next.delete('q'))
   const clearAll = (): void =>
     writeParams((next) => {
       next.delete('q')
       next.delete('f')
       next.delete('tag')
+      if (reviewMode) next.delete('rc')
     })
 
   /** 书架上的书：先进详情页，在那里决定怎么读。解析中的论文提示一下。 */
@@ -354,6 +383,105 @@ export function LibraryPage() {
     }
   }
 
+  // ---------------------------------------------------------------- 综述空间
+  const createReview = useCallback(async (name: string): Promise<boolean> => {
+    try {
+      await libraryApi.createReview(name)
+      reviewMeta.reload()
+      toast.success('已创建综述', `“${name}”拥有独立的文献列表和分类。`)
+      return true
+    } catch (err) {
+      toast.error('无法创建综述', errorMessage(err))
+      return false
+    }
+  }, [reviewMeta])
+
+  const renameReview = useCallback(async (project: ReviewProject, name: string): Promise<boolean> => {
+    try {
+      await libraryApi.renameReview(project.id, name)
+      reviewMeta.reload()
+      return true
+    } catch (err) {
+      toast.error('无法重命名综述', errorMessage(err))
+      return false
+    }
+  }, [reviewMeta])
+
+  const saveReviewInfo = async (): Promise<void> => {
+    if (!editingReview || !editingReview.name.trim()) return
+    try {
+      await libraryApi.updateReview(editingReview.id, { name: editingReview.name.trim(), description: reviewDescription })
+      setEditingReview(null)
+      reviewMeta.reload()
+      toast.success('已保存综述简介')
+    } catch (err) {
+      toast.error('保存综述简介失败', errorMessage(err))
+    }
+  }
+
+  const deleteReview = useCallback((project: ReviewProject): void => {
+    if (!window.confirm(`删除综述“${project.name}”？其中的论文不会被删除，只会解除综述归类。`)) return
+    void libraryApi.deleteReview(project.id).then(() => {
+      if (reviewId === project.id) writeParams((next) => { next.delete('review'); next.delete('rc') }, true)
+      reviewMeta.reload()
+      list.reload()
+      toast.success('已删除综述')
+    }).catch((err) => toast.error('删除失败', errorMessage(err)))
+  }, [reviewId, reviewMeta, list, writeParams])
+
+  const addSelectedToReview = async (): Promise<void> => {
+    if (!addReviewId || selected.size === 0) return
+    try {
+      const r = await libraryApi.addToReview(addReviewId, [...selected])
+      toast.success(`已加入综述 ${r.added} 篇`, r.existing ? `${r.existing} 篇原本已在该综述中。` : '新加入的论文先放在“待分类”。')
+      setAddingToReview(false)
+      setSelected(new Set())
+      setAddReviewId('')
+      reviewMeta.reload()
+      list.reload()
+    } catch (err) {
+      toast.error('加入综述失败', errorMessage(err))
+    }
+  }
+
+  const saveReviewCategory = async (): Promise<void> => {
+    if (!reviewId || !categoryPaper || !categoryChoice) return
+    try {
+      await libraryApi.updateReviewPaper(reviewId, categoryPaper.id, { category_id: categoryChoice })
+      toast.success('已更新综述分类')
+      setCategoryPaper(null)
+      list.reload()
+      reviewMeta.reload()
+    } catch (err) {
+      toast.error('更新分类失败', errorMessage(err))
+    }
+  }
+
+  const createReviewCategory = async (): Promise<void> => {
+    if (!reviewId || !newCategoryName.trim()) return
+    try {
+      const category = await libraryApi.createReviewCategory(reviewId, newCategoryName.trim())
+      setNewCategoryName('')
+      setCreatingCategory(false)
+      reviewMeta.reload()
+      writeParams((next) => next.set('rc', category.id))
+    } catch (err) {
+      toast.error('无法创建分类', errorMessage(err))
+    }
+  }
+
+  const removeFromReview = async (paper: PaperSummary): Promise<void> => {
+    if (!reviewId) return
+    try {
+      await libraryApi.removeFromReview(reviewId, paper.id)
+      list.removeLocal(paper.id)
+      reviewMeta.reload()
+      toast.success('已移出当前综述', '论文仍保留在普通文献库中。')
+    } catch (err) {
+      toast.error('移出综述失败', errorMessage(err))
+    }
+  }
+
   // ---------------------------------------------------------------- 论文行动作
   const toggleSelect = useCallback((p: PaperSummary): void => {
     setSelected((s) => {
@@ -398,24 +526,30 @@ export function LibraryPage() {
       onCite: setCiting,
       onMove: (p) => setMoving(selected.has(p.id) ? [...selected] : [p.id]),
       onReparse: (p) => setReparseIds(selected.has(p.id) ? [...selected] : [p.id]),
+      onReviewCategory: reviewMode ? (p) => { setCategoryPaper(p); setCategoryChoice(p.review_category_id ?? reviewMeta.categories[0]?.id ?? '') } : undefined,
+      onRemoveFromReview: reviewMode ? (p) => void removeFromReview(p) : undefined,
       selected,
       onToggleSelect: toggleSelect,
-      onReorder: reorder,
+      onReorder: reviewMode ? undefined : reorder,
       onPickTag: (t) => setFilters({ ...filters, tags: [...new Set([...(filters.tags ?? []), t.id])] })
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [open, openProfile, toggleFavorite, toggleFinished, selected, toggleSelect, reorder, filters, setFilters]
+    [open, openProfile, toggleFavorite, toggleFinished, selected, toggleSelect, reorder, filters, setFilters, reviewMode, reviewMeta.categories, removeFromReview]
   )
 
   // 导出（引文与阅读笔记）：只有一个标签条件时按该标签导出，否则导出全部
   const openExport = (): void => {
+    if (reviewMode && reviewId) {
+      setExporting({ label: `综述：${activeReview?.name ?? '当前综述'}`, reviewId })
+      return
+    }
     const only = filters.tags?.length === 1 ? filters.tags[0] : null
     setExporting(only ? { label: `标签：${tagNames[only] ?? '所选标签'}`, tagId: only } : { label: '全部文献' })
   }
   const recents = recentQuery.items.filter((p) => p.last_opened_at).slice(0, 3)
   // “继续阅读”是书架的入口；列表模式保持 Zotero 式的纯管理视图，不在表格前插阅读卡片。
-  const showRecent = prefs.libraryLayout === 'shelf' && view === 'all' && !q && !filterActive && recents.length > 0
-  const isEmptyLibrary = !list.loading && !list.error && list.total === 0 && !q && view === 'all' && !filterActive
+  const showRecent = !reviewMode && prefs.libraryLayout === 'shelf' && view === 'all' && !q && !filterActive && recents.length > 0
+  const isEmptyLibrary = !reviewMode && !list.loading && !list.error && list.total === 0 && !q && view === 'all' && !filterActive
   const anyNarrowing = Boolean(q) || filterActive
   const activeCount = Object.keys(normalizeFilters(filters)).length
   const folderLabel = filters.folder === 'none' ? '未分类' : filters.folder ? lookup.folderPath(filters.folder) : null
@@ -427,8 +561,8 @@ export function LibraryPage() {
       <div className="pd-page-inner">
         <div className="pd-lib-head">
           <div>
-            <h1 className="pd-page-title">我的文献</h1>
-            <p className="pd-page-subtitle">管理和探索你的研究资料。</p>
+            <h1 className="pd-page-title">{activeReview ? activeReview.name : '我的文献'}</h1>
+            <p className="pd-page-subtitle">{activeReview ? (activeReview.description || '综述专属列表：论文不会混入全部文献。') : '管理和探索你的研究资料。'}</p>
           </div>
           <div className="pd-lib-head-actions">
             <ImportMenuButton />
@@ -446,25 +580,36 @@ export function LibraryPage() {
         </div>
 
         <div className="pd-lib-shell">
-          <FolderRail
-            folders={meta.folders}
-            views={meta.views}
-            view={view}
-            folderId={filters.folder}
-            activeViewId={activeViewId}
-            onSelectView={setView}
-            onSelectFolder={selectFolder}
-            onApplyView={applyView}
-            onDeleteView={(v) => {
-              libraryApi
-                .deleteSmartView(v.id)
-                .then(() => meta.reload())
-                .catch((err) => toast.error('无法删除', errorMessage(err)))
-            }}
-            onDropPapers={(folderId, ids) => void movePapers(ids, folderId)}
-            onDelete={setFolderToDelete}
-            {...folderActions}
-          />
+          <div className="pd-lib-rail">
+            <FolderRail
+              folders={meta.folders}
+              views={meta.views}
+              view={view}
+              folderId={filters.folder}
+              activeViewId={activeViewId}
+              onSelectView={setView}
+              onSelectFolder={selectFolder}
+              onApplyView={applyView}
+              onDeleteView={(v) => {
+                libraryApi
+                  .deleteSmartView(v.id)
+                  .then(() => meta.reload())
+                  .catch((err) => toast.error('无法删除', errorMessage(err)))
+              }}
+              onDropPapers={(folderId, ids) => void movePapers(ids, folderId)}
+              onDelete={setFolderToDelete}
+              {...folderActions}
+            />
+            <ReviewRail
+              projects={reviewMeta.projects}
+              activeId={reviewId}
+              onSelect={selectReview}
+              onCreate={createReview}
+              onRename={renameReview}
+              onEdit={(project) => { setEditingReview(project); setReviewDescription(project.description) }}
+              onDelete={deleteReview}
+            />
+          </div>
 
           <div className="pd-lib-main">
             {showRecent && (
@@ -499,7 +644,7 @@ export function LibraryPage() {
                     style={{ width: 120 }}
                   />
                 )}
-                {prefs.libraryLayout !== 'shelf' && (
+                {!reviewMode && prefs.libraryLayout !== 'shelf' && (
                   <Button
                     size="sm"
                     variant={prefs.libraryGroupByTag ? 'primary' : 'ghost'}
@@ -510,7 +655,7 @@ export function LibraryPage() {
                     按标签分组
                   </Button>
                 )}
-                <Segmented<'shelf' | 'list' | 'grid'>
+                {!reviewMode && <Segmented<'shelf' | 'list' | 'grid'>
                   variant="text"
                   aria-label="视图"
                   value={prefs.libraryLayout}
@@ -520,12 +665,27 @@ export function LibraryPage() {
                     { value: 'list', label: <List size={14} /> },
                     { value: 'grid', label: <LayoutGrid size={14} /> }
                   ]}
-                />
+                />}
               </div>
             </div>
 
             {panelOpen && <FilterPanel filters={filters} facets={facets} onChange={(f) => setFilters(f)} onSaveView={() => setSavingView(true)} />}
             <FilterChips filters={filters} lookup={lookup} onChange={(f) => setFilters(f)} />
+
+            {reviewMode && (
+              <div className="pd-review-categories" aria-label="综述分类">
+                <span className="pd-aux pd-muted">分类</span>
+                <Button size="sm" variant={!reviewCategoryId ? 'primary' : 'ghost'} onClick={() => writeParams((next) => next.delete('rc'))}>全部 <span className="pd-muted">{activeReview?.paper_count ?? 0}</span></Button>
+                {reviewMeta.categories.map((category) => (
+                  <Button key={category.id} size="sm" variant={reviewCategoryId === category.id ? 'primary' : 'ghost'} onClick={() => writeParams((next) => next.set('rc', category.id))}>
+                    {category.name} <span className="pd-muted">{category.paper_count}</span>
+                  </Button>
+                ))}
+                {!creatingCategory ? <Button size="sm" variant="ghost" onClick={() => setCreatingCategory(true)}>+ 分类</Button> : (
+                  <input className="pd-review-category-input" value={newCategoryName} autoFocus placeholder="分类名称，按 Enter 保存" onChange={(e) => setNewCategoryName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') void createReviewCategory(); if (e.key === 'Escape') setCreatingCategory(false) }} onBlur={() => { if (newCategoryName.trim()) void createReviewCategory(); else setCreatingCategory(false) }} />
+                )}
+              </div>
+            )}
 
             {selected.size === 0 && outdatedCount(list.items) > 0 && (
               <div className="pd-reparse-banner" role="status">
@@ -543,6 +703,7 @@ export function LibraryPage() {
                 <Button size="sm" variant="primary" icon={<FolderInput size={14} />} onClick={() => setMoving([...selected])}>
                   移动到文件夹…
                 </Button>
+                {reviewMeta.projects.length > 0 && <Button size="sm" onClick={() => { setAddReviewId(reviewMeta.projects[0].id); setAddingToReview(true) }}>{reviewMode ? '加入其他综述…' : '加入综述…'}</Button>}
                 <Button size="sm" icon={<RefreshCw size={14} />} onClick={() => setReparseIds([...selected])}>
                   重新解析…
                 </Button>
@@ -586,7 +747,7 @@ export function LibraryPage() {
                 description={anyNarrowing ? '试试去掉几个条件，或者换个关键词。' : view === 'favorite' ? '在论文右侧点击星标即可收藏。' : view === 'recent' ? '打开过的论文会出现在这里。' : undefined}
                 action={anyNarrowing ? <Button onClick={q && !filterActive ? clearSearch : clearAll}>清除搜索和筛选</Button> : undefined}
               />
-            ) : prefs.libraryLayout === 'shelf' ? (
+            ) : !reviewMode && prefs.libraryLayout === 'shelf' ? (
               <Bookshelf
                 papers={list.items}
                 folders={meta.folders.items}
@@ -606,14 +767,14 @@ export function LibraryPage() {
               />
             ) : (
               <>
-                {(prefs.libraryGroupByTag ? groupByTag(list.items) : [{ id: '', name: '', items: list.items }]).map((g) => (
+                {(reviewMode ? [{ id: '', name: '', items: list.items }] : prefs.libraryGroupByTag ? groupByTag(list.items) : [{ id: '', name: '', items: list.items }]).map((g) => (
                   <section key={g.id} className="pd-lib-group">
                     {g.name && (
                       <h2 className="pd-lib-group-title">
                         {g.name} <span className="pd-muted">{g.items.length}</span>
                       </h2>
                     )}
-                    {prefs.libraryLayout === 'list' ? (
+                    {reviewMode || prefs.libraryLayout === 'list' ? (
                       <div className="pd-lib-list" role="table">
                         <PaperTableHeader />
                         {g.items.map((p) => (
@@ -655,6 +816,52 @@ export function LibraryPage() {
         onConfirm={confirmDeleteFolder}
       />
       <SaveViewDialog open={savingView} onClose={() => setSavingView(false)} onSave={saveView} />
+
+      <Dialog
+        open={!!editingReview}
+        onClose={() => setEditingReview(null)}
+        title="编辑综述"
+        footer={<><Button variant="ghost" onClick={() => setEditingReview(null)}>取消</Button><Button variant="primary" solid disabled={!editingReview?.name.trim()} onClick={() => void saveReviewInfo()}>保存</Button></>}
+      >
+        {editingReview && <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-lg)' }}>
+          <Field label="综述名称">{(id) => <Input id={id} value={editingReview.name} onChange={(name) => setEditingReview({ ...editingReview, name })} />}</Field>
+          <Field label="简介" hint="用于说明这篇综述的主题、范围、纳入标准或当前进展。">{(id) => <TextArea id={id} value={reviewDescription} onChange={setReviewDescription} rows={5} placeholder="写下这篇综述的简介…" />}</Field>
+        </div>}
+      </Dialog>
+
+      <Dialog
+        open={addingToReview}
+        onClose={() => setAddingToReview(false)}
+        title="加入综述"
+        width={460}
+        footer={<><Button onClick={() => setAddingToReview(false)}>取消</Button><Button variant="primary" solid onClick={() => void addSelectedToReview()} disabled={!addReviewId}>加入</Button></>}
+      >
+        <p className="pd-muted">已选 {selected.size} 篇。加入后它们会从“全部文献”隐藏，只在对应综述里显示，默认分类为“待分类”。</p>
+        <Select
+          aria-label="选择综述"
+          value={addReviewId}
+          onChange={setAddReviewId}
+          options={reviewMeta.projects.map((project) => ({ value: project.id, label: `${project.name} · ${project.paper_count} 篇` }))}
+          style={{ width: '100%', marginTop: 14 }}
+        />
+      </Dialog>
+
+      <Dialog
+        open={!!categoryPaper}
+        onClose={() => setCategoryPaper(null)}
+        title="设置综述分类"
+        width={460}
+        footer={<><Button onClick={() => setCategoryPaper(null)}>取消</Button><Button variant="primary" solid onClick={() => void saveReviewCategory()} disabled={!categoryChoice}>保存</Button></>}
+      >
+        <p className="pd-paper-tagedit-paper">{categoryPaper?.title}</p>
+        <Select
+          aria-label="综述分类"
+          value={categoryChoice}
+          onChange={setCategoryChoice}
+          options={reviewMeta.categories.map((category) => ({ value: category.id, label: `${category.name} · ${category.paper_count} 篇` }))}
+          style={{ width: '100%', marginTop: 14 }}
+        />
+      </Dialog>
 
       <Dialog
         open={!!toDelete}

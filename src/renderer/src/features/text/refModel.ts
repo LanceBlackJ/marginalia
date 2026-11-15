@@ -23,7 +23,12 @@ export function mergeParaRefs(ords: readonly number[], map: ReadonlyMap<number, 
   const found = ords.map((o) => map.get(o)).filter((x): x is ParaRefs => !!x)
   if (found.length === 0) return null
   if (found.length === 1) return found[0]
-  return { sup: new Set(found.flatMap((f) => [...f.sup])), text: found.flatMap((f) => [...f.text]) }
+  return {
+    sup: new Set(found.flatMap((f) => [...f.sup])),
+    text: found.flatMap((f) => [...f.text]),
+    loose: new Set(found.flatMap((f) => [...(f.loose ?? [])])),
+    zh: found.some((f) => f.zh)
+  }
 }
 
 const RANGE_MAX = 30
@@ -89,7 +94,13 @@ export function splitByMarkers(text: string, markers: readonly CitationMarker[])
   if (markers.length === 0) return [{ text }]
   const out: RefPiece[] = []
   let cursor = 0
-  for (const mk of [...markers].sort((a, b) => a.start - b.start)) {
+  for (const mk of [...markers].sort((a, b) => a.start - b.start || b.end - a.end)) {
+    // 后端会把同一括号内的多篇引用归并成一个完整标记。这里再做一道防御，
+    // 即使旧缓存或某个 PDF 的内部链接仍带有嵌套标记，也不能把内层标记
+    // 错定位到后面的正文。
+    // 某些旧数据没有保存 start/end（默认都是 0），这类标记仍需按文字顺序定位。
+    if (mk.end > mk.start && mk.start < cursor && mk.end <= cursor) continue
+    if (mk.end > mk.start && mk.start < cursor && mk.end > cursor) continue
     let at = -1
     if (mk.pre) {
       const k = text.indexOf(mk.pre + mk.text, Math.max(0, cursor - mk.pre.length))

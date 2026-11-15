@@ -22,6 +22,12 @@ describe('processingCell', () => {
     const c = processingCell(make('attention', { formulas: step('skipped', 0, 3, '未配置视觉模型，公式仍是截图', true) }, ['公式：未配置视觉模型，公式仍是截图']), 'ready')
     expect(c).toMatchObject({ text: '需要注意', tone: 'warning', title: '公式：未配置视觉模型，公式仍是截图' })
   })
+  it('待处理状态只显示短标签，具体步骤放到悬停提示', () => {
+    const c = processingCell(make('waiting', { index: step('pending', 0, 4) }, [], '待处理（语义索引 0/4）'), 'ready')
+    expect(c?.text).toBe('待处理')
+    expect(c?.title).toContain('语义索引 0/4')
+    expect(c?.title).toContain('还没有开始')
+  })
   it('旧后端没有 processing 时退回只看分析状态', () => {
     expect(processingCell(undefined, 'ready')?.text).toBe('已分析')
     expect(processingCell(undefined, 'failed')?.tone).toBe('danger')

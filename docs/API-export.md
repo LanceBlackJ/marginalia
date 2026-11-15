@@ -9,10 +9,10 @@
 `POST /export/citations`
 
 ```json
-{"format": "bibtex|ris|csl|gbt7714|apa", "paper_ids": ["…"], "tag_id": "…"}
+{"format": "bibtex|ris|csl|gbt7714|apa", "paper_ids": ["…"], "tag_id": "…", "review_id": "…"}
 ```
 
-- 范围三选一：`paper_ids`（按给定顺序）、`tag_id`（该标签下已确认的论文）、都不给 = 全库。
+- 范围三选一：`paper_ids`（按给定顺序）、`tag_id`（该标签下已确认的论文）、`review_id`（该综述中的全部论文）、都不给 = 全库。
 - 返回 `{filename, content, count, format, label, mime}`；没有可导出的论文返回 400。
 - 补充材料子论文（`papers.parent_id` 非空，或出现在 `supplementary_assets.child_paper_id`）不导出。
 
@@ -70,10 +70,11 @@ Fan, C., Zeng, L., Sun, Y., & Liu, Y.-Y. (2020). Finding key players in complex 
 `POST /export/bundle`
 
 ```json
-{"format": "md|docx", "paper_ids": ["…"], "notes": true, "annotations": true, "cards": true, "items": true}
+{"format": "md|docx", "paper_ids": ["…"], "review_id": "…", "notes": true, "annotations": true, "cards": true, "items": true}
 ```
 
 - 汇总所选论文（不给 = 全部）的：我的笔记、我的批注（高亮文字与想法）、研究卡片、知识条目。四类可分别开关；全部为空返回 400。
+- `review_id` 可直接汇总指定综述中的全部论文，不受当前列表分页影响；与 `paper_ids` 互斥。
 - `md` 返回 JSON `{filename, content, count, counts}`；`docx` 直接返回 Word 文件字节（`Content-Disposition` 带 UTF-8 文件名，`X-Export-Count` 为条数）。
 - 两种格式共用同一份文档模型，内容一致。
 - **出处与 AI 标识：** 每条都带页码和原文片段；研究卡片标题下写明“AI 生成 · 模型 · 核实状态”，卡片里的“AI 推断”单独标为“非论文原文”；“我的笔记”“我的批注”“知识条目（我确认保留的）”是用户自己的内容，“原文”是论文摘录。只导出已保存的内容，不重新调用模型。

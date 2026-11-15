@@ -37,11 +37,26 @@
 
 ## 3. 当前工作区状态
 
+### 2026-11-15 本轮 PDF 解析修复（最新）
+
+- `backend/paperdesk/parsing/pdf_parser.py` 的 `PARSER_VERSION` 已更新到 **38**。已加入通用规则：
+  - 首页作者名单跨栏时，按同一基线、姓名特征和横向相邻关系合并左右文字块；作者行不再漏到正文，也不会因为作者分成多行而只显示一部分。
+  - 行首加粗的 run-in 小标题（例如 `LLM for Judging.`）如果后面紧跟正文，保留为同一段中的加粗前缀，不再错误生成一个独立小节；关键词、算法关键字、参考文献等既有特殊类型仍按原规则处理。
+  - 图/表区域检测新增“纯文字表格”路径：以 `Table/表` 表题为锚点，结合相邻多行、列式短行、数字密度和横向重叠判断表体。没有边框、横线或位图对象的表格也会从正文流移到 `figure_text`/表格区域，避免表内指标变成普通段落。
+  - 多行表题会先识别续行再选表体；表格区域只匹配表题，普通图形不会错误复用上一个 `Table N`，避免重复表格实体和错挂图题。
+  - 图表题即使贴着图框边缘或落在图框范围内，也不会被标成图内文字；因此多行图题不会丢掉第一行，也不会留下孤立的后半句。
+- `src/renderer/src/features/text/frontMatter.ts` 现在会去除作者单位数字角标，拆分没有逗号的连续作者行，并累积多个作者段落；会议出版信息（Proceedings、PMLR、年份、版权声明、城市等）统一进入 `other`，不再污染作者名单。公式引用规则补充了 `Eqn./Eqns.` 等英文写法，与中文译文共用同一套“只有真实公式编号才链接”的判断。
+- `backend/paperdesk/parsing/layout.py` 现在把双栏参考文献中同一基线的“左栏首条 + 右栏首条”先拆开、按栏排序，再让续行回到对应条目；同时将 PDF 中落在多字符姓名上的独立重音按坐标合成（例如 `R¨uhle` → `Rühle`）。
+- 公式/结构通用规则继续收紧：分情况公式的上下行与编号归入同一公式块；只有 `{`、`},` 这类提示词 JSON 结构符号不再误判为公式；填充文本框会跨普通栏分类恢复为单个结构化块并保留原文硬换行。因此提示词里的 JSON、原文换行和翻译行内 LaTeX 不再被公式识别流程拆坏。
+- 目标论文 `Which Agent Causes Task Failures and When?` 的最新只读回归结果：11 位作者完整；出版信息不再出现在作者名单；45 条参考文献按双栏阅读顺序正确分条；`Nelson`/`Needle in the haystack` 与 `Yao`/`Tree of thoughts` 不再串栏；`Rühle` 重音恢复；显示公式 1–8 均保持为公式块，公式(2)/(4)/(5)的分情况/多行结构完整；第 16 页两个提示词框各自保留完整换行，JSON 花括号不再生成伪公式。目标库中的旧结果仍需用户重启后执行“重新解析”才能替换。
+- 本轮已验证：规则表格/解析/参考文献/行内公式回归 **101 passed**；前端 text 回归 **18 个文件、173 tests passed**；`npm run typecheck`、`compileall`、`git diff --check` 通过。完整 `backend/tests` 本轮启动后长时间无输出且测试进程消失，已停止，**不能记为全量通过**。这里的“正确”指通用规则和目标 PDF 的实际视觉/文字层核对结果，不把单篇文章的字符串写死成特判。
+- 2026-11-15 追加修复作者-年份的多篇合并引用：`citations.detect_markers` 与 `links.merge_markers` 会把同一对括号内已映射的多篇引用归并成一个完整标记并合并参考文献编号；这样 PDF 内部链接被拆成开头/结尾两段时，中间引用也不会丢，前端旧缓存中的嵌套标记也不会错位。目标论文首页的 `(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)` 现返回一个包含 `[10, 15, 30]` 的完整引用组；单篇引用仍保持独立。新增引用回归 **10 passed**、前端引用模型/前置元数据/行内公式回归 **43 passed**，`npm run typecheck` 通过。修改后重启应用即可使用；若旧正文段落本身未更新，仍需对论文执行“重新解析”。
+
 - 分支 `main`，最近提交：`285f794 更新了PDF识别的机制`。
 - **有 43 个文件未提交**（用户自己提交）。主要是本轮 PDF 解析 / 版面模型 / 本地公式模型 / 目录对齐的改动：
   - 新增：`backend/paperdesk/parsing/layout_model.py`、`library/layout_boxes.py`、`vision/math_local.py`、`backend/requirements-local-math.txt`、`backend/tests/test_layout_boxes.py`、`test_translate_math.py`、`src/renderer/src/features/text/eqRefs.ts(+test)`、`retranslateMath.test.ts`
   - 修改：`parsing/{pdf_parser,layout,metadata,ocr,inline_math,figures,render}.py`、`library/{importer,reparse,processing,import_jobs,ocr_jobs,repo}.py`、`vision/{inline_math_ai,layout_ai}.py`、`ai/{fulltranslate,citeguard,service}.py`、`api/ai.py`、`app.py`、`tests/*`、前端 `TextReader.tsx`、`outlinePos.ts(+test)`、`textStore.ts`、`figViewerStore.ts`、`Lightbox.tsx` 等
-- `PARSER_VERSION = 30`（`backend/paperdesk/parsing/pdf_parser.py`，搜 `PARSER_VERSION =`）。改了解析逻辑要 +1（会触发界面"重新解析"提示）。
+- `PARSER_VERSION = 38`（`backend/paperdesk/parsing/pdf_parser.py`，搜 `PARSER_VERSION =`）。改了解析逻辑要 +1（会触发界面"重新解析"提示）。
 - 后端测试最近一次：**892 passed / 3 skipped**（全量，约 6.5 分钟）。前端 vitest 和 typecheck 本轮改动后跑过相关部分，交接前请再全量跑一遍。
 - 已知偶发失败：`test_materials.py::test_unknown_size_over_auto_limit_is_deferred_to_approval`（下载类用例，单独跑能过，不是本轮引入）。
 

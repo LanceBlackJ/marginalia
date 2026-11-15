@@ -98,6 +98,19 @@ def test_dot_and_ddot_accents_are_attached_to_their_variable_whatever_the_extrac
     assert [s.text for s in im.attach_accents(far, BODY)] == ["s", "˙"]
 
 
+def test_text_accent_is_composed_when_the_letter_is_inside_a_multi_character_span():
+    # 某些字体把 R、重音、uhle 分成三个 span；重音的 x 坐标仍落在 u 上，
+    # 不能把它输出成“Ruhle,¨”或把双点误当成数学公式。
+    spans = [
+        Span(10, 90, 14, 102, 100, "R", 10, False, False, "NimbusRomNo9L-Regu", False),
+        Span(18, 90, 22, 102, 100, "¨", 9.9, False, False, "NimbusRomNo9L-Regu", False),
+        Span(18, 90, 38, 102, 100, "uhle", 10, False, False, "NimbusRomNo9L-Regu", False),
+    ]
+    out = im.attach_accents(spans, 10)
+    assert "ühle" in "".join(s.text for s in out)
+    assert not any(s.text == "¨" for s in out)
+
+
 def test_two_closing_parentheses_that_ended_up_in_the_following_body_text_are_taken_back():
     from paperdesk.parsing import layout
     from paperdesk.parsing.pdf_parser import math_runs

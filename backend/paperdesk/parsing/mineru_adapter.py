@@ -18,7 +18,7 @@ from .pdf_parser import (
 
 DROP = {"header", "footer", "page_number", "aside_text", "page_footnote_noise"}
 FIG_LABEL = re.compile(
-    r"(?i)^\s*((?:extended data |supplementary )?(?:fig(?:ure)?\.?|table|tab\.|algorithm|图|表)\s*[\dA-Z一二三四五六七八九十]+(?:\.\d+)?)")
+    r"(?i)(?<![A-Za-z])((?:extended data |supplementary )?(?:fig(?:ure)?\.?|table|tab\.|algorithm|图|表)\s*[\dA-Z一二三四五六七八九十]+(?:\.\d+)?)")
 REF_HEAD = re.compile(r"(?i)^\s*(?:\d+[.\s]*|[IVX]+[.\s]+)?(references?|bibliography|参考文献|literature cited)\s*$")
 REF_START = re.compile(r"^\s*(?:\[\d+\]|\d+[.)]\s|\(\d+\))")
 TAG_RE = re.compile(r"\\tag\*?\{([^}]*)\}")
@@ -55,6 +55,7 @@ CJK_SUB = re.compile(r"^[（(][一二三四五六七八九十]+[）)]")
 
 
 CAPTION_HEAD = re.compile(r"(?i)^\s*(?:supplementary\s+)?(?:tables?|tab\.|fig(?:ure)?s?\.?|表|图)\s*S?\d+")
+CAPTION_TEXT_HEAD = re.compile(r"(?i)^\s*(?:supplementary\s+)?(?:tables?|tab\.|fig(?:ure)?s?\.?|表|图)\s*S?[A-Z]?\d+(?:\.\d+)?\s*[:.|]")
 
 
 def _plain(spans, math: list[dict] | None = None) -> str:
@@ -85,7 +86,10 @@ def _plain(spans, math: list[dict] | None = None) -> str:
 
 def _clean(t: str) -> str:
     t = inline_math.normalize_math_text(t)
-    return re.sub(r"[ \t]+", " ", re.sub(r"\s*\n\s*", " ", t)).strip()
+    # 中间 JSON 中的换行既可能是 PDF 文本块的真实换行，也可能是代码/提示词
+    # 的结构换行。不要在解析阶段一律抹掉；正文显示层会按块样式决定如何呈现。
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in re.split(r"\r?\n", t)]
+    return "\n".join(line for line in lines if line).strip()
 
 
 def _cell_clean(t: str) -> str:
@@ -365,7 +369,7 @@ def build(mid: dict, pages: list[tuple[float, float]], meta_raw: dict | None = N
                 body_boxes = [_box(sb, w, h) for sb in sub if isinstance(sb, dict) and sb.get("type") in ("image_body", "chart_body")]
                 fbox_body = _union(body_boxes) or box
                 cp = add(pno, "caption", (cap + (" " + foot if foot else "")).strip(), _union([cbox, fbox]) if cap or foot else None) if (cap or foot) else None
-                m = FIG_LABEL.match(cap) if cap else None
+                m = FIG_LABEL.search(cap) if cap else None
                 figures.append(ParsedFigure(pno, fbox_body, "figure", m.group(1).strip() if m else None,
                                             cp.ord if cp else None))
                 continue
@@ -391,7 +395,7 @@ def build(mid: dict, pages: list[tuple[float, float]], meta_raw: dict | None = N
                         tx = _clean(_plain(sb.get("content")))
                     ip = add(pno, "figure_text", tx, _box(sb, w, h), sec=state["sec"])
                     inner = inner or ip
-                m = FIG_LABEL.match(cap) if cap else None
+                m = FIG_LABEL.search(cap) if cap else None
                 figures.append(ParsedFigure(pno, tbox, "table", m.group(1).strip() if m else None,
                                             cp.ord if cp else None, inner.ord if inner else None, grid))
                 continue
@@ -408,6 +412,11 @@ def build(mid: dict, pages: list[tuple[float, float]], meta_raw: dict | None = N
             else:
                 tx = _clean(_plain(c, math))
             if not tx:
+                continue
+            # MinerU 偶尔把“Table 5. …”作为普通文字块返回；它仍是题注，
+            # 否则表格检测和正文里的 Table 5 链接都没有共同的锚点。
+            if t == "text" and CAPTION_TEXT_HEAD.match(tx):
+                add(pno, "caption", tx, box, math)
                 continue
             if state["in_refs"] and (REF_START.match(tx) or t == "ref_text"):
                 add(pno, "reference", tx, box, math, sec=state["refs_sec"])

@@ -30,6 +30,49 @@ class Region:
         return self.x0 - pad <= x <= self.x1 + pad and self.y0 - pad <= y <= self.y1 + pad
 
 
+def text_panel_boxes(page: pymupdf.Page, native_w: float, native_h: float) -> list[tuple[float, float, float, float]]:
+    """找出页面上用填充矩形承载的文本框，并返回其坐标。
+
+    这类框常见于论文里的 prompt、算法说明、伪代码和警示/定义框。它们不是
+    图，也不应该被当成图内文字；但框内的 PDF 文字层换行是内容结构的一部分，
+    不能像普通正文行那样全部折叠成空格。只检测有明显面积的填充框，避免把
+    普通字符的局部绘图、细线和整页背景当成文本框。
+    """
+    try:
+        drawings = page.get_drawings()
+    except Exception:  # noqa: BLE001  损坏页面没有绘图信息时不影响正文解析
+        return []
+    page_area = max(1.0, native_w * native_h)
+    candidates: list[tuple[float, float, float, float]] = []
+    for d in drawings:
+        r = d.get("rect")
+        if r is None or d.get("fill") is None:
+            continue
+        w, h = float(r.width), float(r.height)
+        if w < 0.32 * native_w or h < 24.0 or w * h < 0.012 * page_area:
+            continue
+        # 整页底色不是一个文本框；大图的底色也不应负责正文换行。
+        if w > 0.98 * native_w and h > 0.90 * native_h:
+            continue
+        candidates.append((float(r.x0), float(r.y0), float(r.x1), float(r.y1)))
+
+    # 同一个圆角文本框通常有外层描边/阴影和内层底色两个重叠矩形，合并后
+    # 只保留一个区域；较大的区域优先，保证框内所有文字都能被覆盖。
+    out: list[tuple[float, float, float, float]] = []
+    for box in sorted(candidates, key=lambda b: -((b[2] - b[0]) * (b[3] - b[1]))):
+        area = (box[2] - box[0]) * (box[3] - box[1])
+        duplicate = False
+        for old in out:
+            ix = max(0.0, min(box[2], old[2]) - max(box[0], old[0]))
+            iy = max(0.0, min(box[3], old[3]) - max(box[1], old[1]))
+            if ix * iy >= 0.65 * min(area, (old[2] - old[0]) * (old[3] - old[1])):
+                duplicate = True
+                break
+        if not duplicate:
+            out.append(box)
+    return out
+
+
 def detect_regions(page: pymupdf.Page, native_w: float, native_h: float) -> list[Region]:
     page_area = native_w * native_h
     regions: list[Region] = []
@@ -62,6 +105,13 @@ def detect_regions(page: pymupdf.Page, native_w: float, native_h: float) -> list
     try:
         regions.extend(_rule_tables(page, drawings, native_w))
     except Exception:  # noqa: BLE001  取不到文字块或绘图异常时，只是少识别一张表
+        pass
+    # 有些出版社把表格完全作为文字排进 PDF：没有边框、横线，也没有位图/矢量图对象。
+    # 这类表格不能靠“有没有画线”判断；以表题为锚点，用表体的行结构和数字密度
+    # 保守地找出表体，避免把表前最后一段普通正文误移出正文流。
+    try:
+        regions.extend(_text_tables(page, native_w, native_h))
+    except Exception:  # noqa: BLE001  文字块结构异常时不影响其它图表检测
         pass
 
     # 合并相互重叠的区域，并过滤页眉/页脚/分隔线之类的细长装饰
@@ -138,6 +188,121 @@ def _rule_tables(page: pymupdf.Page, drawings: list, native_w: float) -> list[Re
         if len(same) < 2:
             continue
         out.append(Region(min(r[1] for r in same), top[0] - 1, max(r[2] for r in same), same[-1][0] + 1, "vector", table=True))
+    return out
+
+
+def _table_body_like(text: str) -> bool:
+    """判断一个文字块是否像“没有绘图边界的表体”。"""
+    lines = [re.sub(r"\s+", " ", x).strip() for x in text.splitlines() if x.strip()]
+    if len(lines) < 3:
+        return False
+    tokens = [t for line in lines for t in line.split()]
+    if len(tokens) < 8:
+        return False
+    numeric = sum(bool(re.fullmatch(r"[()\[\]{}±+\-−≤≥<>]?\d+(?:[.,:]\d+)*%?", t)) for t in tokens)
+    # 表头可能全是文字，但至少要有多行、数字列或常见的数值不确定性符号。
+    numeric_share = numeric / max(1, len(tokens))
+    has_numeric_row = sum(bool(re.search(r"\d|±", line)) for line in lines)
+    short_rows = sum(len(line.split()) <= 12 for line in lines)
+    table_like_rows = sum(len(line.split()) <= 20 and not line.endswith((".", "。", ";", "；", ":", "：")) for line in lines)
+    # 纯文字、无数字的表格只能保守识别：表格行通常都从列值/列名开头，
+    # 而普通段落折行经常出现小写续行或句末标点。这个门槛避免把“表题后
+    # 的说明段落”误吞进表格区域。
+    text_row_table = (
+        table_like_rows >= 3 and table_like_rows == len(lines)
+        and all(re.match(r"[A-Z\d(\[]", line) for line in lines)
+    )
+    return (
+        (numeric >= 4 and numeric_share >= 0.18 and has_numeric_row >= 2)
+        or (numeric >= 6 and short_rows >= 3)
+        or text_row_table
+    )
+
+
+def _text_tables(page: pymupdf.Page, native_w: float, native_h: float) -> list[Region]:
+    """找“文字层表格”：表题下方/上方紧邻的、由多行单元格文字组成的表体。"""
+    blocks = [b for b in page.get_text("blocks") if len(b) >= 7 and b[6] == 0 and b[4].strip()]
+    captions = sorted(
+        (b for b in blocks if TABLE_CAPTION_RE.match(b[4].strip())),
+        key=lambda b: (b[1], b[0]),
+    )
+    if not captions:
+        return []
+    out: list[Region] = []
+    page_area = max(1.0, native_w * native_h)
+    for cap in captions:
+        above = [b for b in blocks if b is not cap and b[3] <= cap[1] + 1]
+        below = [b for b in blocks if b is not cap and b[1] >= cap[3] - 1]
+        if not above and not below:
+            continue
+        # 表题经常会在表格另一侧再折出一块续行（例如题目第一行在表下、
+        # 第二行紧挨着表上）。不能只按“距离表题最近”选边，否则会把题目
+        # 续行当成表体。优先选择首个候选块本身就呈现多行/数值列的一侧。
+        def ordered(items: list[tuple], is_above: bool) -> list[tuple]:
+            result = sorted(items, key=lambda b: b[1])
+            return list(reversed(result)) if is_above else result
+
+        above_ordered = ordered(above, True)
+        below_ordered = ordered(below, False)
+        def seed_info(items: list[tuple]) -> tuple[int, int] | None:
+            candidates: list[tuple[int, int]] = []
+            for i, b in enumerate(items[:3]):
+                overlap = min(b[2], cap[2]) - max(b[0], cap[0])
+                if overlap < 0.35 * min(max(1.0, b[2] - b[0]), max(1.0, cap[2] - cap[0])):
+                    continue
+                if _table_body_like(b[4]):
+                    lines = len([x for x in b[4].splitlines() if x.strip()])
+                    digits = sum(ch.isdigit() for ch in b[4])
+                    candidates.append((3 * lines + digits, i))
+            return max(candidates, default=None)
+
+        above_info = seed_info(above_ordered)
+        below_info = seed_info(below_ordered)
+        if above_info is not None and below_info is None:
+            side, is_above, seed = above_ordered, True, above_info[1]
+        elif below_info is not None and above_info is None:
+            side, is_above, seed = below_ordered, False, below_info[1]
+        elif above_info is not None and below_info is not None:
+            # 多行表题可能让表体两侧都出现“像表格”的短文字；优先行数/数值
+            # 更充分的一侧，而不是盲选离表题最近的一块正文。
+            if above_info[0] >= below_info[0]:
+                side, is_above, seed = above_ordered, True, above_info[1]
+            else:
+                side, is_above, seed = below_ordered, False, below_info[1]
+        else:
+            above_gap = cap[1] - max(b[3] for b in above) if above else float("inf")
+            below_gap = min(b[1] for b in below) - cap[3] if below else float("inf")
+            is_above = bool(above) and above_gap <= below_gap
+            side, seed = (above_ordered, 0) if is_above else (below_ordered, 0)
+            if not side:
+                continue
+        # 丢掉表题续行/其它近邻文字，从真正的表体块开始向外扩展。
+        side = side[seed:]
+        first = side[0]
+        overlap = min(first[2], cap[2]) - max(first[0], cap[0])
+        if overlap < 0.35 * min(max(1.0, first[2] - first[0]), max(1.0, cap[2] - cap[0])):
+            continue
+        chosen = [first]
+        for b in side[1:]:
+            prev = chosen[-1]
+            gap = prev[1] - b[3] if is_above else b[1] - prev[3]
+            x_overlap = min(b[2], prev[2]) - max(b[0], prev[0])
+            if gap < -1 or gap > 55 or x_overlap < 0.35 * min(max(1.0, b[2] - b[0]), max(1.0, prev[2] - prev[0])):
+                break
+            # 首块已经是完整的多行表体时，向上/向下的下一块很可能是页眉、
+            # 表题续行或表后正文；不要为了扩大区域把它一并吞掉。
+            if _table_body_like(first[4]) and not _table_body_like(b[4]):
+                break
+            chosen.append(b)
+        if not _table_body_like("\n".join(b[4] for b in chosen)):
+            continue
+        x0 = min(float(b[0]) for b in chosen)
+        y0 = min(float(b[1]) for b in chosen)
+        x1 = max(float(b[2]) for b in chosen)
+        y1 = max(float(b[3]) for b in chosen)
+        if (x1 - x0) * (y1 - y0) < 0.006 * page_area or y1 - y0 < 30:
+            continue
+        out.append(Region(x0, y0, x1, y1, "vector", table=True))
     return out
 
 

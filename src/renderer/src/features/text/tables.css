@@ -133,19 +133,3 @@
 }
 
 /* 目录栏里的“本文表格”清单 */
-.pd-toc-sub {
-  margin-top: 14px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-strong);
-}
-.pd-toc-tables .pd-toc-item {
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-}
-.pd-toc-tables .pd-toc-pg {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--text-3);
-  white-space: nowrap;
-}

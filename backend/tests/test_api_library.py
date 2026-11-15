@@ -40,6 +40,33 @@ def test_import_list_and_dedupe(api, sample_pdf, tmp_path):
     assert api.get("/papers").json()["total"] == 1
 
 
+def test_review_space_isolated_and_categorized(api, sample_pdf):
+    pid = api.import_pdf(sample_pdf)["paper_id"]
+    review = api.post("/reviews", {"name": "网络韧性综述"}).json()
+    assert review["name"] == "网络韧性综述"
+    updated_review = api.patch(f"/reviews/{review['id']}", {"description": "整理网络韧性指标、方法和实验结果。"}).json()
+    assert updated_review["description"].startswith("整理网络韧性")
+    categories = api.get(f"/reviews/{review['id']}/categories").json()["items"]
+    assert [c["name"] for c in categories] == ["待分类"]
+
+    added = api.post(f"/reviews/{review['id']}/papers", {"paper_ids": [pid]}).json()
+    assert added["added"] == 1
+    assert api.get("/papers").json()["total"] == 0
+    review_items = api.get("/papers", params={"scope": "review", "review_id": review["id"]}).json()
+    assert review_items["total"] == 1
+    assert review_items["items"][0]["review_category_name"] == "待分类"
+    exported = api.post("/export/citations", {"format": "bibtex", "review_id": review["id"]}).json()
+    assert exported["count"] == 1
+
+    category = api.post(f"/reviews/{review['id']}/categories", {"name": "方法比较"}).json()
+    api.patch(f"/reviews/{review['id']}/papers/{pid}", {"category_id": category["id"], "screening": "included"})
+    filtered = api.get("/papers", params={"scope": "review", "review_id": review["id"], "review_category_id": category["id"]}).json()
+    assert filtered["total"] == 1 and filtered["items"][0]["review_screening"] == "included"
+
+    assert api.delete(f"/reviews/{review['id']}/papers/{pid}").json()["ok"]
+    assert api.get("/papers").json()["total"] == 1
+
+
 def test_import_failures_are_reported(api, tmp_path):
     bad = tmp_path / "bad.pdf"
     bad.write_bytes(b"%PDF-1.4 garbage")

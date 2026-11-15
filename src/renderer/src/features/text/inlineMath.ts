@@ -12,7 +12,11 @@ const GREEK_COMMAND_RE = /\\(?:alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iot
 
 /** 通用公式安全闸门：字体映射异常形成“希腊命令 + 裸英文单词”时不渲染伪公式。 */
 export function isSafeInlineTex(tex: string): boolean {
-  return !GREEK_COMMAND_RE.test(tex)
+  const t = tex.trim()
+  // 题目编号、列表编号和图注里的“(3)”不是数学表达式。解析器有时会把
+  // 这类短片段和真正公式一起写进 math_json，统一在最后一道闸门丢弃。
+  if (/^[\(\[（【]?\s*\d+(?:\.\d+)?\s*[\)\]）】]?$/.test(t)) return false
+  return !GREEK_COMMAND_RE.test(t)
 }
 
 const GREEK: Record<string, string> = {
@@ -24,7 +28,7 @@ const GREEK: Record<string, string> = {
 // 以“不是字母数字”开头（或开头）、以“不是字母数字”结尾（或结尾）的单个希腊字母：用前瞻/后顾，不消耗边界字符
 const GREEK_RE = new RegExp(`(?<![\\p{L}\\p{N}_])([${Object.keys(GREEK).join('')}])(?![\\p{L}\\p{N}])`, 'gu')
 const SUBSCRIPT_RE = /(?<![\p{L}\p{N}_\\])([A-Za-z])_(?:\{([A-Za-z0-9,]{1,4})\}|([A-Za-z0-9]{1,3}))(?![\p{L}\p{N}_])/gu
-const POWER_RE = /(?<![\p{L}\p{N}_\\])((?:\d+(?:\.\d+)?|[A-Za-z]))\^(\{[A-Za-z0-9,+\-]{1,12}\}|[A-Za-z0-9]{1,12})(?![\p{L}\p{N}_])/gu
+const POWER_RE = /(?<![\p{L}\p{N}_\\])((?:\d+(?:\.\d+)?|[A-Za-z]))\^(\{[A-Za-z0-9,*+\-]{1,12}\}|[A-Za-z0-9*]{1,12})(?![\p{L}\p{N}_])/gu
 const RAW_COMMAND = String.raw`\\(?:sum|prod|int|partial|nabla|frac|sqrt|bar|hat|tilde|vec|mathbf|mathrm|mathbb|mathcal|operatorname|text|cdot|times|pm|mp|leq?|geq?|neq|approx|sim|in|notin|mid|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|nu|pi|rho|sigma|tau|phi|chi|psi|omega)`
 const DELIMITED_LATEX_RE = /(?:\$([^$\n]+)\$|\\\(([\s\S]*?)\\\))/gu
 // 翻译模型偶尔直接输出未包在 $...$ 中的 LaTeX。中文/标点是自然的公式边界，最多截取 180 个字符，避免吞掉整段正文。

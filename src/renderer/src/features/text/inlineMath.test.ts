@@ -37,6 +37,9 @@ describe('splitInlineMath', () => {
     expect(tex.some((t) => t.includes(String.raw`\partial`))).toBe(true)
     expect(tex.some((t) => t.includes(String.raw`\partial Ball`))).toBe(true)
   })
+  it('renders translated subscript and tilde variables without delimiters', () => {
+    expect(texOf(String.raw`我们将 a_{t} 替换为 \tilde{a}_{t}。`)).toEqual(['a_{t}', '\\tilde{a}_{t}'])
+  })
   it('renders short undelimited multiplication formulas emitted by translation', () => {
     expect(texOf(String.raw`节点级d\cdot s公式扩展为网络级量`)).toEqual([String.raw`d\cdot s`])
     expect(texOf('节点级d · s公式扩展为网络级量')).toEqual([String.raw`d \cdot s`])

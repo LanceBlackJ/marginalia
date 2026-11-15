@@ -22,7 +22,11 @@ export function processingCell(p: ProcessingSummary | undefined, analysis: Analy
     case 'processing':
       return { text: p.label, tone: 'default', title: '正在后台处理，完成前不会显示“已完成”' }
     case 'waiting':
-      return { text: p.label, tone: 'default', title: '还没有开始；打开这篇论文会自动开始处理' }
+      return {
+        text: '待处理',
+        tone: 'default',
+        title: [p.label, '还没有开始；打开这篇论文会自动开始处理'].filter(Boolean).join('\n')
+      }
     default:
       return { text: '需要注意', tone: 'warning', title: p.reasons.join('\n') || undefined }
   }

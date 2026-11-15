@@ -16,6 +16,13 @@
     position: static;
     max-height: none;
   }
+  .pd-lib-rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+    border-right: 0;
+  }
 }
 
 /* ---- 左栏 ---- */
@@ -27,6 +34,21 @@
   padding-right: var(--sp-sm);
   border-right: 1px solid var(--border);
   font-size: var(--fs-small);
+}
+.pd-lib-rail {
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 140px);
+  overflow-y: auto;
+  padding-right: var(--sp-sm);
+  border-right: 1px solid var(--border);
+}
+.pd-lib-rail .pd-frail {
+  position: static;
+  max-height: none;
+  overflow: visible;
+  padding-right: 0;
+  border-right: 0;
 }
 .pd-frail-group {
   display: flex;

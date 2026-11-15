@@ -25,10 +25,9 @@ import { useTextStore, type EquationInfo } from './textStore'
 import { usePrefs } from '@/stores/prefsStore'
 import { muteSync, syncMuted } from '@/features/reader/splitSync'
 import { buildRegions, regionForOrd } from '@/features/reader/regions'
-import { applyBold, applyItalic, applyMath, applyTerms, termRegExp, blockText, boldRanges, mathRanges, buildDoc, findPassageByBBox, pageAtLine, secKey, segmentsFor, type AnnMark, type Block, type Seg, type TextView } from './textModel'
+import { applyBold, applyItalic, applyMath, applyTerms, termRegExp, blockText, boldRanges, mathRanges, buildDoc, findPassageByBBox, pageAtLine, secKey, segmentsFor, stripTaggedFormat, type AnnMark, type Block, type Seg, type TextView } from './textModel'
 import { buildVocab, cleanDisplay, parseCaption, parseCaptionZh, splitCitations, splitFirstSentence, splitFirstSentenceZh, splitTag, stripBroken, type Vocab } from './textClean'
 import { FrontBlock } from './FrontBlock'
-import { TocRail, type TocTable } from './TocRail'
 import { activeSectionOnScroll } from '@/features/reader/outlinePos'
 
 /**
@@ -52,6 +51,7 @@ import { ZoomImage } from '@/components/ZoomImage'
 import { LinkAnchor, Linkified } from './Linkified'
 import { splitLinks } from './links'
 import { labelKey, splitFigRefs } from './figRefs'
+import { splitSectionRefs } from './sectionRefs'
 import { eqKey, splitEqRefs } from './eqRefs'
 import { useFigViewer, type FigTarget } from './figViewerStore'
 import { useTextPrefs } from './textPrefs'
@@ -65,7 +65,6 @@ import './text.css'
 
 const READ_LINE = 90 // 阅读线：块的顶部越过这条线（距容器顶部的像素）就算“读到这一页”
 const CHUNK = 24 // 每 24 个块为一组，用 content-visibility 只渲染可见部分（不按页分块）
-const TOC_MIN_WIDTH = 980 // 阅读区至少这么宽才显示右侧的“本文表格”清单
 const EMPTY_MARKS: AnnMark[] = []
 
 /** 进入视口附近后才为 true（一次性）：图片等重内容只在快要看到时才加载。 */
@@ -137,11 +136,17 @@ function FigText({ text, render }: { text: string; render: (t: string) => ReactE
   const figs = useTextStore((s) => s.figuresByCaption)
   const tables = useTextStore((s) => s.tablesByCaption)
   const equations = useTextStore((s) => s.equationsByOrd)
+  const outline = useReaderStore((s) => s.outline)
   const keys = targetKeys(figs, tables)
   const eqs = equationTargets(equations)
-  if (keys.size === 0 && eqs.size === 0) return <>{render(text)}</>
+  const sections = new Map<string, { page: number; title: string; id: string }>()
+  for (const o of outline) {
+    const m = /^\s*(\d+(?:\.\d+){0,5})\b/.exec(o.title)
+    if (m && !sections.has(m[1])) sections.set(m[1], { page: o.page, title: o.title, id: o.id })
+  }
+  if (keys.size === 0 && eqs.size === 0 && sections.size === 0) return <>{render(text)}</>
   const pieces = keys.size > 0 ? splitFigRefs(text, (k) => keys.has(k)) : [{ text }]
-  if (pieces.length === 1 && !('key' in pieces[0]) && eqs.size === 0) return <>{render(text)}</>
+  if (pieces.length === 1 && !('key' in pieces[0]) && eqs.size === 0 && sections.size === 0) return <>{render(text)}</>
   return (
     <>
       {pieces.map((p, i) =>
@@ -156,7 +161,7 @@ function FigText({ text, render }: { text: string; render: (t: string) => ReactE
             {p.text}
           </button>
         ) : (
-          <EqText key={i} text={p.text} eqs={eqs} render={render} />
+          <EqText key={i} text={p.text} eqs={eqs} sections={sections} render={render} />
         )
       )}
     </>
@@ -182,10 +187,10 @@ function equationTargets(eqs: Map<number, { id: number; number: string | null }>
 }
 
 /** 一段普通文字里的“Eq. (3)”“constraint (5)”：论文里真有这个编号的公式就变成可点击的（看公式 / 跳到公式）。 */
-function EqText({ text, eqs, render }: { text: string; eqs: Map<string, EqTarget>; render: (t: string) => ReactElement[] | string }) {
-  if (eqs.size === 0) return <span>{render(text)}</span>
+function EqText({ text, eqs, sections, render }: { text: string; eqs: Map<string, EqTarget>; sections: Map<string, { page: number; title: string; id: string }>; render: (t: string) => ReactElement[] | string }) {
+  if (eqs.size === 0 && sections.size === 0) return <span>{render(text)}</span>
   const pieces = splitEqRefs(text, (k) => eqs.has(k))
-  if (pieces.length === 1 && !('key' in pieces[0])) return <span>{render(text)}</span>
+  if (pieces.length === 1 && !('key' in pieces[0])) return <SectionText text={text} sections={sections} render={render} />
   return (
     <>
       {pieces.map((p, i) =>
@@ -193,6 +198,33 @@ function EqText({ text, eqs, render }: { text: string; eqs: Map<string, EqTarget
           <EqRefMenu key={i} target={eqs.get(p.key)!}>
             {p.text}
           </EqRefMenu>
+        ) : (
+          <SectionText key={i} text={p.text} sections={sections} render={render} />
+        )
+      )}
+    </>
+  )
+}
+
+function SectionText({ text, sections, render }: { text: string; sections: Map<string, { page: number; title: string; id: string }>; render: (t: string) => ReactElement[] | string }) {
+  const pieces = splitSectionRefs(text, (n) => sections.has(n))
+  if (pieces.length === 1 && !('number' in pieces[0])) return <span>{render(text)}</span>
+  return (
+    <>
+      {pieces.map((p, i) =>
+        'number' in p ? (
+          <button
+            key={i}
+            type="button"
+            className="pd-tp-figref"
+            title="点击跳转到这一节"
+            onClick={() => {
+              const target = sections.get(p.number)
+              if (target) useReaderStore.getState().jumpToSection(target.page, target.title, target.id)
+            }}
+          >
+            {p.text}
+          </button>
         ) : (
           <span key={i}>{render(p.text)}</span>
         )
@@ -250,9 +282,21 @@ function FigViewer({ paperId }: { paperId: string }) {
 /** 普通文字片段：整理排版时把粘在词尾的引用数字渲染成上标，并把简单的行内数学渲染出来。 */
 function plainPieces(text: string, vocab: Vocab | null, key: number, refs: ParaRefs | null = null): ReactElement {
   if (!vocab) {
+    // “显示原始提取文字”也不能失去正文里的图/表、章节和公式引用链接。
+    // 以前 raw 分支直接绕过 FigText/EqText，所以英文原文没有链接而译文有。
+    const marked = refs && refs.text.length > 0 ? splitByMarkers(text, refs.text) : [{ text, refs: undefined as number[] | undefined }]
     return (
       <span key={key}>
-        {withLinksAndMath(text)}
+        {marked.map((p, i) =>
+          p.refs ? (
+            <RefMarker key={i} refs={p.refs}>{p.text}</RefMarker>
+          ) : (
+            <FigText key={i} text={p.text} render={(t) => {
+              const el = withLinksAndMath(t)
+              return Array.isArray(el) ? el : [el]
+            }} />
+          )
+        )}
       </span>
     )
   }
@@ -842,13 +886,19 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
   ]
     .filter(Boolean)
     .join(' ')
-  const trText = tr === undefined ? undefined : normalizeInlineText(vocab ? stripBroken(tr) : tr)
+  const trTagged = tr === undefined ? null : stripTaggedFormat(normalizeInlineText(vocab ? stripBroken(tr) : tr))
+  const trText = trTagged?.text
+  const lineClass = text.includes('\n') ? ' pd-tp-p--lines' : ''
+  const trLineClass = trText?.includes('\n') ? ' pd-tp-p--lines' : ''
   // 译文和原文一样渲染：行内公式、原文加粗里保留下来的词、引用角标的悬浮卡片、链接、搜索命中；图注拆成“编号 + 加粗标题句”，段落可以首句加粗
   const trCap = trText !== undefined && vocab && isCaption ? parseCaptionZh(trText) : null
-  const trFirst = trText !== undefined && vocab && boldFirst && item.kind === 'paragraph' && !query && bold.length === 0 && maths.length === 0 ? splitFirstSentenceZh(trText) : null
+  const trBold = trTagged ? [...trTagged.bold, ...boldRanges(trText ?? '', parts.flatMap((p) => p.bold ?? []))] : []
+  const trItalic = trTagged ? [...trTagged.italic, ...boldRanges(trText ?? '', parts.flatMap((p) => p.italic ?? []))] : []
+  const trMaths = trText === undefined ? [] : mathRanges(trText, parts.flatMap((p) => p.math ?? []))
+  const trFirst = trText !== undefined && vocab && boldFirst && item.kind === 'paragraph' && !query && trBold.length === 0 && trItalic.length === 0 && trMaths.length === 0 ? splitFirstSentenceZh(trText) : null
   const trSegs = useMemo(
-    () => (trText === undefined ? [] : applyMath(applyBold(segmentsFor(trText, [], query), boldRanges(trText, parts.flatMap((p) => p.bold ?? []))), mathRanges(trText, parts.flatMap((p) => p.math ?? [])))),
-    [trText, query, parts]
+    () => (trText === undefined ? [] : applyMath(applyItalic(applyBold(segmentsFor(trText, [], query), trBold), trItalic), trMaths)),
+    [trText, query, trBold, trItalic, trMaths]
   )
   const trClass = view === 'both' ? 'pd-tp-p pd-tp-trans pd-tp-tr' : 'pd-tp-p pd-tp-trans'
   return (
@@ -904,36 +954,36 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
                 ) : (
                   <span className="pd-tp-cap-label">{CAPTION_LABEL_ZH(cap.label)}</span>
                 )}
-                <p className="pd-tp-p">
+                <p className={`pd-tp-p${lineClass}`}>
                   {cap.title && <strong className="pd-tp-cap-title">{renderSegs([{ text: cap.title }], vocab, refs)} </strong>}
                   {renderSegs([{ text: cap.rest }], vocab, refs)}
                 </p>
               </div>
             ) : first ? (
-              <p className="pd-tp-p">
+              <p className={`pd-tp-p${lineClass}`}>
                 <strong className="pd-tp-first">{renderSegs([{ text: first.first }], vocab, refs)}</strong>
                 {renderSegs([{ text: first.rest }], vocab, refs)}
               </p>
             ) : (
-              <p className={text.includes('\n') ? 'pd-tp-p pd-tp-p--lines' : 'pd-tp-p'}>{renderSegs(applyTerms(applyMath(applyItalic(applyBold(segmentsFor(text, marks, query), bold), ital), maths), glossTerms ?? []), vocab, refs)}</p>
+              <p className={`pd-tp-p${lineClass}`}>{renderSegs(applyTerms(applyMath(applyItalic(applyBold(segmentsFor(text, marks, query), bold), ital), maths), glossTerms ?? []), vocab, refs)}</p>
             ))}
           {showTr &&
             trText !== undefined &&
             (trCap && trCap.label ? (
               <div className="pd-tp-cap pd-tp-trans">
                 <span className="pd-tp-cap-label">{trCap.label}</span>
-                <p className={trClass}>
+                <p className={`${trClass}${trLineClass}`}>
                   {trCap.title && <strong className="pd-tp-cap-title">{renderSegs([{ text: trCap.title }], vocab, trRefs)} </strong>}
                   {renderSegs([{ text: trCap.rest }], vocab, trRefs)}
                 </p>
               </div>
             ) : trFirst ? (
-              <p className={trClass}>
+              <p className={`${trClass}${trLineClass}`}>
                 <strong className="pd-tp-first">{renderSegs([{ text: trFirst.first }], vocab, trRefs)}</strong>
                 {renderSegs([{ text: trFirst.rest }], vocab, trRefs)}
               </p>
             ) : (
-              <p className={trClass}>{renderSegs(trSegs, vocab, trRefs)}</p>
+                <p className={`${trClass}${trLineClass}`}>{renderSegs(trSegs, vocab, trRefs)}</p>
             ))}
           {showTr && (
             <button type="button" className="pd-tp-link pd-tp-retr" disabled={retranslating} onClick={() => onRetranslate(parts.map((p) => p.ord))}>
@@ -1034,7 +1084,6 @@ export function TextReader() {
 
   const [showNoise, setShowNoise] = useState(false)
   const [refsOpen, setRefsOpen] = useState(false)
-  const [width, setWidth] = useState(0)
   const containerRef = useRef<HTMLDivElement>(null)
   const handledJump = useRef(0)
   const guardUntil = useRef(0)
@@ -1046,15 +1095,6 @@ export function TextReader() {
   const shown = useMemo(() => (raw || tableHidden.size === 0 ? items : items.filter((i) => !tableHidden.has(i.ord))), [items, tableHidden, raw])
   const doc = useMemo(() => buildDoc(shown, outline, { showNoise, raw }), [shown, outline, showNoise, raw])
   const vocab = useMemo(() => (raw ? null : buildVocab(items)), [items, raw])
-
-  // 目录栏里的“本文表格”清单：带 “Table N:” 图注的表，和图里的数据网格（挂在图注上）
-  const tocTables = useMemo<TocTable[]>(
-    () =>
-      [...tablesByCaption.values()]
-        .sort((a, b) => a.caption_ord - b.caption_ord)
-        .map((t) => ({ key: String(t.caption_ord), ord: t.caption_ord, label: t.kind === 'figure_data' ? `${t.label} 图中数据` : t.label, page: t.page })),
-    [tablesByCaption]
-  )
 
   const notes = useNotesStore((s) => s.notes)
   const bookmarks = useMarksStore((s) => s.bookmarks)
@@ -1078,15 +1118,6 @@ export function TextReader() {
   }, [hits, activeHit])
 
   const flashOrd = useMemo(() => (flash ? (flash.ord ?? findPassageByBBox(items, flash.page, flash.bbox)) : null), [flash, items])
-
-  // 阅读区宽度：够宽才显示右侧“本文结构”
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const ro = new ResizeObserver((e) => setWidth(e[0].contentRect.width))
-    ro.observe(el)
-    return () => ro.disconnect()
-  }, [status])
 
   // ---------- 跳转（目录 / 书签 / 页码 / 证据 / 搜索） ----------
   const scrollToJump = useCallback((): boolean => {
@@ -1328,7 +1359,6 @@ export function TextReader() {
   const tblRunning = tblJobId !== null
   const tblPending = tbl.total > 0 && !tbl.complete
   const showBanner = translating || needTr || eqRunning || eqPending || !!eqError || tblRunning || tblPending || !!tblError
-  const showToc = prefs.toc && width >= TOC_MIN_WIDTH && tocTables.length > 0
   const abstractText = doc.abstract
   // 目录里“首部信息 / Abstract / References”这几节在正文里没有标题节点：给它们各打一个同名的标记，
   // 目录高亮（阅读线上方最近的标记）和点目录跳转才对得上
@@ -1497,12 +1527,6 @@ export function TextReader() {
               <input type="checkbox" checked={prefs.pages} onChange={(e) => prefs.setPages(e.target.checked)} />
               显示页码
             </label>
-            {width >= TOC_MIN_WIDTH && tocTables.length > 0 && (
-              <label>
-                <input type="checkbox" checked={prefs.toc} onChange={(e) => prefs.setToc(e.target.checked)} />
-                本文表格
-              </label>
-            )}
           </div>
           {doc.front && frontSec && <span data-sec={frontSec} data-sec-key={frontKey} aria-hidden="true" style={{ display: 'block', height: 0 }} />}
           {doc.front && <FrontBlock title={paperTitle} front={doc.front} titleZh={headingTr[paperTitle]} view={view} />}
@@ -1544,7 +1568,6 @@ export function TextReader() {
             显示图内文字{!showNoise && doc.hidden > 0 ? ` · 已隐藏 ${doc.hidden} 段` : ''}
           </label>
         </article>
-        {showToc && <TocRail tables={tocTables} />}
       </div>
       <RefLayer />
       <NotePeek />
