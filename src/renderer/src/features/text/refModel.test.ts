@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CitationMarker, RefItem, RefResolution } from '@/lib/types.references'
-import { bibtex, expandNumbers, matchLabel, placePopover, plainCitation, refHeadline, splitByMarkers, splitCjkSup, splitLooseBrackets, splitSupDigits } from './refModel'
+import { bibtex, expandNumbers, inferAuthorYearMarkers, matchLabel, placePopover, plainCitation, refHeadline, splitByMarkers, splitCjkSup, splitLooseBrackets, splitSegmentsByMarkers, splitSupDigits } from './refModel'
 
 const ref = (over: Partial<RefItem> = {}): RefItem => ({
   index: 1, ord: 5, page: 7, ords: [5], raw: '1. Rivera, A. & Chen, L. Cascade failure in layered networks. Phys. Rev. E 80, 41 (2009).',
@@ -55,6 +55,27 @@ describe('splitByMarkers', () => {
       { kind: 'authoryear', text: 'Li et al., 2023a', start: 21, end: 37, refs: [2] }
     ])).toEqual([{ text, refs: [1, 2, 3] }])
   })
+  it('finds the same citation group in Chinese text with full-width punctuation', () => {
+    const source = '(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)'
+    const translated = '近年来，（Hong et al.，2023； Li et al.，2023a； Wu et al.，2023）。'
+    expect(splitByMarkers(translated, [{ kind: 'authoryear', text: source, start: 0, end: source.length, refs: [1, 2, 3] }])).toEqual([
+      { text: '近年来，' },
+      { text: '（Hong et al.，2023； Li et al.，2023a； Wu et al.，2023）', refs: [1, 2, 3] },
+      { text: '。' }
+    ])
+  })
+  it('keeps one multi-paper citation clickable when formatting splits it', () => {
+    const text = '已引起广泛关注(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)。'
+    const pieces = splitSegmentsByMarkers(
+      [{ text: '已引起广泛关注(Hong et al., 2023; Li et al., ' }, { text: '2023a; Wu et al., 2023)。', bold: true }],
+      [{ kind: 'authoryear', text: '(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)', start: 7, end: 61, refs: [10, 15, 30] }]
+    )
+    expect(pieces?.filter((p) => p.refs).map((p) => [p.text, p.refs])).toEqual([
+      ['(Hong et al., 2023; Li et al., ', [10, 15, 30]],
+      ['2023a; Wu et al., 2023)', [10, 15, 30]]
+    ])
+    expect(pieces?.map((p) => p.text).join('')).toBe(text)
+  })
 })
 
 describe('citation formats', () => {
@@ -74,6 +95,29 @@ describe('citation formats', () => {
     expect(plain).toContain('title = {A braced title}')
     expect(plain).not.toContain('journal')
     expect(plain).not.toContain('year')
+  })
+})
+
+describe('inferAuthorYearMarkers', () => {
+  it('recovers a whole multi-paper group from confirmed reference records', () => {
+    const text = '已引起广泛关注(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)。'
+    const markers = inferAuthorYearMarkers(text, [
+      ref({ index: 10, authors: ['Hong, S.', 'et al.'], year: 2023, raw: 'Hong, S. et al. MetaGPT, 2023.' }),
+      ref({ index: 15, authors: ['Li, G.'], year: 2023, raw: 'Li, G. CAMEL, 2023a.' }),
+      ref({ index: 30, authors: ['Wu, Q.'], year: 2023, raw: 'Wu, Q. AutoGen, 2023.' })
+    ])
+    expect(markers).toEqual([{ kind: 'authoryear', text: '(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)', start: 7, end: 61, refs: [10, 15, 30] }])
+  })
+
+  it('matches full-width punctuation and initials-before-surname author records', () => {
+    const text = '相关工作（Ghafarollahi ＆ Buehler，2024；Hong et al.，2023；Li et al.，2023a；Wu et al.，2023）。'
+    const markers = inferAuthorYearMarkers(text, [
+      ref({ index: 8, authors: ['M. Ghafarollahi', 'Buehler, M. J.'], year: 2024, raw: 'Ghafarollahi, A. and Buehler, M. J. Sciagents (2024).' }),
+      ref({ index: 10, authors: ['Hong, S.'], year: 2023, raw: 'Hong, S. MetaGPT (2023).' }),
+      ref({ index: 15, authors: ['Li, G.'], year: 2023, raw: 'Li, G. CAMEL (2023a).' }),
+      ref({ index: 30, authors: ['Wu, Q.'], year: 2023, raw: 'Wu, Q. AutoGen (2023).' })
+    ])
+    expect(markers).toEqual([{ kind: 'authoryear', text: '（Ghafarollahi ＆ Buehler，2024；Hong et al.，2023；Li et al.，2023a；Wu et al.，2023）', start: 4, end: text.length - 1, refs: [8, 10, 15, 30] }])
   })
 })
 

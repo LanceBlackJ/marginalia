@@ -29,12 +29,14 @@ const PREFIX = /(?:\b(?:Eqn?s?\.?|Equations?|Formulas?|Formulae)|公式)[\s ]*(
 const NUM = /^\(?(\d{1,3}[a-z]?)\)?/
 // “Eqs. (4) and (5)”“Equations 4, 5 and 6”“(4)–(6)”“(4) to (6)”：前缀后面跟着的其它编号
 const MORE = /^[\s ]*(?:,|and|&|or|to|–|—|-|、|和|与|至)[\s ]*\(?(\d{1,3}[a-z]?)\)?/i
-const BARE = /\((\d{1,3}[a-z]?)\)/g
+const BARE = /[（(](\d{1,3}[a-z]?)[）)]/g
 
 /** 裸的“(n)”是不是列举序号：位于段首、或前面是标点，后面直接跟单词（“(1) We propose …”）。 */
 function isEnumerator(text: string, start: number, end: number): boolean {
   const before = text.slice(0, start).replace(/[\s ]+$/, '')
-  const afterWord = /^[\s ]+[A-Za-z]{2,}/.test(text.slice(end))
+  // PDF 文字层经常把列表序号后的空格吞掉：`(3)Agentic` 仍然是列表项，
+  // 不能因为没有空格就把它当作公式(3)。同时兼容中文全角括号。
+  const afterWord = /^[\s ]*\p{L}+/u.test(text.slice(end))
   const atBoundary = before === '' || /[.;:?!,，。；：]$/.test(before)
   return atBoundary && afterWord
 }

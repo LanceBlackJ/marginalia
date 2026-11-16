@@ -458,3 +458,39 @@ button.pd-cmp-chip:hover {
 .pd-cmp-main > .pd-empty {
   padding-top: var(--sp-3xl);
 }
+
+@media (max-width: 700px) {
+  .pd-cmp-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-top: 14px;
+    padding-top: 14px;
+  }
+  .pd-cmp-side,
+  .pd-cmp-main {
+    width: 100%;
+  }
+  .pd-cmp-picker {
+    max-height: 220px;
+  }
+  .pd-cmp-pre-list li {
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+  }
+  .pd-cmp-head {
+    gap: 8px;
+  }
+  .pd-cmp-title {
+    font-size: var(--fs-section);
+  }
+  .pd-cmp-result {
+    gap: 18px;
+    margin-top: 14px;
+  }
+  .pd-cmp-two {
+    gap: 16px;
+  }
+  .pd-cmp-graph {
+    min-height: 300px;
+  }
+}

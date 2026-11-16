@@ -1,6 +1,7 @@
 import { toast } from '@/components/ui'
 import { api, errorMessage } from '@/lib/api'
 import type { Job, ReparseStats } from '@/lib/types'
+import { useRefStore } from '@/features/text/refStore'
 import { useTextStore } from '@/features/text/textStore'
 import { describeReparse, isSuspiciousResult } from './reparseModel'
 
@@ -8,6 +9,10 @@ import { describeReparse, isSuspiciousResult } from './reparseModel'
 function refreshTextView(paperId: string): void {
   const ts = useTextStore.getState()
   if (ts.paperId === paperId) void ts.load(paperId)
+  // 重新解析会改变参考文献分条和正文引用位置；文字状态刷新后，引用状态也必须强制重载，
+  // 否则正文虽然换成了新结果，鼠标悬停仍使用旧的 citations 数据。
+  const rs = useRefStore.getState()
+  if (rs.paperId === paperId) void rs.load(paperId, true)
 }
 
 const TERMINAL = new Set(['completed', 'failed', 'cancelled'])

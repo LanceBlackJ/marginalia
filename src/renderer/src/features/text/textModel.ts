@@ -328,7 +328,9 @@ export interface TaggedFormat {
 }
 
 /** 翻译后由后端保留的样式边界：去掉不可见标记，同时把译文位置转换成 CSS 范围。 */
-const FORMAT_TAG = /⟪(\/?)PD([BI])(\d+)⟫/g
+// 新版使用 ⟪…⟫；旧缓存和部分模型会把同一组标记输出成 《…》、<…>。
+// 显示层统一兼容，避免已有正确译文因为内部标记变体直接露给读者。
+const FORMAT_TAG = /(?:⟪|《|<)(\/?)PD([BI])(\d+)(?:⟫|》|>)/g
 export function stripTaggedFormat(text: string): TaggedFormat {
   const bold: Array<[number, number]> = []
   const italic: Array<[number, number]> = []
@@ -396,10 +398,14 @@ export function mathRanges(text: string, runs: Array<{ src: string; tex: string 
   // 公式可以紧贴中文（“节点级d\\cdot s公式”）。边界只需要防止嵌进
   // 英文标识符/数字，不应把中文当成英文变量的一部分而跳过公式。
   const wordChar = /[A-Za-z0-9_]/
+  // 解析器偶尔会把普通英文短词登记成公式（例如 `at` → `a_{t}`）。
+  // 这些词即使在正文中出现，也不能改成数学排版；单字母变量和含数学符号的公式不受影响。
+  const shortWords = new Set(['an', 'as', 'at', 'be', 'by', 'do', 'he', 'if', 'in', 'is', 'it', 'me', 'my', 'no', 'of', 'on', 'or', 'so', 'to', 'up', 'us', 'we', 'am', 'go', 'oh', 'ok'])
   for (const r of runs ?? []) {
     const src = normalizeInlineText(r.src ?? '')
     const tex = normalizeInlineTex(r.tex ?? '')
     if (!src || !tex || !isSafeInlineTex(tex)) continue
+    if (/^[A-Za-z]{2,}$/.test(src) && shortWords.has(src.toLowerCase())) continue
     let from = 0
     for (;;) {
       const hit = findFormulaText(text, src, from)

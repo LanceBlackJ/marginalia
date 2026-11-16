@@ -5,8 +5,8 @@
 
 ## 0. 通用约定
 
-- Base URL：`http://127.0.0.1:{port}`，仅监听回环地址。
-- 鉴权：除 `GET /api/health` 外，所有 `/api/*` 请求必须带 `Authorization: Bearer <token>`。
+- Base URL：桌面端本机使用 `http://127.0.0.1:{port}`；手机端使用设置页显示的 `http://<局域网 IP>:{port}`。
+- 访问：桌面端局域网模式不使用账号登录。电脑端与手机端通过同一个后端地址访问；若手动启动后端并设置 `PAPERDESK_TOKEN`，业务请求需带 `Authorization: Bearer <token>`。
 - 请求/响应均为 UTF-8 JSON（PDF 文件与 SSE 除外）。时间一律 ISO 8601 UTC 字符串。
 - 错误：HTTP 4xx/5xx，响应体 `{"error": {"code": "string", "message": "中文可展示的说明"}}`。
   常用 code：`not_found` `bad_request` `unauthorized` `conflict` `no_api_key` `not_configured`
@@ -20,7 +20,7 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| GET | `/api/health` | 无需鉴权。`{"status":"ok","version":"0.1.0"}` |
+| GET | `/api/health` | 无需鉴权。`{"status":"ok","version":"0.1.0","web_version":"…"}` |
 | GET | `/api/system/info` | `{version, data_dir, db_path, papers_dir, paper_count, disk_usage_bytes}` |
 
 ## 2. 文献库

@@ -368,3 +368,44 @@
 .pd-book[data-dragging] {
   opacity: 0.35;
 }
+
+@media (max-width: 700px) {
+  .pd-shelf {
+    gap: 22px;
+    padding-top: 2px;
+    overflow: hidden;
+  }
+  .pd-shelf-row {
+    overflow: hidden;
+  }
+  .pd-shelf-books,
+  .pd-shelf-labels {
+    gap: 10px;
+    padding: 0 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pd-shelf-books::-webkit-scrollbar,
+  .pd-shelf-labels::-webkit-scrollbar {
+    display: none;
+  }
+  .pd-shelf-slot {
+    width: 104px;
+  }
+  .pd-book {
+    height: 144px;
+  }
+  .pd-book-blank {
+    padding: 10px 7px 8px 10px;
+  }
+  .pd-book-blank-title {
+    font-size: 11px;
+  }
+  .pd-book-title {
+    font-size: 12px;
+  }
+  .pd-book-sub,
+  .pd-book-tag {
+    font-size: 10px;
+  }
+}

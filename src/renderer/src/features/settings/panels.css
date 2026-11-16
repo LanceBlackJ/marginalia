@@ -186,3 +186,70 @@
   font-weight: 600;
   border-bottom-color: var(--text);
 }
+
+@media (max-width: 700px) {
+  .pd-settings-tabs {
+    gap: 18px;
+    margin: 12px 0 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pd-settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .pd-settings-tab {
+    flex: none;
+    padding: 7px 0;
+  }
+  .pd-panels {
+    margin-top: 0;
+  }
+  .pd-panel {
+    padding: 14px 0;
+  }
+  .pd-panel-h {
+    display: block;
+    margin-bottom: 8px;
+  }
+  .pd-panel-title {
+    display: block;
+    font-size: var(--fs-body);
+  }
+  .pd-panel-sum {
+    display: block;
+    margin-top: 2px;
+    font-size: var(--fs-aux);
+  }
+  .pd-sblock {
+    padding-top: 10px;
+  }
+  .pd-sblock-head {
+    padding: 2px 0 4px;
+  }
+  .pd-setting-row {
+    grid-template-columns: 1fr;
+    row-gap: 6px;
+    padding: 10px 0;
+  }
+  .pd-setting-row-title {
+    font-size: var(--fs-small);
+  }
+  .pd-setting-row-desc {
+    margin-top: 2px;
+    line-height: 1.5;
+  }
+  .pd-setting-row-body {
+    max-width: none;
+  }
+  .pd-fields--2 {
+    grid-template-columns: 1fr;
+  }
+  .pd-price-row {
+    grid-template-columns: minmax(0, 1fr) 76px 76px;
+    gap: 5px;
+    font-size: var(--fs-aux);
+  }
+  .pd-kv {
+    grid-template-columns: 84px minmax(0, 1fr);
+  }
+}

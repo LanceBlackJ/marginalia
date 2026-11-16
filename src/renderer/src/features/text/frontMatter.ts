@@ -6,13 +6,19 @@ export interface FrontInfo {
   doi: { ord: number; text: string } | null
   dates: Array<{ ord: number; text: string }>
   /** 作者（已去掉单位角标与损坏符号） */
-  authors: { ord: number; names: string[] } | null
+  authors: { ord: number; names: string[]; entries: AuthorEntry[] } | null
   /** 单位，一条一行；原文里“1College…. 2Department…”会被拆开 */
   affiliations: { ord: number; lines: string[] } | null
   emails: Array<{ ord: number; text: string }>
   other: Array<{ ord: number; text: string }>
   /** 被收进信息块的段落序号（正文里不再重复显示） */
   ords: Set<number>
+}
+
+export interface AuthorEntry {
+  name: string
+  /** 原文作者名后的单位编号、共同贡献/通讯作者符号，例如 ["*", "†", "1"]。 */
+  markers: string[]
 }
 
 const FRONT_SECTIONS = new Set(['首部信息', 'front matter', 'frontmatter'])
@@ -29,7 +35,7 @@ export function isAbstractSection(title: string | null): boolean {
 const DOI_RE = /^\s*(?:https?:\/\/(?:dx\.)?doi\.org\/\S+|doi:\s*\S+)\s*$/i
 const DATE_RE = /^\s*(?:Received|Accepted|Published|Revised|Available online)\b/i
 const EMAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/
-const AFFIL_RE = /\b(?:University|College|Institute|Department|Laborator(?:y|ies)|School|Academy|Hospital|Center|Centre|Faculty|Corporation|Inc\.|Ltd\.)\b/
+const AFFIL_RE = /\b(?:University|College|Institute|Department|Laborator(?:y|ies)|School|Academy|Hospital|Center|Centre|Faculty|Corporation|Inc\.|Ltd\.)\b|大学|学院|研究所|研究院|实验室|学校|医院|中心|公司|科技|部门|系/i
 // 会议论文的出版信息经常和作者/单位一起落在“首部信息”里；它们不是作者，
 // 即使包含很多大写词、城市和年份，也不能交给 parseAuthors 猜姓名。
 const PUBLICATION_RE = /\b(?:proceedings|conference|copyright|pmlr|journal|volume|issue|published\s+by|vancouver)\b|\b(?:19|20)\d{2}\b/i
@@ -62,10 +68,50 @@ export function parseAuthors(line: string): string[] {
   return out.filter((s) => /\p{L}{2,}/u.test(s) && s.length <= 60)
 }
 
+function authorMarkers(text: string): string[] {
+  const out: string[] = []
+  const tokens = text.match(/[\p{L}]+|[∗*†‡§¶♯#⋆★☯✉+]|\d{1,2}/gu) ?? []
+  for (const token of tokens) {
+    if (/^[\p{L}]+$/u.test(token)) break
+    out.push(token)
+  }
+  return [...new Set(out)]
+}
+
+/** 解析作者名及其后的单位/贡献角标；姓名拆分仍复用 parseAuthors 的通用规则。 */
+export function parseAuthorEntries(line: string): AuthorEntry[] {
+  const names = parseAuthors(line)
+  const clean = stripBroken(line)
+  const out: AuthorEntry[] = []
+  let cursor = 0
+  for (const name of names) {
+    const at = clean.toLocaleLowerCase().indexOf(name.toLocaleLowerCase(), cursor)
+    if (at < 0) {
+      out.push({ name, markers: [] })
+      continue
+    }
+    const after = at + name.length
+    const next = names.slice(out.length + 1).map((n) => clean.toLocaleLowerCase().indexOf(n.toLocaleLowerCase(), after)).find((p) => p >= 0)
+    const gap = clean.slice(after, next ?? clean.length)
+    out.push({ name, markers: authorMarkers(gap) })
+    cursor = after
+  }
+  return out
+}
+
 /** “1College of A. 2Department of B.” → 逐条单位。 */
 export function parseAffiliations(text: string): string[] {
-  const clean = tidySpaces(stripBroken(text).replace(/\s+/g, ' '))
-  const parts = clean.split(/(?:(?<=\.)\s+|\s+)(?=\d{1,2}(?=[A-Z]))/).map((s) => s.trim())
+  let clean = tidySpaces(stripBroken(text).replace(/\s+/g, ' '))
+  // 首页常把贡献说明/通讯作者和第一条单位粘在同一行；这些说明不是单位，
+  // 但后面的“1University…”或“1北京大学…”仍要保留。
+  const firstNumbered = clean.search(/(?:^|\s)\d{1,2}(?=[A-Z\u4e00-\u9fff])/)
+  if (firstNumbered > 0) {
+    const prefix = clean.slice(0, firstNumbered).trim()
+    if (/(?:equal contribution|contributed equally|correspondence|通讯|贡献|邮箱)/i.test(prefix) || EMAIL_RE.test(prefix)) {
+      clean = clean.slice(firstNumbered).trim()
+    }
+  }
+  const parts = clean.split(/(?:(?<=\.)\s+|\s+)(?=\d{1,2}(?=[A-Z\u4e00-\u9fff]))/).map((s) => s.trim())
   const lines = parts.filter(Boolean)
   return lines.length > 0 ? lines : [clean]
 }
@@ -102,18 +148,16 @@ export function splitFront(items: TextItem[]): Split {
         if (mails) for (const e of mails) front.emails.push({ ord: it.ord, text: e })
       } else if (EMAIL_RE.test(text) && text.length < 200) front.emails.push({ ord: it.ord, text })
       else if (text.length <= 400) {
-        const names = parseAuthors(it.text)
-        if (names.length > 0) {
-          const current = front.authors?.names ?? []
-          const seen = new Set(current.map((n) => n.toLocaleLowerCase()))
-          const merged = [...current]
-          for (const name of names) {
-            if (!seen.has(name.toLocaleLowerCase())) {
-              seen.add(name.toLocaleLowerCase())
-              merged.push(name)
-            }
+        const entries = parseAuthorEntries(it.text)
+        if (entries.length > 0) {
+          const current = front.authors?.entries ?? []
+          const merged = [...current.map((entry) => ({ name: entry.name, markers: [...entry.markers] }))]
+          for (const entry of entries) {
+            const old = merged.find((item) => item.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase())
+            if (old) old.markers = [...new Set([...old.markers, ...entry.markers])]
+            else merged.push({ name: entry.name, markers: [...entry.markers] })
           }
-          front.authors = { ord: front.authors?.ord ?? it.ord, names: merged }
+          front.authors = { ord: front.authors?.ord ?? it.ord, names: merged.map((entry) => entry.name), entries: merged }
         } else front.other.push({ ord: it.ord, text })
       } else front.other.push({ ord: it.ord, text })
     }

@@ -19,8 +19,8 @@ import { MindMapPage } from '@/features/mindmap/MindMapPage'
 export function App() {
   return (
     <HashRouter>
-      <Routes>
-        <Route element={<AppShell />}>
+        <Routes>
+          <Route element={<AppShell />}>
           <Route index element={<Navigate to="/library" replace />} />
           <Route path="library" element={<LibraryPage />} />
           <Route path="stats" element={<StatsPage />} />
@@ -41,8 +41,8 @@ export function App() {
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="notes" element={<GlobalNotesPage />} />
           <Route path="*" element={<Navigate to="/library" replace />} />
-        </Route>
-      </Routes>
+          </Route>
+        </Routes>
     </HashRouter>
   )
 }

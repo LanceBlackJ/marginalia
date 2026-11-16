@@ -93,6 +93,13 @@
   line-height: 1.55;
   font-weight: 500;
 }
+.pd-front-author-markers {
+  margin-left: 2px;
+  font-size: 0.68em;
+  line-height: 0;
+  font-weight: 600;
+  letter-spacing: 0;
+}
 .pd-front-meta {
   margin: 0 0 6px;
   display: flex;
@@ -187,12 +194,13 @@
 /* 阅读外观：两端对齐、段落首行缩进（只作用于正文段落，不动图注、表格、参考文献） */
 :root[data-justify='true'] .pd-tp:not(.pd-tp--caption):not(.pd-tp--table):not(.pd-tp--ref):not(.pd-tp--figtext) .pd-tp-p {
   text-align: justify;
-  text-justify: inter-character;
+  /* 英文必须按词拉伸；inter-character 会把每个字母拆开，造成截图中的巨大字距。 */
+  text-justify: inter-word;
   hyphens: auto;
 }
 :root[data-justify='true'] .pd-abstract .pd-tp-p {
   text-align: justify;
-  text-justify: inter-character;
+  text-justify: inter-word;
 }
 :root[data-indent='true'] .pd-tp:not(.pd-tp--caption):not(.pd-tp--table):not(.pd-tp--ref):not(.pd-tp--figtext) .pd-tp-p {
   text-indent: 2em;
@@ -442,14 +450,6 @@
   margin-top: 8px;
   border: 1px solid var(--border);
 }
-.pd-tp-figkind {
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--text-3, var(--text-2));
-}
-.pd-tp-figkind-raster {
-  color: var(--text-2);
-}
 .pd-tp-note {
   margin: 4px 0 0;
   font-size: 12px;
@@ -661,7 +661,8 @@
 .pd-tp-imath-click {
   display: inline-block;
   white-space: nowrap;
-  vertical-align: -0.12em;
+  /* KaTeX 自带下标已经会下沉；再用 -0.12em 会让整段公式明显低于基线。 */
+  vertical-align: -0.04em;
   cursor: zoom-in;
 }
 .pd-tp-imath-click:hover {

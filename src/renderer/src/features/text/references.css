@@ -308,6 +308,13 @@
   font-weight: 600;
   word-break: break-word;
 }
+.pd-refhover-titletr {
+  margin-top: 3px;
+  padding-left: 10px;
+  border-left: 2px solid var(--text);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
 .pd-refhover-n {
   color: var(--text-muted);
   font-weight: 400;

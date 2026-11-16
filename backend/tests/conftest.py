@@ -76,12 +76,12 @@ def chinese_pdf(tmp_path_factory) -> Path:
 
 
 class Api:
-    """带鉴权头的 TestClient 封装。"""
+    """带本地后端令牌的 TestClient 封装。"""
 
     def __init__(self, client: TestClient, app):
-        self.c = client
         self.app = app
         self.ctx = app.state.ctx
+        self.c = client
 
     def get(self, path, **kw):
         return self.c.get("/api" + path, headers=AUTH, **kw)

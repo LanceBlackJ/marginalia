@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ProcessingSummary, ProcessingStep } from '@/lib/types'
-import { isProcessingActive, processingCell, processingNote } from './processingModel'
+import { actionableRecognitionSteps, isProcessingActive, processingCell, processingNote } from './processingModel'
 
 const step = (state: ProcessingStep['state'], done = 0, total = 0, reason = '', attention = false): ProcessingStep => ({ state, done, total, reason, attention })
 const make = (overall: ProcessingSummary['overall'], over: Partial<ProcessingSummary['steps']> = {}, reasons: string[] = [], label = ''): ProcessingSummary => ({
@@ -48,5 +48,21 @@ describe('processingNote / isProcessingActive', () => {
     expect(isProcessingActive(make('waiting'))).toBe(true)
     expect(isProcessingActive(make('attention'))).toBe(false)
     expect(isProcessingActive(make('done'))).toBe(false)
+  })
+})
+
+describe('打开论文时的待处理识别提示', () => {
+  it('等待中的公式、表格和索引会列出给用户选择', () => {
+    const p = make('waiting', {
+      formulas: step('pending', 0, 8),
+      tables: step('failed', 1, 2),
+      index: step('pending', 0, 20)
+    })
+    expect(actionableRecognitionSteps(p)).toEqual(['公式 0/8', '表格 1/2', '语义索引 0/20'])
+  })
+
+  it('正在后台处理或已跳过的步骤不重复弹窗', () => {
+    expect(actionableRecognitionSteps(make('processing', { formulas: step('running', 1, 8) }))).toEqual([])
+    expect(actionableRecognitionSteps(make('attention', { formulas: step('skipped', 0, 8, '未配置视觉模型', true) }))).toEqual([])
   })
 })

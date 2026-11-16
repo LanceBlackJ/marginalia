@@ -1894,6 +1894,60 @@
 .pd-cw-tabs::-webkit-scrollbar {
   display: none;
 }
+
+@media (max-width: 700px) {
+  .pd-code-bar {
+    gap: 4px;
+    padding: 0 8px;
+  }
+  .pd-code-title {
+    max-width: 42%;
+    font-size: var(--fs-aux);
+  }
+  .pd-code-bar-center {
+    display: none;
+  }
+  .pd-code-bar-right {
+    gap: 0;
+  }
+  .pd-code-bar-right > .pd-btn {
+    max-width: 34px;
+    padding: 0 7px;
+    overflow: hidden;
+    font-size: 0;
+  }
+  .pd-code-left {
+    display: none;
+  }
+  .pd-code-start-inner {
+    padding: 24px 14px 88px;
+  }
+  .pd-code-warn {
+    padding: 7px 12px;
+    line-height: 1.5;
+  }
+  .pd-wiz-source {
+    flex-direction: column;
+    gap: 6px;
+  }
+  .pd-wiz-unsupported {
+    max-width: none;
+    text-align: left;
+  }
+  .pd-wiz-row {
+    flex-direction: column;
+  }
+  .pd-step-head {
+    min-height: 48px;
+    gap: 8px;
+  }
+  .pd-step-title {
+    font-size: var(--fs-small);
+  }
+  .pd-step-body {
+    padding: 4px 4px 24px 30px;
+  }
+}
 .pd-tree-dirwrap {
   position: relative;
   display: flex;

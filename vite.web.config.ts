@@ -12,6 +12,7 @@ ensurePdfjsAssets()
 
 export default defineConfig({
   root: resolve('src/renderer'),
+  envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
   plugins: [react()],
   resolve: {
     alias: {

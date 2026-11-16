@@ -18,6 +18,7 @@ vi.mock('@/features/importing/importActions', () => ({
 
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
+import { MobileNav } from './MobileNav'
 
 afterEach(cleanup)
 
@@ -66,5 +67,18 @@ describe('顶栏', () => {
     expect(document.querySelector('.pd-crumbs')?.textContent).toBe('任务中心')
     const importBtn = screen.getByRole('button', { name: '导入' })
     expect(importBtn.className).not.toContain('primary')
+  })
+})
+
+describe('手机端底部导航', () => {
+  it('在论文相关深层页面仍将文库作为当前入口，并可切换到笔记', () => {
+    render(
+      <MemoryRouter initialEntries={['/reader/paper-1']}>
+        <MobileNav />
+      </MemoryRouter>
+    )
+    const nav = screen.getByRole('navigation', { name: '手机端主导航' })
+    expect(within(nav).getByText('文库').closest('button')?.getAttribute('aria-current')).toBe('page')
+    expect(within(nav).getByText('笔记')).toBeTruthy()
   })
 })

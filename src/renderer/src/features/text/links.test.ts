@@ -26,6 +26,13 @@ describe('链接识别', () => {
     expect(hrefs('代码见https://github.com/a/b，作者说明')).toEqual(['https://github.com/a/b'])
   })
 
+  it('脚注编号紧贴网址时只把网址作为链接', () => {
+    const t = '代码见1https://github.com/ag2ai/ag2'
+    const pieces = splitLinks(t)
+    expect(pieces.map((p) => p.text).join('')).toBe(t)
+    expect(pieces).toEqual([{ text: '代码见1' }, { text: 'https://github.com/ag2ai/ag2', href: 'https://github.com/ag2ai/ag2', kind: 'url' }])
+  })
+
   it('doi: 与 DOI 前缀、裸 DOI 都转成 doi.org 链接', () => {
     expect(hrefs('doi:10.1038/s42256-020-0177-2.')).toEqual(['https://doi.org/10.1038/s42256-020-0177-2'])
     expect(hrefs('DOI 10.1103/RevModPhys.74.47')).toEqual(['https://doi.org/10.1103/RevModPhys.74.47'])

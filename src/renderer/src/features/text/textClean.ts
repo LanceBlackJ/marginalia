@@ -191,7 +191,9 @@ export interface ParsedCaptionZh {
 
 /** 中文译文的图注：和原文图注一样拆成“编号 + 加粗的标题句 + 其余”。认不出编号就整段当正文。 */
 export function parseCaptionZh(text: string): ParsedCaptionZh {
-  const m = /^\s*((?:补充|扩展数据)?[图表][\s ]*[A-Za-z]?\d+[A-Za-z]?(?:\.\d+)?)\s*[|:：.．、\-—]?\s*/.exec(text)
+  // 模型通常会把 Figure/Table 翻成图/表，但旧译文或保守模型可能保留英文标签；
+  // 两种都拆成“编号 + 标题”，显示层再统一成中文，避免图注标签漏译。
+  const m = /^\s*(((?:补充|扩展数据)?[图表]|(?:Extended Data |Supplementary |Supp\. )?(?:Figure|Fig\.|Table|Tab\.))\s*[A-Za-z]?\d+[A-Za-z]?(?:\.\d+)?)\s*[|:：.．、\-—]?\s*/i.exec(text)
   if (!m) return { label: null, title: '', rest: text }
   const body = text.slice(m[0].length)
   const end = body.search(/[。！？!?]/)

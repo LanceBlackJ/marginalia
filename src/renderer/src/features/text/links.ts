@@ -75,9 +75,11 @@ function scanUrls(text: string): LinkSpan[] {
   let m: RegExpExecArray | null
   let covered = 0
   while ((m = starts.exec(text))) {
-    const start = m.index
+    let start = m.index
     if (start < covered) continue
-    // 前一个字符是字母数字时不是网址开头（如 xwww.）
+    // PDF 常把脚注/链接编号和网址粘在一起：`1https://…`。
+    // 网址仍从协议头开始，前面的编号保持普通文字，不让它被网址吞掉。
+    // 前一个字符是字母数字时不是网址开头（如 xwww.）；纯数字前缀例外。
     if (start > 0 && /[A-Za-z0-9]/.test(text[start - 1]) && !/^https?:/i.test(m[0])) continue
     let end = takeToken(text, start)
     for (let joins = 0; joins < 2; joins++) {

@@ -121,6 +121,8 @@ describe('中文译文的图注与首句', () => {
     expect(parseCaptionZh('图 1：FINDER 的整体框架。它由编码器和解码器组成。')).toEqual({ label: '图 1', title: 'FINDER 的整体框架。', rest: '它由编码器和解码器组成。' })
     expect(parseCaptionZh('表 2 | 各方法的性能对比。')).toMatchObject({ label: '表 2', title: '各方法的性能对比。' })
     expect(parseCaptionZh('补充图 S3. 额外结果').label).toBe('补充图 S3')
+    expect(parseCaptionZh('Figure 2. Node removal performance.').label).toBe('Figure 2')
+    expect(parseCaptionZh('Table 3: Ablation results.').label).toBe('Table 3')
     expect(parseCaptionZh('这是一段普通的正文。')).toEqual({ label: null, title: '', rest: '这是一段普通的正文。' })
   })
 

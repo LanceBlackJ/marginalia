@@ -498,6 +498,101 @@
   }
 }
 
+@media (max-width: 700px) {
+  .pd-dc-page .pd-page-title {
+    font-size: 21px;
+  }
+  .pd-dc-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 14px;
+  }
+  .pd-dc-tabs {
+    order: 3;
+    width: 100%;
+    margin-top: 4px;
+    padding-bottom: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pd-dc-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .pd-dc-tab {
+    flex: none;
+    min-width: 64px;
+    padding: 8px 2px;
+    text-align: center;
+  }
+  .pd-dc-sec-hint {
+    margin-top: 12px;
+    line-height: 1.55;
+  }
+  .pd-dc-search {
+    margin-top: 14px;
+    gap: 8px;
+  }
+  .pd-dc-search .pd-input,
+  .pd-dc-search .pd-btn {
+    height: 40px;
+  }
+  .pd-dc-options {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .pd-dc-options > * {
+    width: 100% !important;
+    max-width: none !important;
+  }
+  .pd-dc-results {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .pd-dc-item {
+    padding: 12px;
+  }
+  .pd-dc-actions {
+    gap: 4px;
+    padding-top: 10px;
+  }
+  .pd-dc-actions-end {
+    margin-left: 0;
+  }
+  .pd-dc-basket {
+    position: sticky;
+    right: 0;
+    bottom: 8px;
+    left: 0;
+    margin-top: 14px;
+    padding: 10px;
+  }
+  .pd-dc-drawer {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 100vw;
+    border-left: 0;
+  }
+  .pd-dc-drawer-head,
+  .pd-dc-drawer-body {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+  .pd-dc-drawer-title {
+    font-size: var(--fs-section);
+  }
+  .pd-dc-random-bar {
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .pd-dc-random-bar .pd-select {
+    width: 100%;
+  }
+}
+
 /* 随机探索：来源确认行与收录名单（黑白、发丝线） */
 .pd-dc-venueline {
   margin: var(--sp-lg) 0 var(--sp-xs);
@@ -580,6 +675,34 @@
   max-width: 880px;
   font-size: var(--fs-small);
   color: var(--text-2);
+}
+
+@media (max-width: 700px) {
+  .pd-dc-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px 14px;
+  }
+  .pd-dc-tabs {
+    order: 3;
+    width: 100%;
+    margin-top: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pd-dc-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .pd-dc-tab {
+    flex: none;
+    min-width: 64px;
+    padding: 8px 2px;
+    text-align: center;
+  }
+  .pd-dc-panel {
+    margin-top: 12px;
+  }
 }
 .pd-dc-section .pd-dc-search {
   margin-top: var(--sp-lg);

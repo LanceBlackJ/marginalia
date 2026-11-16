@@ -6,36 +6,37 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import httpx
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import __version__
 from .api import ai as ai_api
 from .api import annotations, deps, imports, insight, jobs, papers, reviews as reviews_api, structure, system
-from .api import compare as compare_api  # F3：多论文比较
-from .api import discovery as discovery_api  # F3：学术发现
-from .api import knowledge as knowledge_api  # F3：主题知识库/画像/导出
-from .api import export as export_api  # 引文与阅读成果导出
-from .api import code as code_api  # F2：代码理解
-from .api import vision as vision_api  # F5：公式/图表理解
-from .api import supplements as supplements_api  # F1：补充材料与数据集
-from .api import mindmap as mindmap_api  # F4：AI 思维导图
-from .api import findings as findings_api  # F4：主动研究提示
-from .api import quiz as quiz_api  # 读完之后的自测（选择题）
-from .api import repro as repro_api  # 第 4 阶段：复现（评估/计划/结果对比）
-from .api import folders as folders_api  # 文库：文件夹、智能视图、建议归类
-from .api import references as references_api  # 正文引用 → 参考文献详情/摘要/AI 概括
-from .materials import jobs as materials_jobs  # F1
+from .api import compare as compare_api
+from .api import discovery as discovery_api
+from .api import knowledge as knowledge_api
+from .api import export as export_api
+from .api import code as code_api
+from .api import vision as vision_api
+from .api import supplements as supplements_api
+from .api import mindmap as mindmap_api
+from .api import findings as findings_api
+from .api import quiz as quiz_api
+from .api import repro as repro_api
+from .api import folders as folders_api
+from .api import references as references_api
+from .materials import jobs as materials_jobs
 from .config import Paths
 from .context import AppContext
 from .db import Database
 from .jobs import JobManager, MAX_WORKERS
 from .library import import_jobs
-from .library import reviews as _reviews_schema  # noqa: F401  综述表必须在数据库初始化前注册
-from .library import layout_boxes as _layout_boxes  # noqa: F401  导入时就注册 page_boxes 表（必须在数据库初始化之前）
+from .library import reviews as _reviews_schema  # noqa: F401
+from .library import layout_boxes as _layout_boxes  # noqa: F401
 from .util import ApiError
 
 log = logging.getLogger("paperdesk")
@@ -45,6 +46,23 @@ def _error(status: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": {"code": code, "message": message}})
 
 
+def _configure_jobs(ctx: AppContext, max_workers: int) -> JobManager:
+    manager = JobManager(ctx, max_workers=max_workers)
+    ctx.jobs = manager
+    import_jobs.register(manager)
+    ai_api.register_jobs(manager)
+    compare_api.register_jobs(manager)
+    knowledge_api.register_jobs(manager)
+    code_api.register_jobs(manager)
+    vision_api.register_jobs(manager)
+    materials_jobs.register(manager)
+    mindmap_api.register_jobs(manager)
+    findings_api.register_jobs(manager)
+    repro_api.register_jobs(manager)
+    manager.recover()
+    return manager
+
+
 def create_app(
     data_dir: Path,
     token: str | None,
@@ -52,25 +70,14 @@ def create_app(
     sync_transport: httpx.BaseTransport | None = None,
     async_transport: httpx.AsyncBaseTransport | None = None,
     job_workers: int = MAX_WORKERS,
+    web_root: Path | None = None,
 ) -> FastAPI:
     paths = Paths(Path(data_dir))
     paths.ensure()
     db = Database(paths.db_path)
     db.migrate()
     ctx = AppContext(paths=paths, db=db, sync_transport=sync_transport, async_transport=async_transport)
-    manager = JobManager(ctx, max_workers=job_workers)
-    ctx.jobs = manager
-    import_jobs.register(manager)
-    ai_api.register_jobs(manager)
-    compare_api.register_jobs(manager)  # F3
-    knowledge_api.register_jobs(manager)  # F3
-    code_api.register_jobs(manager)  # F2
-    vision_api.register_jobs(manager)  # F5
-    materials_jobs.register(manager)  # F1
-    mindmap_api.register_jobs(manager)  # F4
-    findings_api.register_jobs(manager)  # F4
-    repro_api.register_jobs(manager)  # 复现
-    manager.recover()
+    manager = _configure_jobs(ctx, job_workers)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -104,25 +111,59 @@ def create_app(
 
     @app.get("/api/health")
     def health():
-        return {"status": "ok", "version": __version__}
+        build = ""
+        if web_root:
+            try:
+                build = str((web_root / "index.html").stat().st_mtime_ns)
+            except OSError:
+                pass
+        return {"status": "ok", "version": __version__, "web_version": build}
 
     protected = [Depends(deps.require_token)]
     for module in (papers, folders_api, reviews_api, imports, jobs, annotations, system, ai_api, insight, structure):
         app.include_router(module.router, prefix="/api", dependencies=protected)
-    for module in (supplements_api,):  # F1
+    for module in (supplements_api,):
         app.include_router(module.router, prefix="/api", dependencies=protected)
-    for module in (discovery_api, compare_api, knowledge_api, export_api):  # F3
+    for module in (discovery_api, compare_api, knowledge_api, export_api):
         app.include_router(module.router, prefix="/api", dependencies=protected)
-    for module in (code_api,):  # F2
+    for module in (code_api,):
         app.include_router(module.router, prefix="/api", dependencies=protected)
-    for module in (vision_api,):  # F5
+    for module in (vision_api,):
         app.include_router(module.router, prefix="/api", dependencies=protected)
-    for module in (references_api,):  # 参考文献
+    for module in (references_api,):
         app.include_router(module.router, prefix="/api", dependencies=protected)
-    for module in (repro_api,):  # 复现
+    for module in (repro_api,):
         app.include_router(module.router, prefix="/api", dependencies=protected)
-    for module in (quiz_api,):  # 自测
+    for module in (quiz_api,):
         app.include_router(module.router, prefix="/api", dependencies=protected)
-    for module in (mindmap_api, findings_api):  # F4
+    for module in (mindmap_api, findings_api):
         app.include_router(module.router, prefix="/api", dependencies=protected)
+
+    # 手机上的 Web/PWA 直接从电脑端读取当前构建版本，API 和页面使用同一个来源。
+    if web_root and web_root.is_dir():
+        assets = web_root / "assets"
+        if assets.is_dir():
+            app.mount("/assets", StaticFiles(directory=assets), name="web-assets")
+
+        @app.get("/manifest.webmanifest", include_in_schema=False)
+        async def manifest():
+            return FileResponse(web_root / "manifest.webmanifest", headers={"Cache-Control": "no-store"})
+
+        @app.get("/sw.js", include_in_schema=False)
+        async def service_worker():
+            return FileResponse(web_root / "sw.js", media_type="application/javascript", headers={"Cache-Control": "no-store"})
+
+        @app.get("/", include_in_schema=False)
+        async def web_index():
+            return FileResponse(web_root / "index.html", headers={"Cache-Control": "no-store"})
+
+        @app.get("/{path:path}", include_in_schema=False)
+        async def web_fallback(path: str):
+            if path == "api" or path.startswith("api/"):
+                raise HTTPException(status_code=404, detail="资源不存在")
+            candidate = web_root / path
+            if candidate.is_file() and web_root in candidate.parents:
+                return FileResponse(candidate)
+            return FileResponse(web_root / "index.html", headers={"Cache-Control": "no-store"})
+
     return app

@@ -18,6 +18,7 @@ def test_formula_masking_round_trip_and_rules():
     assert cg.restore(masked, found, used) == SRC and used == {1, 2, 3, 4}
     # 没有 tex 的候选、找不到的、嵌在单词中间的单个变量：不保护
     assert cg.mask("a bx c", [{"src": "x", "tex": "x"}, {"src": "zz", "tex": "zz"}, {"src": "q", "tex": None}])[1] == []
+    assert cg.mask("the agent acts at time t", [{"src": "at", "tex": "a_{t}"}, {"src": "t", "tex": "t"}])[1] == ["t"]
     # 公式列表为空或没给：和以前完全一样
     assert cg.mask("见 [12]。", None) == ("见 ⟦1⟧。", ["[12]"])
 

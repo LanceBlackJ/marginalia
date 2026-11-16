@@ -9,8 +9,14 @@ from __future__ import annotations
 import re
 
 
-_TAG = re.compile(r"⟪/?PD(?:B|I)\d+⟫")
+_TAG = re.compile(r"(?:⟪|《|<)/?PD(?:B|I)\d+(?:⟫|》|>)")
+_CANON_TAG = re.compile(r"(?:⟪|《|<)(/?)PD([BI])(\d+)(?:⟫|》|>)")
 LINE_TAG = "⟪PDNL⟫"
+
+
+def canonicalize(text: str) -> str:
+    """把旧译文中可见的格式标记变体统一成当前格式。"""
+    return _CANON_TAG.sub(lambda m: f"⟪/PD{m.group(2)}{m.group(3)}⟫" if m.group(1) else f"⟪PD{m.group(2)}{m.group(3)}⟫", text or "")
 
 
 def protect_lines(text: str) -> str:
@@ -24,7 +30,7 @@ def restore_lines(text: str) -> str:
 
 def display(text: str) -> str:
     """供划词翻译/其它非正文视图使用：隐藏格式标记，但保留硬换行。"""
-    return restore_lines(_TAG.sub("", text or ""))
+    return restore_lines(_TAG.sub("", canonicalize(text)))
 
 
 def lines_valid(source: str, translated: str) -> bool:
@@ -97,6 +103,7 @@ def required(text: str, bold: list[str] | None = None, italic: list[str] | None 
 
 def valid(source: str, translated: str, bold: list[str] | None = None, italic: list[str] | None = None) -> bool:
     """检查样式标记是否完整、成对、顺序合法；没有样式要求时直接通过。"""
+    translated = canonicalize(translated)
     expected = required(source, bold, italic)
     if not expected:
         # 模型不应凭空留下内部标记；否则这些标记会污染复制、划词翻译和导出。

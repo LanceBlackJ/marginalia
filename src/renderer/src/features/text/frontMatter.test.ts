@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { TextItem } from '@/lib/api.text'
-import { parseAffiliations, parseAuthors, splitFront } from './frontMatter'
+import { parseAffiliations, parseAuthorEntries, parseAuthors, splitFront } from './frontMatter'
 
 const it_ = (ord: number, section: string | null, text: string, kind: TextItem['kind'] = 'paragraph'): TextItem => ({
   ord,
@@ -22,6 +22,16 @@ describe('parseAuthors', () => {
       'Chi Wang', 'Huazheng Wang', 'Yiran Chen', 'Qingyun Wu'
     ])
   })
+
+  it('keeps affiliation and contribution markers attached to each author', () => {
+    expect(parseAuthorEntries('Shaokun Zhang * † 1 Ming Yin * 2 Jieyu Zhang 3 Jiale Liu 1 Chi Wang 6')).toEqual([
+      { name: 'Shaokun Zhang', markers: ['*', '†', '1'] },
+      { name: 'Ming Yin', markers: ['*', '2'] },
+      { name: 'Jieyu Zhang', markers: ['3'] },
+      { name: 'Jiale Liu', markers: ['1'] },
+      { name: 'Chi Wang', markers: ['6'] }
+    ])
+  })
 })
 
 describe('parseAffiliations', () => {
@@ -30,6 +40,19 @@ describe('parseAffiliations', () => {
     expect(lines).toHaveLength(3)
     expect(lines[0].startsWith('1College of Systems')).toBe(true)
     expect(lines[2].startsWith('3Center for Complex')).toBe(true)
+  })
+
+  it('recognizes Chinese institution lines and numbered affiliations', () => {
+    expect(parseAffiliations('1北京大学物理学院 2清华大学计算机系')).toEqual(['1北京大学物理学院', '2清华大学计算机系'])
+  })
+
+  it('removes contribution or correspondence prefixes before numbered institutions', () => {
+    expect(parseAffiliations('Equal contribution 1Pennsylvania State University 2Duke University')).toEqual([
+      '1Pennsylvania State University', '2Duke University'
+    ])
+    expect(parseAffiliations('Correspondence: Yu Wu yu@example.org 1School of Computer Science')).toEqual([
+      '1School of Computer Science'
+    ])
   })
 })
 
@@ -48,6 +71,7 @@ describe('splitFront', () => {
     const { front, abstract, rest } = splitFront(items)
     expect(front?.doi?.text).toContain('10.1038')
     expect(front?.authors?.names).toEqual(['Changjun Fan', 'Li Zeng', 'Yang-Yu Liu'])
+    expect(front?.authors?.entries.map((a) => a.markers)).toEqual([['1', '2'], ['1'], ['3', '4']])
     expect(front?.affiliations?.lines.length).toBe(2)
     expect(front?.dates.map((d) => d.ord)).toEqual([5])
     expect(front?.emails.map((e) => e.text)).toEqual(['yyl@neu.edu'])

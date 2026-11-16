@@ -372,8 +372,24 @@ def entry_to_dict(e: RefEntry) -> dict:
 
 
 def first_author_surname(e: dict) -> str:
-    """第一作者姓氏（用于作者-年份引用的匹配），小写、去掉变音符号以外的标点。"""
+    """第一作者姓氏（用于作者-年份引用的匹配）。
+
+    题录中的作者字段不一定都是 ``Surname, Initials``：联网题录、不同
+    PDF 解析器和人工导入还会产生 ``Initials Surname`` 或完整姓名。只
+    取逗号前的内容会把 ``M. Ghafarollahi`` 误识别成 ``m``，从而使正文
+    中的 ``Ghafarollahi & Buehler, 2024`` 无法映射到参考文献。
+    """
     for a in e.get("authors") or []:
         if a and a != "et al.":
-            return re.sub(r"[^\w\-]", "", a.split(",")[0]).lower()
+            value = re.sub(r"\s+", " ", str(a).strip())
+            if "," in value:
+                # ``van der Berg, J.`` 保留姓氏中的粒子；题录的逗号后面
+                # 是名字/首字母，因此只看逗号前。
+                family = value.split(",", 1)[0].strip()
+            else:
+                words = [w for w in re.split(r"\s+", value) if w]
+                # 完整姓名和“首字母 姓氏”都取最后一个非首字母词。
+                # 例如 ``M. Ghafarollahi`` -> ``Ghafarollahi``。
+                family = next((w for w in reversed(words) if not re.fullmatch(r"[A-Za-zÀ-ÿ](?:[.-])?", w)), words[-1] if words else "")
+            return re.sub(r"[^\w\-]", "", family).lower()
     return ""

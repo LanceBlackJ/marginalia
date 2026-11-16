@@ -3,6 +3,9 @@ node_modules/
 out/
 dist/
 release/
+mobile/**/build/
+mobile/**/.gradle/
+mobile/releases/
 build/backend-dist/
 build/backend-work/
 *.tsbuildinfo
@@ -17,6 +20,8 @@ coverage/
 *.log
 .env
 .env.*
+!.env.example
+!src/renderer/.env.example
 *.db
 *.db-journal
 *.db-wal

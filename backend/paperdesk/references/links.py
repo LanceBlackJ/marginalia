@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from .parse import first_author_surname
+
 DEST_TOL = 16.0  # 目的地坐标离条目文字框的最大距离（pt）：LaTeX 的锚点常在条目首行上方几个点
 SRC_TOL = 4.0
 
@@ -33,8 +35,10 @@ def _consistent(text: str, entry: dict, style: str) -> bool:
         r = entry["index"]
         return r in nums or any(a <= r <= b for a, b in zip(nums, nums[1:]))
     letters = re.sub(r"[^a-z]", "", text.lower())
-    first = next((a for a in entry.get("authors") or [] if a and a != "et al."), "")
-    sn = re.sub(r"[^a-z]", "", first.split(",")[0].lower())
+    # 与正则识别共用同一个姓氏提取器，兼容 ``Surname, A.``、
+    # ``A. Surname`` 和完整姓名，避免 PDF 内链能定位到条目但被一致性
+    # 校验错误丢弃。
+    sn = re.sub(r"[^a-z]", "", first_author_surname(entry))
     year = str(entry.get("year") or "")
     if letters:
         return bool(sn) and sn[:4] in letters
@@ -139,14 +143,14 @@ def link_markers(pdf: Path, passages: list[dict], entries: list[dict], style: st
     return out
 
 
-_YEAR_ONLY = re.compile(r"^\(?\s*(?:19|20)\d{2}[a-z]?\s*\)?[,;.]?$")
+_YEAR_ONLY = re.compile(r"^[（(]?\s*(?:19|20)\d{2}[a-z]?\s*[）)]?[,;，；。．.]?$")
 _AUTHOR_BEFORE = re.compile(
-    r"((?:(?:van|von|de|der|den|di|da|del|la|le)\s+)*[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+(?:\s+et al\.?|\s+(?:and|&)\s+[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+)?)[,;]?\s*\(?\s*$"
+    r"((?:(?:van|von|de|der|den|di|da|del|la|le)\s+)*[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+(?:\s+et\s+al\.?|\s+(?:and|&|＆)\s+[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+)?)[,;，；]?\s*[（(]?\s*$"
 )
 
 
-_YEAR_AFTER = re.compile(r"^\s*[,;]?\s*(?:19|20)\d{2}[a-z]?(?:\s*\))?")
-_PAREN = re.compile(r"\(([^()]*)\)")
+_YEAR_AFTER = re.compile(r"^\s*[,;，；]?\s*(?:19|20)\d{2}[a-z]?(?:\s*[）)])?")
+_PAREN = re.compile(r"[（(]([^()（）]*)[）)]")
 
 
 def _tidy(text: str, mk: dict) -> dict:

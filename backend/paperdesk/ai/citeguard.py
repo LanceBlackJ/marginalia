@@ -26,9 +26,14 @@ def math_spans(text: str, runs: list[dict] | None) -> list[tuple[int, int]]:
     """把解析时还原的行内公式 [{src, tex}] 按顺序定位到文字里（和前端 textModel.mathRanges 同一套规则）：
     只认有 tex 的；很短的片段（单个变量）要求前后不是字母数字，避免命中词中间；找不到的跳过。"""
     candidates: list[tuple[int, int]] = []
+    # 解析阶段可能把普通英文短词登记为数学片段（例如 at → a_{t}）。
+    # 这些词不能在翻译前被占位，也不能在译文末尾被当作“丢失公式”补回。
+    short_words = {"an", "as", "at", "be", "by", "do", "he", "if", "in", "is", "it", "me", "my", "no", "of", "on", "or", "so", "to", "up", "us", "we", "am", "go", "oh", "ok"}
     for r in runs or []:
         src, tex = (r.get("src") or ""), (r.get("tex") or "")
         if not src or not tex:
+            continue
+        if re.fullmatch(r"[A-Za-z]{2,}", src) and src.lower() in short_words:
             continue
         if re.fullmatch(r"\s*[\(\[（【]?\s*\d+(?:\.\d+)?\s*[\)\]）】]?\s*", tex):
             continue

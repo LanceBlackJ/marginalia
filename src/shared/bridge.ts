@@ -5,6 +5,10 @@ export type BackendStatus = 'starting' | 'ready' | 'failed'
 export interface BackendInfo {
   baseUrl: string
   token: string
+  /** 局域网设备访问电脑端页面与 API 的地址。 */
+  lanUrl?: string
+  /** 本机发现的全部可用 IPv4 地址，供用户选择网卡。 */
+  lanUrls?: string[]
 }
 
 export interface AppInfo {

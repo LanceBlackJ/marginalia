@@ -25,6 +25,15 @@ def test_translation_alignment_rejects_a_neighbor_passage_translation():
     ) == {1: "甲段译文", 2: "乙段译文"}
 
 
+def test_translation_rejects_stale_short_formula_appendix():
+    from paperdesk.ai.fulltranslate import translation_usable
+
+    source = "The agent takes an action a_{t} at time t."
+    math = [{"src": "a_{t}", "tex": "a_{t}"}, {"src": "at", "tex": "a_{t}"}]
+    assert translation_usable(source, "智能体在时间步 t 采取动作 a_{t}。", math)
+    assert not translation_usable(source, "智能体在时间步 t 采取动作 a_{t}。（at）", math)
+
+
 def test_translation_preserves_style_and_hard_line_breaks():
     from paperdesk.ai import formatguard
     from paperdesk.ai.fulltranslate import translation_usable
@@ -35,6 +44,16 @@ def test_translation_preserves_style_and_hard_line_breaks():
     translated = "⟪PDB1⟫第一轮：⟪/PDB1⟫⟪PDNL⟫第一轮标注。"
     assert translation_usable(source, formatguard.restore_lines(translated), None, ["Round I:"], None)
     assert not translation_usable(source, "第一轮：第一轮标注。", None, ["Round I:"], None)
+
+
+def test_stale_style_tags_do_not_hide_an_abstract_translation():
+    from paperdesk.ai import formatguard
+    from paperdesk.ai.fulltranslate import translation_displayable
+
+    source = "This abstract contains a result and a conclusion."
+    stale = "⟪PDB1⟫这段摘要包含一个结果。⟪/PDB1⟫ 这是结论。"
+    assert translation_displayable(source, stale)
+    assert formatguard.display(stale) == "这段摘要包含一个结果。 这是结论。"
 
 
 def test_author_year_suffix_resolves_all_items_in_one_citation_group():

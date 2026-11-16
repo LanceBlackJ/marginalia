@@ -54,7 +54,13 @@ async function doFetch(path: string, init: RequestInit & { query?: Query } = {})
   const { query, headers, ...rest } = init
   let res: Response
   try {
-    res = await fetch(`${baseUrl}${path}${qs(query)}`, { ...rest, headers: { Authorization: `Bearer ${token}`, ...(headers as Record<string, string> | undefined) } })
+    res = await fetch(`${baseUrl}${path}${qs(query)}`, {
+      ...rest,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(headers as Record<string, string> | undefined)
+      }
+    })
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
     throw new ApiError('network', '无法连接到本地服务，请检查后端是否仍在运行。')

@@ -11,7 +11,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' http://127.0.0.1:* http://localhost:*",
+  "connect-src 'self' http: https: ws: wss:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'none'",
@@ -34,6 +34,8 @@ export default defineConfig({
   preload: {},
   renderer: {
     plugins: [react(), cspPlugin()],
+    envDir: resolve('src/renderer'),
+    envPrefix: ['VITE_', 'NEXT_PUBLIC_'],
     resolve: {
       alias: {
         '@': resolve('src/renderer/src'),

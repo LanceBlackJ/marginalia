@@ -223,6 +223,155 @@
   padding: var(--sp-sm);
   border-top: 1px solid var(--border);
 }
+
+/* ---------- 手机端外壳：底部导航取代左侧栏 ---------- */
+.pd-mobile-nav {
+  display: none;
+}
+.pd-mobile-more-scrim,
+.pd-mobile-more {
+  display: none;
+}
+@media (max-width: 700px) {
+  :root {
+    --gutter: 16px;
+    --topbar-h: 50px;
+    --reader-bar-h: 50px;
+  }
+  .pd-shell {
+    display: block;
+  }
+  .pd-main {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: 62px;
+  }
+  .pd-content {
+    overflow: hidden;
+  }
+  .pd-topbar {
+    gap: 6px;
+    padding: 0 10px;
+  }
+  .pd-crumbs {
+    display: none;
+  }
+  .pd-topbar-search {
+    width: auto;
+    flex: 1;
+    margin-left: 0;
+  }
+  .pd-topbar-search .pd-input {
+    min-width: 0;
+  }
+  .pd-topbar .pd-btn {
+    padding: 0 7px;
+  }
+  .pd-topbar-badge {
+    display: none;
+  }
+  .pd-lan-qr-quick {
+    display: none;
+  }
+  .pd-mobile-nav {
+    position: fixed;
+    z-index: 70;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    height: 62px;
+    padding-bottom: env(safe-area-inset-bottom);
+    border-top: 1px solid var(--border-strong);
+    background: var(--bg);
+  }
+  .pd-mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: 11px;
+  }
+  .pd-mobile-nav-item[data-active='true'] {
+    color: var(--text);
+    font-weight: 700;
+  }
+  .pd-mobile-nav-item[data-active='true'] svg {
+    stroke-width: 2.2;
+  }
+  .pd-mobile-more-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 74;
+    display: block;
+    border: 0;
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+  }
+  .pd-mobile-more {
+    position: fixed;
+    right: 10px;
+    bottom: 70px;
+    left: 10px;
+    z-index: 75;
+    display: block;
+    padding: 12px;
+    border: 1px solid var(--border-strong);
+    background: var(--bg);
+    box-shadow: 0 8px 32px color-mix(in srgb, var(--text) 18%, transparent);
+  }
+  .pd-mobile-more-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 2px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: var(--fs-small);
+    font-weight: 600;
+  }
+  .pd-mobile-more-close {
+    display: inline-grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-2);
+  }
+  .pd-mobile-more-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding-top: 10px;
+  }
+  .pd-mobile-more-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    min-height: 64px;
+    padding: 8px 4px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text-2);
+    font: inherit;
+    font-size: 11px;
+  }
+  .pd-mobile-more-item[data-active='true'] {
+    border-color: var(--text);
+    color: var(--text);
+    font-weight: 600;
+  }
+}
 .pd-nav[data-collapsed='true'] .pd-nav-system {
   padding: var(--sp-sm) var(--sp-xs);
 }
@@ -300,6 +449,27 @@
   padding: 0 3px;
   pointer-events: none;
 }
+.pd-lan-qr-quick {
+  position: relative;
+  flex: none;
+}
+.pd-lan-qr-popover {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 220px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+}
+.pd-lan-qr-title { font-size: 14px; font-weight: 600; }
+.pd-lan-qr-subtitle { margin: 3px 0 10px; color: var(--text-2); font-size: 12px; }
+.pd-lan-qr-popover .pd-select { width: 100%; margin-bottom: 10px; }
+.pd-lan-qr-popover svg { display: block; width: 176px; height: 176px; margin: 0 auto 8px; }
+.pd-lan-qr-popover code { display: block; margin-bottom: 8px; overflow-wrap: anywhere; font-size: 11px; }
 
 /* ---------- 导入进度条：一行灰字 + 细线 ---------- */
 .pd-jobbar {
@@ -341,4 +511,82 @@
   text-align: left;
   white-space: pre-wrap;
   word-break: break-all;
+}
+.pd-lan-connect {
+  width: min(460px, calc(100vw - 40px));
+  margin: 12vh auto 0;
+  color: var(--pd-text, #111);
+}
+
+.pd-lan-connect-mark {
+  font-family: Georgia, serif;
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 48px;
+}
+
+.pd-lan-connect h1 { margin: 0 0 12px; font-size: 26px; }
+.pd-lan-connect p { color: #666; line-height: 1.7; }
+.pd-lan-connect-form { display: flex; gap: 10px; margin: 28px 0 14px; }
+.pd-lan-connect-form > :first-child { flex: 1; }
+.pd-lan-connect-error { color: #a12626 !important; }
+.pd-lan-connect-hint { font-size: 13px; }
+.pd-lan-qr { width: 196px; padding: 8px; margin: 18px 0 8px; border: 1px solid #e5e5e5; background: #fff; }
+
+@media (max-width: 700px) {
+  .pd-lan-connect { margin-top: 16vh; }
+  .pd-lan-connect-form { display: block; }
+  .pd-lan-connect-form button { width: 100%; margin-top: 12px; }
+}
+
+/* 这些移动端规则放在文件末尾，确保不会被桌面端顶栏定义覆盖。 */
+@media (max-width: 700px) {
+  .pd-main {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: 62px;
+  }
+  .pd-content {
+    min-height: 0;
+    overflow: hidden;
+  }
+  .pd-topbar {
+    gap: 6px;
+    height: 50px;
+    padding: 0 10px;
+  }
+  .pd-crumbs {
+    display: none;
+  }
+  .pd-topbar-search,
+  .pd-topbar > .pd-topbar-search:first-child {
+    width: auto;
+    min-width: 0;
+    flex: 1;
+    margin-left: 0;
+    margin-right: 0;
+  }
+  .pd-topbar-search .pd-input {
+    min-width: 0;
+    height: 30px;
+    font-size: 12px;
+  }
+  .pd-topbar .pd-btn {
+    padding: 0 7px;
+  }
+  .pd-topbar-badge,
+  .pd-lan-qr-quick {
+    display: none;
+  }
+  .pd-mobile-nav {
+    height: 62px;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pd-mobile-more-scrim {
+    display: block;
+  }
+  .pd-mobile-more {
+    display: block;
+  }
 }

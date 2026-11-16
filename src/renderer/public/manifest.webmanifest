@@ -1,0 +1,17 @@
+{
+  "name": "Marginalia 文献库",
+  "short_name": "Marginalia",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    {
+      "src": "./favicon.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    }
+  ]
+}

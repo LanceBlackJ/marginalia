@@ -1,6 +1,13 @@
 /** 论文处理进度的显示文案（纯函数）：公式和表格没处理好之前，不说“已完成/已分析”。 */
 import type { AnalysisStatus, ProcessingSummary } from '@/lib/types'
 
+const RECOGNITION_STEP_LABELS: Record<keyof ProcessingSummary['steps'], string> = {
+  analysis: '正文结构',
+  formulas: '公式',
+  tables: '表格',
+  index: '语义索引'
+}
+
 export interface ProcessingCell {
   text: string
   tone: 'default' | 'warning' | 'danger'
@@ -48,4 +55,16 @@ export function processingNote(p: ProcessingSummary | undefined): string | null 
 /** 还有步骤在跑或等着：需要继续轮询。 */
 export function isProcessingActive(p: ProcessingSummary | undefined): boolean {
   return !!p && (p.overall === 'processing' || p.overall === 'waiting')
+}
+
+/** 打开论文时可以让用户决定是否继续的识别任务；跳过项通常是配置原因，不重复启动。 */
+export function actionableRecognitionSteps(p: ProcessingSummary | undefined): string[] {
+  if (!p || p.reparsing || p.overall === 'done' || p.overall === 'processing') return []
+  return (Object.keys(RECOGNITION_STEP_LABELS) as Array<keyof ProcessingSummary['steps']>)
+    .filter((key) => ['pending', 'failed', 'running'].includes(p.steps[key].state))
+    .map((key) => {
+      const step = p.steps[key]
+      const progress = step.total > 0 ? ` ${step.done}/${step.total}` : ''
+      return `${RECOGNITION_STEP_LABELS[key]}${progress}`
+    })
 }

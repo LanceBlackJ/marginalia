@@ -36,6 +36,8 @@ describe('正文里的公式引用', () => {
     expect(hit('We make three contributions: (1) we propose a model, (2) we train it.')).toEqual([])
     expect(hit('(1) We propose a model.')).toEqual([])
     expect(hit('Specifically, (3) is the key.')).toEqual([])
+    expect(hit('Specifically, (3)Agentic system information:')).toEqual([])
+    expect(hit('具体而言，（3）智能体系统信息：')).toEqual([])
   })
 
   it('字母后缀', () => {

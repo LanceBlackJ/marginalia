@@ -85,7 +85,10 @@ async function doFetch(path: string, init: RequestInit & { query?: Query } = {})
   try {
     res = await fetch(`${baseUrl}${path}${qs(query)}`, {
       ...rest,
-      headers: { Authorization: `Bearer ${token}`, ...(headers as Record<string, string> | undefined) }
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(headers as Record<string, string> | undefined)
+      }
     })
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
@@ -179,8 +182,17 @@ export interface PaperListQuery {
 }
 
 export const api = {
-  health: () => get<{ status: string; version: string }>('/api/health'),
+  health: () => get<{ status: string; version: string; web_version?: string }>('/api/health'),
   systemInfo: () => get<SystemInfo>('/api/system/info'),
+
+  auth: {
+    register: (username: string, password: string) =>
+      post<{ token: string; expires_at: string; user: { id: string; username: string } }>('/api/auth/register', { username, password }),
+    login: (username: string, password: string) =>
+      post<{ token: string; expires_at: string; user: { id: string; username: string } }>('/api/auth/login', { username, password }),
+    me: () => get<{ user: { id: string; username: string } }>('/api/auth/me'),
+    logout: () => post<{ ok: boolean }>('/api/auth/logout', {})
+  },
 
   papers: {
     list: (q: PaperListQuery = {}, signal?: AbortSignal) => get<PaperList>('/api/papers', { ...q }, signal),

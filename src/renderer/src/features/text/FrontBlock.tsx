@@ -8,7 +8,8 @@ import { Linkified } from './Linkified'
  * 内容来自“首部信息”章节的段落，只在显示层整理；每一行带 data-ord，证据和搜索仍能定位到原来的段落。
  */
 export function FrontBlock({ title, front, titleZh, view = 'text' }: { title: string; front: FrontInfo; titleZh?: string; view?: 'text' | 'both' | 'target' }) {
-  const [affOpen, setAffOpen] = useState(false)
+  // 单位是作者信息的必要部分，默认直接展开；仍保留收起按钮，长作者名单/多单位论文可以节省首屏空间。
+  const [affOpen, setAffOpen] = useState(true)
   const meta: Array<{ ord: number; text: string }> = [...(front.doi ? [front.doi] : []), ...front.dates]
   return (
     <header className="pd-front" data-page={1}>
@@ -24,7 +25,13 @@ export function FrontBlock({ title, front, titleZh, view = 'text' }: { title: st
       )}
       {front.authors && (
         <p className="pd-front-authors" data-ord={front.authors.ord}>
-          {front.authors.names.join('，')}
+          {(front.authors.entries ?? front.authors.names.map((name) => ({ name, markers: [] }))).map((author, i) => (
+            <span key={`${author.name}-${i}`}>
+              {i > 0 && '，'}
+              {author.name}
+              {author.markers.length > 0 && <sup className="pd-front-author-markers">{author.markers.join(' ')}</sup>}
+            </span>
+          ))}
         </p>
       )}
       {meta.length > 0 && (

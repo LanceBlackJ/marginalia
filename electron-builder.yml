@@ -7,6 +7,8 @@ directories:
   buildResources: build
 
 asar: true
+asarUnpack:
+  - out/renderer/**/*
 # 主进程只用 Electron 与 Node 内置模块，渲染进程的依赖已由 electron-vite 打进 out/；不再带 node_modules
 files:
   - out/**/*

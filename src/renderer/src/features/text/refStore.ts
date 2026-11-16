@@ -62,7 +62,7 @@ interface RefState {
   summaries: Record<number, SumState>
   contexts: Record<number, RefContext[]>
 
-  load: (paperId: string) => Promise<void>
+  load: (paperId: string, force?: boolean) => Promise<void>
   reset: () => void
   openPopover: (refs: number[], rect: Rect) => void
   setHover: (h: { refs: number[]; rect: Rect } | null) => void
@@ -166,8 +166,8 @@ export const useRefStore = create<RefState>((set, get) => ({
     )
   },
 
-  load: async (paperId) => {
-    if (get().paperId === paperId && get().status !== 'error') return
+  load: async (paperId, force = false) => {
+    if (!force && get().paperId === paperId && get().status !== 'error') return
     controllers.forEach((c) => c.abort())
     controllers.clear()
     trControllers.forEach((c) => c.abort())

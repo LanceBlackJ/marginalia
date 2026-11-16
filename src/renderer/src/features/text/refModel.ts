@@ -68,6 +68,20 @@ export function splitSupDigits(digits: string, valid: ReadonlySet<number>): RefP
 
 const LOOSE_BRACKET = /[[［【]\s*(\d{1,3}(?:\s*[,，、–—‐‑‒−~～－-]\s*\d{1,3}){0,8})\s*[\]］】]/g
 
+function flexibleCitationPattern(value: string): RegExp {
+  const parts: string[] = []
+  for (const ch of value) {
+    if (/\s/.test(ch)) parts.push('\\s*')
+    else if (ch === '(') parts.push('[（(]')
+    else if (ch === ')') parts.push('[）)]')
+    else if (ch === ';') parts.push('[;；]')
+    else if (ch === ',') parts.push('[,，]')
+    else if (ch === '–' || ch === '—' || ch === '-') parts.push('[–—-]')
+    else parts.push(ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  }
+  return new RegExp(parts.join(''), 'g')
+}
+
 /**
  * 译文里的方括号引用：译文里的“[64–66]”常被改成“[64-66]”“［64—66］”“【64】”，后端按原文记下的标记文字对不上。
  * 这里不依赖标记文字，只要括号里的编号在参考文献列表里确实存在，就当作引用（不存在的不处理，不会误加链接）。
@@ -102,24 +116,137 @@ export function splitByMarkers(text: string, markers: readonly CitationMarker[])
     if (mk.end > mk.start && mk.start < cursor && mk.end <= cursor) continue
     if (mk.end > mk.start && mk.start < cursor && mk.end > cursor) continue
     let at = -1
+    let matchedEnd = -1
     if (mk.pre) {
       const k = text.indexOf(mk.pre + mk.text, Math.max(0, cursor - mk.pre.length))
-      if (k >= 0) at = k + mk.pre.length
+      if (k >= 0) {
+        at = k + mk.pre.length
+        matchedEnd = at + mk.text.length
+      }
     }
-    if (at < cursor) at = text.indexOf(mk.text, cursor)
+    if (at < cursor) {
+      at = text.indexOf(mk.text, cursor)
+      if (at >= 0) matchedEnd = at + mk.text.length
+    }
+    // 译文可能把引用外侧括号/分号换成全角，或在中文和引用之间增删空格；
+    // 引用本身仍来自后端确认的同一组文献，因此用等价标点和可选空格再定位一次。
+    if (at < 0) {
+      const flexible = flexibleCitationPattern(mk.text)
+      flexible.lastIndex = cursor
+      const hit = flexible.exec(text)
+      if (hit) {
+        at = hit.index
+        matchedEnd = hit.index + hit[0].length
+      }
+    }
     if (at < 0) continue
     if (at > cursor) out.push({ text: text.slice(cursor, at) })
-    out.push({ text: mk.text, refs: mk.refs })
-    cursor = at + mk.text.length
+    out.push({ text: text.slice(at, matchedEnd), refs: mk.refs })
+    cursor = matchedEnd
   }
   if (cursor === 0 && out.length === 0) return [{ text }]
   if (cursor < text.length) out.push({ text: text.slice(cursor) })
   return out
 }
 
+/**
+ * 在已经带有格式/搜索/批注分段的文字上定位引用。
+ * 引用匹配必须看完整段文字，之后再把命中的范围切回原分段；否则一组引用
+ * 恰好跨过一个格式边界时，逐段匹配会把它误当成普通文字。
+ */
+export function splitSegmentsByMarkers<T extends { text: string }>(
+  segments: readonly T[],
+  markers: readonly CitationMarker[]
+): Array<{ segment: T; text: string; refs?: number[] }> | null {
+  if (segments.length <= 1 || markers.length === 0) return null
+  const whole = segments.map((s) => s.text).join('')
+  const marked = splitByMarkers(whole, markers)
+  if (!marked.some((p) => p.refs)) return null
+  const starts: number[] = []
+  let end = 0
+  for (const s of segments) {
+    starts.push(end)
+    end += s.text.length
+  }
+  const out: Array<{ segment: T; text: string; refs?: number[] }> = []
+  let pieceStart = 0
+  for (const piece of marked) {
+    const pieceEnd = pieceStart + piece.text.length
+    for (let i = 0; i < segments.length; i++) {
+      const segStart = starts[i]
+      const segEnd = segStart + segments[i].text.length
+      const from = Math.max(pieceStart, segStart)
+      const to = Math.min(pieceEnd, segEnd)
+      if (to > from) out.push({ segment: segments[i], text: segments[i].text.slice(from - segStart, to - segStart), refs: piece.refs })
+    }
+    pieceStart = pieceEnd
+  }
+  return out
+}
+
+/**
+ * citations 接口暂时没有返回标记时的前端兜底：只在括号内容同时命中已确认题录的
+ * 第一作者姓氏和年份（含 a/b 后缀）时建立整组引用，不凭单独的数字猜测引用。
+ */
+export function inferAuthorYearMarkers(text: string, refs: readonly RefItem[]): CitationMarker[] {
+  if (!text || refs.length === 0) return []
+  const out: CitationMarker[] = []
+  for (const group of text.matchAll(/[（(][^()（）]*[）)]/g)) {
+    const value = group[0]
+    const body = value.slice(1, -1)
+    const matched: number[] = []
+    // 一个大括号里可能有多篇文献。按分号逐项匹配，不能让某篇文献的
+    // 作者跨到下一篇文献的年份，否则会把“作者和年份不在同一项”的
+    // 普通文字误判成引用。
+    for (const item of body.split(/[;；]+/)) {
+      const yearMatch = /(?:^|[^\d])((?:19|20)\d{2})([a-z]?)(?=$|[^\da-z])/i.exec(item)
+      if (!yearMatch || yearMatch.index === undefined) continue
+      const year = Number(yearMatch[1])
+      const suffix = yearMatch[2].toLowerCase()
+      const beforeYear = item.slice(0, yearMatch.index + yearMatch[0].length - yearMatch[1].length - yearMatch[2].length)
+      const candidates = refs.filter((ref) => {
+        if (!ref.year || ref.year !== year) return false
+        const author = ref.authors.find((a) => a && a.toLowerCase() !== 'et al.') ?? ''
+        const family = authorFamily(author)
+        if (!family) return false
+        const refYear = citationYear(ref)
+        if (refYear.suffix !== suffix) return false
+        return new RegExp(`\\b${escapeRegExp(family)}\\b`, 'i').test(beforeYear)
+      })
+      // 同一第一作者、同一年份且后缀相同的条目无法仅凭正文消歧，
+      // 与后端规则保持一致，宁可不建立错误链接。
+      if (candidates.length === 1) matched.push(candidates[0].index)
+    }
+    if (matched.length > 0) {
+      const start = group.index ?? 0
+      out.push({ kind: 'authoryear', text: value, start, end: start + value.length, refs: [...new Set(matched)] })
+    }
+  }
+  return out
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function authorFamily(author: string): string {
+  const value = author.replace(/\s+/g, ' ').trim()
+  if (!value) return ''
+  const left = value.includes(',') ? value.slice(0, value.indexOf(',')) : value
+  const words = left.split(/\s+/).filter(Boolean)
+  // 兼容 ``Ghafarollahi, A.``、``M. Ghafarollahi`` 和完整姓名；
+  // 末尾的非首字母词就是可用于正文匹配的姓氏。
+  return [...words].reverse().find((w) => !/^[A-Za-zÀ-ÿ](?:[.-])?$/.test(w)) ?? words.at(-1) ?? ''
+}
+
+function citationYear(ref: RefItem): { year: number; suffix: string } {
+  const m = ref.raw.match(new RegExp(`\\b${ref.year}[a-z]?\\b`, 'i'))
+  return { year: ref.year ?? 0, suffix: m?.[0].slice(String(ref.year).length).toLowerCase() ?? '' }
+}
+
 function firstAuthorFamily(authors: readonly string[]): string {
   const a = authors.find((x) => x && x !== 'et al.')
-  return a ? a.split(',')[0].trim() : ''
+  return a ? authorFamily(a) : ''
 }
 
 /** 一行引文文本：作者（年份）。标题。期刊。优先用联网查到的题录，没有就用解析出的字段，再没有就用原文。 */

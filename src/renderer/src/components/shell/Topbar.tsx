@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeft, FileText, FolderOpen, Globe, Link2, ListTodo, Plus, Quote, Search, Settings } from 'lucide-react'
-import { Button, IconButton, Input, Menu, type MenuItem } from '@/components/ui'
+import { ArrowLeft, FileText, FolderOpen, Globe, Link2, ListTodo, Plus, QrCode, Quote, Search, Settings } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
+import { Button, IconButton, Input, Menu, Select, type MenuItem } from '@/components/ui'
 import { importFolder, importLocalFiles, useImportUi } from '@/features/importing/importActions'
 import { useActiveJobs } from '@/stores/jobsStore'
 import { useBack } from '@/lib/useBack'
 import { openPaperBrowser } from '@/lib/native'
 import { usePathPrompt } from '@/stores/pathPromptStore'
+import { useBackendStore } from '@/stores/backendStore'
 
 const TITLES: Record<string, string> = {
   '/library': '文献库',
@@ -28,6 +30,46 @@ function useCrumbs(): { title: string; sub?: string } {
     if (view === 'favorite') return { title, sub: '收藏' }
   }
   return { title }
+}
+
+function LanQrQuickButton() {
+  const lanUrl = useBackendStore((s) => s.lanUrl)
+  const lanUrls = useBackendStore((s) => s.lanUrls)
+  const selectLanUrl = useBackendStore((s) => s.selectLanUrl)
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const close = (event: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [open])
+
+  if (!lanUrl) return null
+  const copy = async (): Promise<void> => {
+    await navigator.clipboard?.writeText(lanUrl)
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1400)
+  }
+  return (
+    <div className="pd-lan-qr-quick" ref={ref}>
+      <IconButton icon={<QrCode size={17} />} label="手机扫码连接" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen((value) => !value)} />
+      {open && (
+        <div className="pd-lan-qr-popover" role="dialog" aria-label="手机连接二维码">
+          <div className="pd-lan-qr-title">手机连接</div>
+          <div className="pd-lan-qr-subtitle">用 Marginalia APK 扫描</div>
+          {lanUrls.length > 1 && <Select aria-label="选择手机连接地址" size="sm" value={lanUrl} onChange={selectLanUrl} options={lanUrls.map((url) => ({ value: url, label: url }))} />}
+          <QRCodeSVG value={lanUrl} size={176} bgColor="#ffffff" fgColor="#111111" includeMargin />
+          <code>{lanUrl}</code>
+          <Button size="sm" variant="ghost" onClick={() => void copy()}>{copied ? '已复制地址' : '复制地址'}</Button>
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function Topbar() {
@@ -148,6 +190,7 @@ export function Topbar() {
         <IconButton icon={<ListTodo size={17} />} label={activeJobs.length > 0 ? `任务中心 · ${activeJobs.length} 个进行中` : '任务中心'} onClick={() => navigate('/tasks')} />
         {activeJobs.length > 0 && <span className="pd-nav-badge">{activeJobs.length}</span>}
       </span>
+      {pathname === '/library' && <LanQrQuickButton />}
       <IconButton icon={<Settings size={17} />} label="设置" onClick={() => navigate('/settings')} />
     </header>
   )

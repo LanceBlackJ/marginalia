@@ -18,7 +18,8 @@ import { useReaderStore } from '@/features/reader/readerStore'
 import { useSearchStore } from '@/features/reader/searchStore'
 import { visionApi } from '@/lib/api.vision'
 import type { Note } from '@/lib/types'
-import { regionKindLabel, textApi, type FigureRegion, type RegionKind, type TableAnalysisItem, type TableTranslation, type TextItem } from '@/lib/api.text'
+import type { ProcessingSummary } from '@/lib/types'
+import { textApi, type FigureRegion, type TableAnalysisItem, type TableTranslation, type TextItem } from '@/lib/api.text'
 import { isSafeInlineTex, normalizeInlineText, splitInlineMath } from './inlineMath'
 import { misplacedCount, misplacedSet, numericColumns, tableToMarkdown, tableToTsv, unverifiedCount, unverifiedSet } from './tableModel'
 import { useTextStore, type EquationInfo } from './textStore'
@@ -29,6 +30,7 @@ import { applyBold, applyItalic, applyMath, applyTerms, termRegExp, blockText, b
 import { buildVocab, cleanDisplay, parseCaption, parseCaptionZh, splitCitations, splitFirstSentence, splitFirstSentenceZh, splitTag, stripBroken, type Vocab } from './textClean'
 import { FrontBlock } from './FrontBlock'
 import { activeSectionOnScroll } from '@/features/reader/outlinePos'
+import { actionableRecognitionSteps } from '@/features/library/processingModel'
 
 /**
  * 元素相对阅读区顶部的位置。长文按块渲染（content-visibility:auto），远处没渲染的块里的元素，浏览器给出的位置是乱的
@@ -58,7 +60,7 @@ import { useTextPrefs } from './textPrefs'
 import { readTextSelection } from './textSelection'
 import { RefMarker, RefEntryHandlers } from './RefMarker'
 import { RefLayer } from './RefLayer'
-import { expandNumbers, mergeParaRefs, splitByMarkers, splitCjkSup, splitLooseBrackets, splitSupDigits, type ParaRefs } from './refModel'
+import { expandNumbers, inferAuthorYearMarkers, mergeParaRefs, splitByMarkers, splitCjkSup, splitLooseBrackets, splitSegmentsByMarkers, splitSupDigits, type ParaRefs } from './refModel'
 import { tableDisplayReason, tablePrefersImage } from './tableDisplay'
 import { useRefStore } from './refStore'
 import './text.css'
@@ -371,24 +373,42 @@ function plainPieces(text: string, vocab: Vocab | null, key: number, refs: ParaR
   )
 }
 
+function renderStyledSeg(s: Seg, key: string | number, el: ReactElement): ReactElement {
+  const styled = s.italic ? (
+    <em key={key} className="pd-tp-i">
+      {el}
+    </em>
+  ) : (
+    el
+  )
+  return s.bold ? (
+    <strong key={key} className="pd-tp-b">
+      {styled}
+    </strong>
+  ) : (
+    styled
+  )
+}
+
 function renderSegs(segs: Seg[], vocab: Vocab | null, refs: ParaRefs | null = null): ReactElement[] {
-  return segs.map((s, i) => {
-    const el = renderSeg(s, i, vocab, refs)
-    const styled = s.italic ? (
-      <em key={i} className="pd-tp-i">
-        {el}
-      </em>
-    ) : (
-      el
-    )
-    return s.bold ? (
-      <strong key={i} className="pd-tp-b">
-        {styled}
-      </strong>
-    ) : (
-      styled
-    )
-  })
+  // 引用必须先在整段文字上定位，再映射回格式化片段。若先逐片段调用
+  // plainPieces，一组作者-年份引用可能被加粗、公式、搜索命中或术语切成两段，
+  // 任何一段都不再包含完整的“(A et al., 2023; B et al., 2024)”而无法点击。
+  if (refs && refs.text.length > 0 && segs.length > 1) {
+    const marked = splitSegmentsByMarkers(segs, refs.text)
+    if (marked) {
+      const out: ReactElement[] = []
+      for (let i = 0; i < marked.length; i++) {
+        const piece = marked[i]
+        const part: Seg = { ...piece.segment, text: piece.text }
+        const inner = renderSeg(part, i, vocab, null)
+        const el = piece.refs ? <RefMarker refs={piece.refs}>{inner}</RefMarker> : inner
+        out.push(renderStyledSeg(part, i, el))
+      }
+      return out
+    }
+  }
+  return segs.map((s, i) => renderStyledSeg(s, i, renderSeg(s, i, vocab, refs)))
 }
 
 function renderSeg(s: Seg, i: number, vocab: Vocab | null, refs: ParaRefs | null): ReactElement {
@@ -442,7 +462,7 @@ function renderSeg(s: Seg, i: number, vocab: Vocab | null, refs: ParaRefs | null
   return plainPieces(s.text, vocab, i, refs)
 }
 
-const CAPTION_LABEL_ZH = (label: string): string => label.replace(/^(?:Extended Data |Supplementary |Supp\. )?(?:Figure|Fig\.)\s*/i, '图 ').replace(/^Table\s*/i, '表 ')
+const CAPTION_LABEL_ZH = (label: string): string => label.replace(/^(?:Extended Data |Supplementary |Supp\. )?(?:Figure|Fig\.)\s*/i, '图 ').replace(/^(?:Table|Tab\.)\s*/i, '表 ')
 
 interface FormulaProps {
   item: TextItem
@@ -557,15 +577,6 @@ function FigureInline({ fig, paperId }: { fig: FigureRegion; paperId: string }) 
   const near = useNearViewport(ref)
   const { url, error, type } = useBlobUrl(near ? () => textApi.regionVector(paperId, fig.page, fig.bbox, 130) : null, [paperId, fig.id, near])
   const vector = type.includes('svg') // 矢量图放大不会糊，不用再去取更清晰的版本
-  const [kind, setKind] = useState<RegionKind | null>(null)
-  useEffect(() => {
-    if (!url) return
-    let alive = true
-    textApi.regionKind(paperId, fig.page, fig.bbox).then((k) => alive && setKind(k)).catch(() => undefined)
-    return () => {
-      alive = false
-    }
-  }, [url, paperId, fig.page, fig.bbox])
   const alt = fig.label ?? '图'
   return (
     <div className="pd-tp-fig" ref={ref}>
@@ -582,7 +593,6 @@ function FigureInline({ fig, paperId }: { fig: FigureRegion; paperId: string }) 
       ) : (
         <div className="pd-tp-figph" aria-hidden="true" />
       )}
-      {kind && <div className={`pd-tp-figkind pd-tp-figkind-${kind.kind}`}>{regionKindLabel(kind)}</div>}
     </div>
   )
 }
@@ -852,10 +862,10 @@ interface PassageProps {
 const PassageView = memo(function PassageView({ parts, view, tr, marks, query, hit, flash, eq, fig, paperId, vocab, boldFirst, glossTerms, pageNo, eqRunning, eqError, table, tblRunning, tblError, onRetryTables, tableTr, notes, bookmarked, retranslating, onRetranslate }: PassageProps) {
   const item = parts[0]
   const paraRefsMap = useRefStore((s) => s.paraRefs)
-  const refs = useMemo(() => mergeParaRefs(parts.map((p) => p.ord), paraRefsMap), [parts, paraRefsMap])
+  const paraRefs = useMemo(() => mergeParaRefs(parts.map((p) => p.ord), paraRefsMap), [parts, paraRefsMap])
+  const refItems = useRefStore((s) => s.refs)
   // 译文里的方括号编号常被改写（破折号、全角括号…），后端按原文记的标记文字对不上：译文再按“编号确实存在”认一遍
   const validRefs = useRefStore((s) => s.valid)
-  const trRefs = useMemo<ParaRefs | null>(() => ({ sup: refs?.sup ?? new Set<number>(), text: refs?.text ?? [], loose: validRefs.size > 0 ? validRefs : undefined, zh: true }), [refs, validRefs])
   const isCaption = item.kind === 'caption' || !!table
   // 这一段怎么读：选中它（或点左边的小按钮）后，在它下面显示；正文段落才有
   const paraOrd = useParaStore((s) => s.ord)
@@ -867,6 +877,15 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
   const plain = marks.length === 0 && !query
   const raw = blockText(parts)
   const text = normalizeInlineText(vocab ? cleanDisplay(raw) : raw)
+  const refs = useMemo(() => {
+    const inferred = inferAuthorYearMarkers(text, refItems)
+    if (!paraRefs && inferred.length === 0) return null
+    if (!paraRefs) return { sup: new Set<number>(), text: inferred, loose: undefined, zh: false }
+    if (inferred.length === 0) return paraRefs
+    const existing = new Set(paraRefs.text.map((m) => `${m.start}:${m.end}:${m.text}`))
+    return { ...paraRefs, text: [...paraRefs.text, ...inferred.filter((m) => !existing.has(`${m.start}:${m.end}:${m.text}`))] }
+  }, [paraRefs, refItems, text])
+  const trRefs = useMemo<ParaRefs | null>(() => ({ sup: refs?.sup ?? new Set<number>(), text: refs?.text ?? [], loose: validRefs.size > 0 ? validRefs : undefined, zh: true }), [refs, validRefs])
   const cap = vocab && isCaption && plain ? parseCaption(text) : null
   // 图注开头的“图 3 / 表 2”可点：查看，或让 AI 解析（只有论文里真有对应的图/表时）
   const capKey = labelKey(fig?.kind === 'figure' ? fig.label : table && table.kind !== 'figure_data' ? table.label : null)
@@ -971,7 +990,7 @@ const PassageView = memo(function PassageView({ parts, view, tr, marks, query, h
             trText !== undefined &&
             (trCap && trCap.label ? (
               <div className="pd-tp-cap pd-tp-trans">
-                <span className="pd-tp-cap-label">{trCap.label}</span>
+                <span className="pd-tp-cap-label">{CAPTION_LABEL_ZH(trCap.label)}</span>
                 <p className={`${trClass}${trLineClass}`}>
                   {trCap.title && <strong className="pd-tp-cap-title">{renderSegs([{ text: trCap.title }], vocab, trRefs)} </strong>}
                   {renderSegs([{ text: trCap.rest }], vocab, trRefs)}
@@ -1033,6 +1052,45 @@ export function TextReader() {
 
   const { status, error, items, trans, tableTr, headingTr, equationsByOrd, figuresByCaption, trTotal, trDone, trComplete, jobId, jobMsg, progress, eq, eqJobId, eqProgress, eqError } = useTextStore()
   const { tablesByCaption, tableHidden, tbl, tblJobId, tblProgress, tblError, retranslating } = useTextStore()
+
+  // 识别任务可能因导入时未配置模型、任务中断或用户稍后打开而停在待处理状态。
+  // 论文打开到可读之后只提示一次，由用户决定是否继续，不强行占用模型额度。
+  const [recognitionPrompt, setRecognitionPrompt] = useState<ProcessingSummary | null>(null)
+  const [recognitionStarting, setRecognitionStarting] = useState(false)
+  const promptedPaper = useRef<string | null>(null)
+  useEffect(() => {
+    if (promptedPaper.current !== paperId) {
+      promptedPaper.current = null
+      setRecognitionPrompt(null)
+    }
+    if (status !== 'ready' || !paperId || promptedPaper.current === paperId) return
+    let alive = true
+    void textApi.processing(paperId).then((summary) => {
+      if (!alive || promptedPaper.current === paperId) return
+      if (actionableRecognitionSteps(summary).length > 0) {
+        promptedPaper.current = paperId
+        setRecognitionPrompt(summary)
+      }
+    }).catch(() => undefined)
+    return () => {
+      alive = false
+    }
+  }, [paperId, status])
+
+  const continueRecognition = useCallback(async () => {
+    if (!paperId) return
+    setRecognitionStarting(true)
+    try {
+      const result = await textApi.startProcessing(paperId)
+      setRecognitionPrompt(null)
+      const started = Object.keys(result.started ?? {})
+      toast.success(started.length > 0 ? `已开始识别：${started.join('、')}` : '没有新的识别任务')
+    } catch (e) {
+      toast.error('开始识别失败', e instanceof Error ? e.message : '请稍后重试')
+    } finally {
+      setRecognitionStarting(false)
+    }
+  }, [paperId])
   // 术语表里的词只在第一次出现的那一段里标出来（论文自己定义的词就在定义它的那一段）
   const glossTerms = useGlossaryStore((s) => s.terms)
   const termsByOrd = useMemo(() => {
@@ -1078,9 +1136,10 @@ export function TextReader() {
   // 参考文献与正文引用标记：论文打开后在后台读取；读不到不影响阅读（正文里就没有可点击的引用标记）
   const refOrdToIndex = useRefStore((s) => s.ordToIndex)
   const loadRefs = useRefStore((s) => s.load)
+  const textRevision = useTextStore((s) => s.revision)
   useEffect(() => {
-    if (paperId) void loadRefs(paperId)
-  }, [paperId, loadRefs])
+    if (paperId) void loadRefs(paperId, true)
+  }, [paperId, loadRefs, textRevision])
 
   const [showNoise, setShowNoise] = useState(false)
   const [refsOpen, setRefsOpen] = useState(false)
@@ -1500,6 +1559,27 @@ export function TextReader() {
             </Button>
           ) : null}
         </div>
+      )}
+      {recognitionPrompt && (
+        <Dialog
+          open
+          onClose={() => setRecognitionPrompt(null)}
+          title="这篇论文还有内容未识别"
+          width={520}
+          dismissOnOverlay={false}
+          footer={
+            <>
+              <Button onClick={() => setRecognitionPrompt(null)}>暂不处理</Button>
+              <Button variant="primary" loading={recognitionStarting} onClick={() => void continueRecognition()}>
+                继续识别
+              </Button>
+            </>
+          }
+        >
+          <p>以下内容还没有完成，可以现在继续后台识别；识别期间仍可阅读原文。</p>
+          <p className="pd-muted">{actionableRecognitionSteps(recognitionPrompt).join('、')}</p>
+          {recognitionPrompt.reasons.length > 0 && <p className="pd-muted">{recognitionPrompt.reasons.join('；')}</p>}
+        </Dialog>
       )}
       {(translating || eqRunning || tblRunning) && (
         <ProgressBar

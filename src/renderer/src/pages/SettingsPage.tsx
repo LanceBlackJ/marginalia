@@ -4,6 +4,7 @@ import { AIModelSection } from '@/features/settings/AIModelSection'
 import { DangerZone } from '@/features/settings/DangerZone'
 import { AboutPanel, AppearancePanel, DataPanel, PrivacyNotePanel, RetrievalPanel, ShortcutsPanel, UsagePanel } from '@/features/settings/panels'
 import { PrivacySection } from '@/features/settings/PrivacySection'
+import { LanConnectionSection } from '@/features/settings/LanConnectionSection'
 import '@/features/settings/settings.css'
 import '@/features/settings/panels.css'
 
@@ -126,6 +127,7 @@ export function SettingsPage() {
           )}
           {tab === 'general' && (
             <>
+              <LanConnectionSection />
               <AppearancePanel />
               <ShortcutsPanel />
               <AboutPanel />

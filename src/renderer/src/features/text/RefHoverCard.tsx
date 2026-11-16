@@ -20,6 +20,8 @@ export function refByline(item: RefItem): string {
 export function RefHoverCard() {
   const hover = useRefStore((s) => s.hover)
   const byIndex = useRefStore((s) => s.byIndex)
+  const titleTr = useRefStore((s) => s.titleTr)
+  const resolve = useRefStore((s) => s.resolve)
   const keepHover = useRefStore((s) => s.keepHover)
   const hideHover = useRefStore((s) => s.hideHover)
   const openDrawer = useRefStore((s) => s.openDrawer)
@@ -30,6 +32,16 @@ export function RefHoverCard() {
 
   // 换了一个角标就从第一条看起
   useEffect(() => setPage(0), [hover?.refs.join(',')])
+
+  // 悬停卡片也默认给出题目译文。题录可能还没有联网核验，先用当前解析到的标题触发一次查询，
+  // 之后由 refStore 复用缓存；没有可靠题录时不发请求。
+  useEffect(() => {
+    if (!hover) return
+    for (const index of hover.refs) {
+      const item = byIndex.get(index)
+      if (item?.title && !titleTr[index]) void resolve(index)
+    }
+  }, [hover, byIndex, titleTr, resolve])
 
   useLayoutEffect(() => {
     if (!hover) return setPlace(null)
@@ -58,6 +70,8 @@ export function RefHoverCard() {
             <div className="pd-refhover-title">
               <span className="pd-refhover-n">[{it.index}]</span> {refHeadline(it)}
             </div>
+            {titleTr[it.index]?.status === 'streaming' && !titleTr[it.index]?.text && <div className="pd-refhover-titletr">正在翻译题目…</div>}
+            {titleTr[it.index]?.text && <div className="pd-refhover-titletr">{titleTr[it.index].text}</div>}
             {by && <div className="pd-refhover-by">{by}</div>}
             <div className="pd-refhover-actions">
               <Button size="sm" variant="primary" onClick={() => openDrawer(it.index)} title="联网查询 OpenAlex / Crossref，只发送这条参考文献的标题、作者或 DOI" aria-label={`查看详情 ${it.index}`}>

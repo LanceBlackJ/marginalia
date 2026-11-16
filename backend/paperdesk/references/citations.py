@@ -14,14 +14,14 @@ _BRACKET = re.compile(rf"(?<![A-Za-z0-9])\[\s*({_NUMS})\s*\]")
 _REF_WORD = re.compile(rf"\b[Rr]efs?\.?\s+({_NUMS})")
 _SUP = re.compile(r"(?<![^\W\d_])([^\W\d_]{3,})(\d{1,3}(?:[,–‐-]\d{1,3}){0,4})(?=[\s.,;:)\]—–―\-/”’]|$)")
 # 一组引用可能包含很多作者-年份项，不能按固定字符数截断；只匹配不含嵌套括号
-# 的一对括号，仍然不会跨越整段正文。
-_PAREN = re.compile(r"\(([^()]*)\)")
+# 的一对括号，仍然不会跨越整段正文。译文可能把括号改成全角。
+_PAREN = re.compile(r"[（(]([^()（）]*)[）)]")
 _NAME = r"(?:(?:van|von|de|der|den|di|da|del|della|la|le|ten|ter|bin|al|el|du|dos|das)\s+){0,2}[A-ZÀ-ÖØ-Þ][\w’'\-À-ÿ]+"
 _AY_PART = re.compile(
-    rf"({_NAME})(?:\s+et al\.?|\s+(?:and|&)\s+{_NAME})?,?\s+((?:19|20)\d{{2}})([a-z]?)"
+    rf"({_NAME})(?:\s+et\s+al\.?|\s+(?:and|&|＆)\s+{_NAME})?\s*[,，]?\s*((?:19|20)\d{{2}})([a-z]?)"
 )
 _AY_NARRATIVE = re.compile(
-    rf"\b({_NAME})(?:\s+et al\.?|\s+(?:and|&)\s+{_NAME})?\s+\(\s*((?:19|20)\d{{2}})([a-z]?)\s*\)"
+    rf"\b({_NAME})(?:\s+et\s+al\.?|\s+(?:and|&|＆)\s+{_NAME})?\s+[（(]\s*((?:19|20)\d{{2}})([a-z]?)\s*[）)]"
 )
 
 # 数学/记号里常见的“词+数字”，不是引用（与前端 textClean.ts 保持一致）
@@ -106,7 +106,7 @@ def detect_markers(text: str, valid: set[int], ay: dict[tuple[str, int, str], li
     if ay:
         for pm in _PAREN.finditer(text):
             inner_start = pm.start(1)
-            for part in re.finditer(r"[^;]+", pm.group(1)):
+            for part in re.finditer(r"[^;；]+", pm.group(1)):
                 am = _AY_PART.search(part.group(0))
                 if not am:
                     continue

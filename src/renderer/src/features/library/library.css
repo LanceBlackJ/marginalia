@@ -445,6 +445,184 @@ button.pd-ptag--btn:hover {
   border-bottom: 1px solid var(--text);
 }
 
+@media (max-width: 700px) {
+  .pd-lib-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--sp-md);
+    margin-bottom: var(--sp-xl);
+  }
+  .pd-lib-head-actions {
+    align-self: stretch;
+    justify-content: flex-end;
+    gap: 6px;
+    margin-left: 0;
+  }
+  .pd-lib-head .pd-page-subtitle {
+    max-width: 34em;
+  }
+  .pd-lib-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .pd-lib-rail {
+    position: static;
+    display: flex;
+    gap: 10px;
+    max-height: 76px;
+    padding: 0 0 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+    scrollbar-width: none;
+  }
+  .pd-lib-rail::-webkit-scrollbar {
+    display: none;
+  }
+  .pd-lib-rail .pd-frail {
+    display: flex;
+    flex: none;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 6px;
+    max-height: none;
+    padding: 0;
+    overflow: visible;
+    border-right: 0;
+  }
+  .pd-lib-rail .pd-frail-group,
+  .pd-lib-rail .pd-frail-tree {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
+  }
+  .pd-lib-rail .pd-frail-group {
+    flex-wrap: nowrap;
+  }
+  .pd-lib-rail .pd-frail-tree {
+    max-width: 48vw;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pd-lib-rail .pd-frail-tree::-webkit-scrollbar {
+    display: none;
+  }
+  .pd-lib-rail .pd-frail-head {
+    flex: none;
+    margin: 0;
+    padding: 4px 8px;
+    border-top: 0;
+    border-left: 2px solid var(--text);
+    white-space: nowrap;
+  }
+  .pd-lib-rail .pd-frail-item,
+  .pd-lib-rail .pd-frail-empty {
+    flex: none;
+    width: auto;
+    min-width: max-content;
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+  }
+  .pd-lib-rail .pd-frail-item.is-active {
+    border-color: var(--text);
+  }
+  .pd-lib-main {
+    width: 100%;
+  }
+  .pd-lib-toolbar {
+    gap: var(--sp-sm);
+    padding-bottom: var(--sp-sm);
+  }
+  .pd-lib-toolbar-right {
+    width: 100%;
+    justify-content: space-between;
+    gap: var(--sp-sm);
+    margin-left: 0;
+  }
+  .pd-review-categories {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding: 8px 0;
+    white-space: nowrap;
+  }
+  .pd-paper-row--head {
+    display: none;
+  }
+  .pd-paper-row {
+    position: relative;
+    display: block;
+    min-height: 0;
+    padding: 14px 42px 14px 0;
+    background: var(--bg);
+  }
+  .pd-paper-main {
+    min-width: 0;
+  }
+  .pd-paper-title {
+    font-size: var(--fs-body);
+  }
+  .pd-paper-meta {
+    white-space: normal;
+    line-height: 1.45;
+  }
+  .pd-paper-actions {
+    position: absolute;
+    top: 12px;
+    right: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .pd-paper-row .pd-col {
+    display: none;
+  }
+  .pd-paper-row .pd-paper-progress {
+    display: inline-flex;
+    margin-top: 6px;
+  }
+  .pd-paper-row .pd-paper-progress .pd-progress {
+    width: 72px;
+  }
+  .pd-lib-grid {
+    grid-template-columns: 1fr;
+  }
+  .pd-lib-group + .pd-lib-group {
+    margin-top: 18px;
+  }
+  .pd-recent {
+    margin-bottom: 18px;
+    overflow: hidden;
+  }
+  .pd-recent-row {
+    display: flex;
+    gap: 10px;
+    margin-right: -16px;
+    padding-right: 16px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pd-recent-row::-webkit-scrollbar {
+    display: none;
+  }
+  .pd-recent-item {
+    flex: 0 0 min(78vw, 260px);
+    padding-top: 10px;
+  }
+  .pd-recent-title {
+    min-height: 2.5em;
+    font-size: var(--fs-small);
+  }
+  .pd-page-title {
+    font-size: 21px;
+  }
+}
+
 .pd-finished-badge {
   display: inline-flex;
   align-items: center;

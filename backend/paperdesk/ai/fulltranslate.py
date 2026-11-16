@@ -53,6 +53,11 @@ def translation_usable(
     out = str(translated or "").strip()
     if not src or not out:
         return False
+    # 旧版本曾把误识别的短词公式（如 at → a_{t}）补到译文末尾，形成
+    # “（at）”或“（Z(τ)=1, at）”。短词现在已不再保护；遇到这类旧缓存要
+    # 判为过期，交给正常翻译流程重新生成，不能继续把错误内容显示给读者。
+    if _has_stale_short_formula_tail(out, math):
+        return False
     if not formatguard.lines_valid(src, out):
         return False
     # 两个样式列表都为 None 时，调用方没有提供样式元数据（例如划词翻译缓存命中），
@@ -83,6 +88,39 @@ def translation_usable(
         if out_cmds.count(cmd) > src_cmds.count(cmd):
             return False
     return True
+
+
+_SHORT_MATH_WORDS = {"an", "as", "at", "be", "by", "do", "he", "if", "in", "is", "it", "me", "my", "no", "of", "on", "or", "so", "to", "up", "us", "we", "am", "go", "oh", "ok"}
+
+
+def _has_stale_short_formula_tail(translated: str, math: list[dict] | None) -> bool:
+    """识别旧版本公式保护留下的末尾补回物，不误伤正文中的普通短词。"""
+    candidates = {str(r.get("src") or "").lower() for r in math or [] if re.fullmatch(r"[A-Za-z]{2,}", str(r.get("src") or "")) and str(r.get("src") or "").lower() in _SHORT_MATH_WORDS}
+    if not candidates:
+        return False
+    # 只检查译文最后一段括号，普通句中出现 “at” 不受影响；支持外层中文括号里再嵌一个公式。
+    tail = translated[-180:]
+    opens = [tail.rfind("("), tail.rfind("（")]
+    start = max(opens)
+    if start < 0 or not re.search(r"[)）]\s*$", tail):
+        return False
+    body = tail[start:]
+    return any(re.search(rf"(?<![A-Za-z]){re.escape(word)}(?![A-Za-z])", body, re.I) for word in candidates)
+
+
+def translation_displayable(
+    source: str,
+    translated: str,
+    math: list[dict] | None = None,
+) -> bool:
+    """旧解析结果的样式范围变化时，仍允许显示内容正确的旧译文。
+
+    重新解析可能只改变了同一段里的加粗/斜体边界；这不应让摘要或正文整段消失。
+    去掉内部样式标记后，再复用正文、引用和公式的完整性检查，确认译文内容仍对应当前原文。
+    严格校验仍由 translation_usable 负责，后台继续翻译时会重新补齐样式。
+    """
+    clean = formatguard.display(translated)
+    return bool(clean.strip()) and translation_usable(source, clean, math, None, None)
 
 
 def _digest(text: str) -> str:
@@ -235,6 +273,13 @@ def _cached(app: AppContext, paper_id: str) -> dict[str, tuple[str, str]]:
     return {r["text_hash"]: (r["translation"], r["model"]) for r in rows}
 
 
+def _usable_cached_translation(p: dict, hit: tuple[str, str] | None) -> bool:
+    """缓存译文只要内容仍对应当前段落，就不因旧样式边界阻塞全文翻译。"""
+    if not hit:
+        return False
+    return translation_usable(p["text"], hit[0], p.get("math"), p.get("bold"), p.get("italic")) or translation_displayable(p["text"], hit[0], p.get("math"))
+
+
 def status(app: AppContext, paper_id: str, with_items: bool = True) -> dict:
     """翻译进度与已有译文：{total, done, complete, model, items:[{ord, translation}]}。"""
     with app.db.session() as conn:
@@ -245,11 +290,11 @@ def status(app: AppContext, paper_id: str, with_items: bool = True) -> dict:
     items, models = [], set()
     for p in todo:
         hit = cache.get(p["digest"])
-        if hit and translation_usable(p["text"], hit[0], p.get("math"), p.get("bold"), p.get("italic")):
+        if _usable_cached_translation(p, hit):
             models.add(hit[1])
             if with_items:
                 items.append({"ord": p["ord"], "translation": citeguard.tidy(hit[0])})
-    done = sum(1 for p in todo if p["digest"] in cache and translation_usable(p["text"], cache[p["digest"]][0], p.get("math"), p.get("bold"), p.get("italic")))
+    done = sum(1 for p in todo if _usable_cached_translation(p, cache.get(p["digest"])))
     cells = _cells_todo(app, paper_id)
     cells_done = sum(1 for c in cells if c["digest"] in cache)
     return {
@@ -332,7 +377,7 @@ async def _run(app: AppContext, ctx: JobContext, paper_id: str) -> dict:
     with app.db.session() as conn:
         title = conn.execute("SELECT title FROM papers WHERE id = ?", (paper_id,)).fetchone()["title"]
     cache = _cached(app, paper_id)
-    todo = [p for p in _eligible(app, paper_id) if p["digest"] not in cache or not translation_usable(p["text"], cache[p["digest"]][0], p.get("math"), p.get("bold"), p.get("italic"))]
+    todo = [p for p in _eligible(app, paper_id) if not _usable_cached_translation(p, cache.get(p["digest"]))]
     cells = [c for c in _cells_todo(app, paper_id) if c["digest"] not in cache]
     if not todo and not cells:
         return {"translated": 0, "failed": 0}

@@ -230,3 +230,94 @@
   gap: var(--sp-sm);
   margin: calc(-1 * var(--sp-md)) 0 var(--sp-md);
 }
+
+@media (max-width: 700px) {
+  .pd-tasks {
+    display: block;
+    height: 100%;
+  }
+  .pd-tasks-main {
+    height: 100%;
+    padding: 18px 14px 96px;
+  }
+  .pd-tasks-head {
+    margin-bottom: 12px;
+  }
+  .pd-tasks-head .pd-page-title {
+    font-size: 21px;
+  }
+  .pd-tasks-head .pd-page-subtitle {
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+  .pd-tasks-tabs {
+    gap: 16px;
+    margin-bottom: 14px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .pd-tasks-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .pd-tasks-tabs button {
+    flex: none;
+    height: 34px;
+  }
+  .pd-task-list {
+    border-top: 0;
+    display: grid;
+    gap: 8px;
+  }
+  .pd-task-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 3px 8px;
+    min-height: 0;
+    padding: 10px;
+    margin: 0;
+    border: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .pd-task-row:hover,
+  .pd-task-row[data-selected='true'] {
+    border-color: var(--text);
+    box-shadow: none;
+  }
+  .pd-task-title {
+    min-width: 0;
+    font-size: var(--fs-small);
+    line-height: 1.45;
+  }
+  .pd-task-type {
+    grid-column: 1;
+    font-size: var(--fs-aux);
+  }
+  .pd-task-state {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+    align-self: center;
+    text-align: right;
+  }
+  .pd-task-del {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: start;
+  }
+  .pd-task-del .pd-iconbtn {
+    width: 24px;
+    height: 24px;
+  }
+  .pd-tasks-detail {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    width: 100%;
+    height: 100%;
+    padding: 16px 14px 96px;
+    border-left: 0;
+    box-shadow: 0 0 0 1px var(--border);
+  }
+  .pd-tasks-pager {
+    padding: 14px 0;
+  }
+}

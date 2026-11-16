@@ -11,6 +11,10 @@ import { installLatexCopy } from '@/lib/copyLatex'
 
 installLatexCopy() // 复制含公式的文字时得到 LaTeX 源码
 
+if (window.location.protocol === 'http:' || window.location.protocol === 'https:') {
+  void navigator.serviceWorker?.register('./sw.js')
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

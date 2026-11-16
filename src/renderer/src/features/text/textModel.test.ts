@@ -205,6 +205,13 @@ describe('format and math mapping', () => {
     ])).toEqual([[8, 13, 'a_{t}']])
   })
 
+  it('does not turn common short words into formulas', () => {
+    expect(mathRanges('the agent acts at time t', [
+      { src: 'at', tex: 'a_{t}' },
+      { src: 't', tex: 't' }
+    ])).toEqual([[23, 24, 't']])
+  })
+
   it('finds formulas when PDF spacing changes and supports starred powers', () => {
     expect(mathRanges('replace a _{t} and i^{*}', [
       { src: 'a_{t}', tex: 'a_{t}' },
@@ -214,6 +221,7 @@ describe('format and math mapping', () => {
 
   it('maps translated style tags without relying on the English text', () => {
     expect(stripTaggedFormat('前 ⟪PDB1⟫加粗⟪/PDB1⟫ 后')).toEqual({ text: '前 加粗 后', bold: [[2, 4]], italic: [] })
+    expect(stripTaggedFormat('前 《PDB1》加粗《/PDB1》 后')).toEqual({ text: '前 加粗 后', bold: [[2, 4]], italic: [] })
   })
 })
 

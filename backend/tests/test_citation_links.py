@@ -120,3 +120,17 @@ def test_split_pdf_link_fragments_and_regex_middle_into_one_citation_group():
     assert [(m["text"], m["refs"]) for m in out[0]["markers"]] == [
         ("(Hong et al., 2023; Li et al., 2023a; Wu et al., 2023)", [1, 2, 3])
     ]
+
+
+def test_author_year_matching_handles_full_width_punctuation_and_initials_before_surname():
+    text = "相关工作（Ghafarollahi ＆ Buehler，2024；Hong et al.，2023；Li et al.，2023a；Wu et al.，2023）。"
+    entries = [
+        {"index": 8, "authors": ["M. Ghafarollahi", "Buehler, M. J."], "year": 2024, "raw": "Ghafarollahi, A. and Buehler, M. J. Sciagents (2024)."},
+        {"index": 10, "authors": ["Hong, S."], "year": 2023, "raw": "Hong, S. MetaGPT (2023)."},
+        {"index": 15, "authors": ["Li, G."], "year": 2023, "raw": "Li, G. CAMEL (2023a)."},
+        {"index": 30, "authors": ["Wu, Q."], "year": 2023, "raw": "Wu, Q. AutoGen (2023)."},
+    ]
+    out = detect_all([{"ord": 0, "page": 1, "kind": "paragraph", "text": text}], entries, "author-year")
+    assert [(m["text"], m["refs"]) for m in out[0]["markers"]] == [
+        ("（Ghafarollahi ＆ Buehler，2024；Hong et al.，2023；Li et al.，2023a；Wu et al.，2023）", [8, 10, 15, 30])
+    ]

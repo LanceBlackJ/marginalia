@@ -1,15 +1,20 @@
 import { create } from 'zustand'
 import type { BackendStatus } from '@shared/bridge'
 import { api } from '@/lib/api'
-import { resolveWebBackendInfo, setBackendInfo } from '@/lib/backend'
+import { connectWebBackend, getBackendInfo, resolveWebBackendInfo, setBackendInfo } from '@/lib/backend'
 
 interface BackendState {
   status: BackendStatus
   detail?: string
+  lanUrl?: string
+  lanUrls: string[]
+  webVersion?: string
   /** 是否运行在 Electron 中（有 window.paperdesk） */
   electron: boolean
   init: () => Promise<void>
   retry: () => Promise<void>
+  connect: (url: string) => Promise<void>
+  selectLanUrl: (url: string) => void
 }
 
 let subscribed = false
@@ -19,8 +24,12 @@ async function adoptReady(set: (p: Partial<BackendState>) => void): Promise<void
   if (!bridge) return
   try {
     const info = await bridge.getBackendInfo()
-    setBackendInfo(info)
-    set({ status: 'ready', detail: undefined })
+    const urls = info.lanUrls ?? (info.lanUrl ? [info.lanUrl] : [])
+    const saved = window.localStorage.getItem('pd.lan.selected-url') ?? ''
+    const selected = urls.includes(saved) ? saved : info.lanUrl ?? urls[0]
+    const nextInfo = { ...info, lanUrl: selected, lanUrls: urls }
+    setBackendInfo(nextInfo)
+    set({ status: 'ready', detail: undefined, lanUrl: selected, lanUrls: urls })
   } catch (err) {
     set({ status: 'failed', detail: err instanceof Error ? err.message : String(err) })
   }
@@ -37,8 +46,8 @@ async function initWeb(set: (p: Partial<BackendState>) => void): Promise<void> {
   }
   setBackendInfo(info)
   try {
-    await api.health()
-    set({ status: 'ready', detail: undefined })
+    const health = await api.health()
+    set({ status: 'ready', detail: undefined, lanUrl: info.lanUrl, webVersion: health.web_version || undefined })
   } catch {
     set({ status: 'failed', detail: `无法连接到 ${info.baseUrl}，请确认后端正在运行。` })
   }
@@ -47,6 +56,9 @@ async function initWeb(set: (p: Partial<BackendState>) => void): Promise<void> {
 export const useBackendStore = create<BackendState>((set, get) => ({
   status: 'starting',
   detail: undefined,
+  lanUrl: undefined,
+  lanUrls: [],
+  webVersion: undefined,
   electron: typeof window !== 'undefined' && !!window.paperdesk,
 
   init: async () => {
@@ -83,5 +95,25 @@ export const useBackendStore = create<BackendState>((set, get) => ({
     } else {
       await initWeb(set)
     }
+  },
+
+  connect: async (url: string) => {
+    set({ status: 'starting', detail: undefined })
+    try {
+      const info = connectWebBackend(url)
+      const health = await api.health()
+      set({ status: 'ready', detail: undefined, webVersion: health.web_version || undefined })
+      setBackendInfo(info)
+    } catch (err) {
+      set({ status: 'failed', detail: err instanceof Error ? err.message : '无法连接到电脑端' })
+    }
+  },
+
+  selectLanUrl: (url: string) => {
+    const urls = get().lanUrls
+    if (!urls.includes(url)) return
+    window.localStorage.setItem('pd.lan.selected-url', url)
+    setBackendInfo({ ...getBackendInfo(), lanUrl: url, lanUrls: urls })
+    set({ lanUrl: url })
   }
 }))

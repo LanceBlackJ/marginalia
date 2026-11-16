@@ -1,8 +1,8 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { createServer } from 'node:net'
-import { randomBytes } from 'node:crypto'
 import { createWriteStream, existsSync, mkdirSync, type WriteStream } from 'node:fs'
+import { networkInterfaces } from 'node:os'
 import { join } from 'node:path'
 import type { BackendInfo, BackendStatus } from '../shared/bridge'
 
@@ -34,6 +34,18 @@ function getFreePort(): Promise<number> {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
+
+function lanAddresses(): string[] {
+  const addresses: string[] = []
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const item of entries ?? []) {
+      if (item.family !== 'IPv4' || item.internal) continue
+      if (!addresses.includes(item.address)) addresses.push(item.address)
+    }
+  }
+  const privateAddresses = addresses.filter((address) => /^192\.168\.|^10\.|^172\.(1[6-9]|2\d|3[01])\./.test(address))
+  return [...privateAddresses, ...addresses.filter((address) => !privateAddresses.includes(address))]
+}
 
 /** 管理本地 Python 后端进程：拉起、就绪探测、退出清理、状态上报。 */
 export class BackendManager extends EventEmitter {
@@ -82,7 +94,7 @@ export class BackendManager extends EventEmitter {
 
   /** 决定怎么启动后端：打包版直接运行 exe；开发期用 venv 的 python -m paperdesk。 */
   private resolveLaunch(port: number): { cmd: string; args: string[]; cwd: string } | null {
-    const common = ['--host', '127.0.0.1', '--port', String(port), '--data-dir', this.opts.dataDir]
+    const common = ['--host', '0.0.0.0', '--port', String(port), '--data-dir', this.opts.dataDir, '--web-root', this.webRoot()]
     if (this.opts.isPackaged) {
       const exe = this.packagedExe()
       if (!existsSync(exe)) return null
@@ -91,6 +103,11 @@ export class BackendManager extends EventEmitter {
     const cwd = this.backendDir()
     if (!existsSync(join(cwd, 'paperdesk', '__main__.py'))) return null
     return { cmd: this.resolvePython(), args: ['-X', 'utf8', '-m', 'paperdesk', ...common], cwd }
+  }
+
+  private webRoot(): string {
+    if (!this.opts.isPackaged) return join(this.opts.appRoot, 'out', 'renderer')
+    return join(this.opts.resourcesPath, 'app.asar.unpacked', 'out', 'renderer')
   }
 
   private writeLog(line: string): void {
@@ -113,7 +130,8 @@ export class BackendManager extends EventEmitter {
       this.log = createWriteStream(join(logsDir, 'backend.log'), { flags: 'a' })
 
       const port = await getFreePort()
-      this.token = randomBytes(24).toString('hex')
+      // 取消账号登录后，局域网连接以“同一局域网”为边界；token 保留为空以便手机只输入电脑地址。
+      this.token = ''
       const launch = this.resolveLaunch(port)
       if (!launch) {
         this.setStatus(
@@ -131,7 +149,8 @@ export class BackendManager extends EventEmitter {
         windowsHide: true,
         env: {
           ...process.env,
-          PAPERDESK_TOKEN: this.token,
+          PAPERDESK_ALLOW_REMOTE: '1',
+          PAPERDESK_WEB_ROOT: this.webRoot(),
           PYTHONUNBUFFERED: '1',
           PYTHONIOENCODING: 'utf-8'
         }
@@ -168,7 +187,8 @@ export class BackendManager extends EventEmitter {
         try {
           const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(2000) })
           if (res.ok) {
-            this.info = { baseUrl, token: this.token }
+            const urls = lanAddresses().map((address) => `http://${address}:${port}`)
+            this.info = { baseUrl, token: this.token, lanUrl: urls[0] ?? `http://127.0.0.1:${port}`, lanUrls: urls }
             this.setStatus('ready')
             return
           }
